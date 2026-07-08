@@ -74,23 +74,23 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PKG-01 | TBD | Pending |
-| PKG-02 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| TEST-03 | TBD | Pending |
-| TEST-04 | TBD | Pending |
-| DEBT-01 | TBD | Pending |
-| DEBT-02 | TBD | Pending |
-| DEBT-03 | TBD | Pending |
-| DEBT-04 | TBD | Pending |
-| CI-01 | TBD | Pending |
+| PKG-01 | Phase 4 | Pending |
+| PKG-02 | Phase 1 | Pending |
+| TEST-01 | Phase 1 | Pending |
+| TEST-02 | Phase 1 | Pending |
+| TEST-03 | Phase 3 | Pending |
+| TEST-04 | Phase 4 | Pending |
+| DEBT-01 | Phase 2 | Pending |
+| DEBT-02 | Phase 2 | Pending |
+| DEBT-03 | Phase 3 | Pending |
+| DEBT-04 | Phase 3 | Pending |
+| CI-01 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 11 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 11 ⚠️
+- Mapped to phases: 11 (roadmap created)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-08*
-*Last updated: 2026-07-08 after initial definition*
+*Last updated: 2026-07-08 after roadmap creation (4 phases, coarse granularity)*
