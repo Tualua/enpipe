@@ -1,0 +1,47 @@
+# Source: pin syntax per docs.astral.sh/uv/guides/integration/github/ (fetched 2026-07-08);
+# apt/pytest-marker structure per .planning/research/STACK.md's CI Strategy section.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # NOTE (Pitfall 3, .planning/research/PITFALLS.md): this job runs on hosted ubuntu-latest,
+  # which has NO GPU. It validates lint + pure-logic unit tests + mocked-subprocess tests +
+  # the software-fallback (`use_qsv=False`) regression test ONLY. It does NOT validate real
+  # QSV/qsvencc/Arc-hardware behavior. Hardware-gated tests (pytest marker `hardware`, first
+  # added in Phase 4/TEST-04) require a self-hosted Arc-equipped runner and are intentionally
+  # NOT wired into this workflow — see TEST-04 (Phase 4) for that tier.
+  cpu-fallback:
+    name: "ci / cpu-fallback (lint + unit + mocked + regression, no GPU)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Install real (non-QSV) ffmpeg (required)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install mkvtoolnix (best-effort — not required by any test wired this phase)
+        # mkvmerge is needed only by Phase-4's TEST-02 EBML cross-validation, not by the
+        # TEST-03 software-fallback regression test wired this phase, which needs only
+        # ffmpeg. mkvtoolnix may not be present in the default apt repos without a PPA;
+        # this step must never block the ffmpeg-only tests above.
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends mkvtoolnix || \
+            echo "mkvtoolnix unavailable — mkvmerge tests will be skipped/absent this phase"
+
+      - name: Install project (locked)
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Test (unit + mocked + regression; hardware tier excluded by pyproject default)
+        run: uv run pytest -m "not hardware"
