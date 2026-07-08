@@ -12,8 +12,8 @@ dependencies = [
     "numpy==2.5.1",
 ]
 
-# [project.scripts] intentionally omitted this phase — Phase 4 (PKG-01) adds
-# `enpipe = "enpipe.cli.app:main"` once cli/detect.py + cli/encode.py exist.
+[project.scripts]
+enpipe = "enpipe.cli.main:main"
 
 [dependency-groups]
 dev = [
