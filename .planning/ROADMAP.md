@@ -92,7 +92,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — TEST-03: pure gate-arithmetic unit test + real-clip parallel==sequential regression test (software fallback, >=120s clip, non-hardware tier)
+- [ ] 03-02-PLAN.md — TEST-03: pure gate-arithmetic unit test (jobs=[2,3]) + real-clip parallel==sequential regression test (software fallback, >=220s clip, jobs=[2,3], runtime ffprobe + direct _segment_worker call-count engagement guards) + pure non_cut_offsets merge unit test (non-hardware tier)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
