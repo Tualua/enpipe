@@ -28,10 +28,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `legacy/scene_detection.py` and `legacy/encode_scenes.py` logic is mechanically migrated into `src/enpipe/{detection,encoding,shared}` with all `ffmpeg`/`ffprobe`/`qsvencc`/`mkvmerge` subprocess calls routed through a single `shared.proc` seam, and a sample run produces byte-identical output to `legacy/`
   3. `pytest -m "not hardware"` runs unit tests for pure-logic functions (`kf_before`, `fmt_seek`, `read_scenes`, EBML byte helpers, metrics parsing) using synthetic inputs, with no subprocess or GPU dependency
   4. `pytest -m "not hardware"` also runs mocked subprocess-boundary tests asserting exact argv construction (flags, seek/trim, HDR selection) and error-path behavior for ffmpeg/ffprobe/qsvencc/mkvmerge call sites, with no real media invoked
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — Package scaffold (uv/uv_build/pyproject/uv.lock) + shared proc/logging seam
+- [ ] 01-02-PLAN.md — Detection mechanical migration + fast tests + byte-identical parity
+- [ ] 01-03-PLAN.md — Encoding mechanical migration + fast tests + byte-identical parity
 
 ### Phase 2: Correctness-Critical Extraction
 **Goal**: The hand-rolled EBML/Cues parser and the seek/trim/high-water-mark arithmetic are isolated into pure, directly unit-tested modules with zero behavior change, verified against legacy/
