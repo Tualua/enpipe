@@ -564,17 +564,19 @@ def test_dv_rpu_survival():
 
 **Note:** All other claims in this document (`dovi_tool extract-rpu` failing on AV1, `ffprobe`'s AV1 DOVI side-data recognition, the HDR10/SDR ffmpeg recipes, `detect_hdr()`'s classification behavior, real Arc hardware presence and successful encode) are `[VERIFIED]` — confirmed by direct command execution in this research session against the actual devcontainer toolchain, not sourced from documentation or training knowledge.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Both questions below are non-blocking for Phase 4 and are RESOLVED for execution; per-question resolution markers are appended to each Recommendation.
 
 1. **Exact FFmpeg version that introduced AV1 DOVI OBU metadata parsing**
    - What we know: 7.1.5 (this devcontainer's pinned version) has it; the WebSearch-sourced FFmpeg patch history references AV1 Dolby Vision side-data support being added to `libavutil`/`libavcodec` as a documented feature.
    - What's unclear: The precise version/date this landed, and therefore the minimum ffmpeg version any CI environment running this DV check would need.
-   - Recommendation: Not blocking for this phase (the devcontainer is the only environment the hardware tier runs in, and it's pinned to 7.1.5 already) — but the planner should add a one-line self-check at the top of the DV-gated test (`assert "av1" in ffmpeg -h bsf=dovi_rpu output`) so a future toolchain downgrade fails loudly rather than silently under-reporting RPU frames.
+   - Recommendation: Not blocking for this phase (the devcontainer is the only environment the hardware tier runs in, and it's pinned to 7.1.5 already) — but the planner should add a one-line self-check at the top of the DV-gated test (`assert "av1" in ffmpeg -h bsf=dovi_rpu output`) so a future toolchain downgrade fails loudly rather than silently under-reporting RPU frames. **(RESOLVED — Q1:** 04-02 Task 2 implements exactly this `ffmpeg -h bsf=dovi_rpu` AV1-support self-check with a `\bav1\b` word-boundary match, skipping the DV case loud if AV1 DOVI parsing is absent.**)**
 
 2. **Whether the `Dolby Vision RPU Data` per-frame side-data type appears identically for AV1 as it does for HEVC RPU streams (dual-layer vs single-layer profile 10.x), or whether AV1 (profile-10-only, no BL/EL split) reports it differently**
    - What we know: The side-data type name string exists in the ffmpeg binary and was confirmed structurally reachable via the bsf test (which produced a stream-level `DOVI configuration record`, though not itself a per-frame RPU payload since the source had none to copy).
    - What's unclear: Whether genuine `qsvencc --dolby-vision-rpu copy` output attaches the per-frame `Dolby Vision RPU Data` side data the same way, since this session never had real RPU-bearing source material to pass through the actual copy path.
-   - Recommendation: The fixture-gated DV test IS the resolution mechanism for this question — when the operator supplies a real `dv.mkv` fixture and runs the test for the first time, treat that run's result as the actual confirmation, and update this document's confidence level from MEDIUM to HIGH at that point.
+   - Recommendation: The fixture-gated DV test IS the resolution mechanism for this question — when the operator supplies a real `dv.mkv` fixture and runs the test for the first time, treat that run's result as the actual confirmation, and update this document's confidence level from MEDIUM to HIGH at that point. **(RESOLVED — Q2:** 04-02 Task 2's fixture-gated `test_dv` IS the resolution mechanism — when an operator supplies a real `dv.mkv` it asserts source-parity of the per-frame `Dolby Vision RPU Data` side-data count; absent a fixture it skips cleanly.**)**
 
 ## Environment Availability
 
