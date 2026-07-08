@@ -109,3 +109,14 @@ def fmt_seek(t: float) -> str:
     m, ms = divmod(ms, 60_000)
     s, ms = divmod(ms, 1000)
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+
+def compute_chunk_seek_trim(table: List[Tuple[int, float]], s: int, e: int) -> Tuple[str, str]:
+    """seek/trim-строки для сцены [s, e) по keyframe-таблице источника.
+    Вынесено дословно из pipeline.py:108-110 (D-04, фаза 2, DEBT-02) — без
+    изменения логики. K = последний keyframe источника с frame_K <= S;
+    qsvencc --seek floor_ms(K) --trim (S-K):(E-1-K)."""
+    kf_frame, kf_time = kf_before(table, s)
+    seek = fmt_seek(kf_time)
+    trim = f"{s - kf_frame}:{e - 1 - kf_frame}"
+    return seek, trim

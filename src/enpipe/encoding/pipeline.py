@@ -24,7 +24,7 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple, Union
 
 from enpipe.shared import proc as _proc
 from enpipe.shared.logging import _START, die, log, step
@@ -32,11 +32,25 @@ from enpipe.shared.logging import _START, die, log, step
 from .audio import encode_audio
 from .chunk import GOP_LEN, ICQ, QPMAX, chunk_command, count_frames, encode_chunk
 from .hdr import detect_hdr
-from .keyframes import fmt_seek, keyframe_table, kf_before
+from .keyframes import compute_chunk_seek_trim, keyframe_table
 from .metrics import write_metrics_csv
 from .scenes_io import read_scenes
 
 JOBS = int(os.environ.get("JOBS", "3"))            # параллельных qsvencc-сессий
+
+
+def contiguous_run(next_append: int, ready: Union[Dict[int, int], Set[int]]) -> List[int]:
+    """Индексы, готовые к склейке прямо сейчас, по порядку, для текущей
+    «высокой воды». Чистая функция: не мутирует ready и не двигает
+    next_append — это делает вызывающий (D-05, фаза 2, DEBT-02). Вынесено
+    дословно из flush_appends()'s `while next_append in ready` (было
+    pipeline.py:134-143 до извлечения)."""
+    out: List[int] = []
+    i = next_append
+    while i in ready:
+        out.append(i)
+        i += 1
+    return out
 
 
 def probe_fps(src: Path) -> float:
@@ -105,9 +119,7 @@ def run_encode(args) -> None:
     chunk_paths: List[Path] = []
     meta: Dict[int, Tuple[int, int, str, str]] = {}  # idx -> (s, e, seek, trim)
     for i, (s, e) in enumerate(scenes):
-        kf_frame, kf_time = kf_before(table, s)
-        seek = fmt_seek(kf_time)
-        trim = f"{s - kf_frame}:{e - 1 - kf_frame}"
+        seek, trim = compute_chunk_seek_trim(table, s, e)
         cp = workdir / f"chunk_{i:05d}.obu"
         chunk_paths.append(cp)
         cmd = chunk_command(args.video, seek, trim, cp, hdr_flags, metrics_on)
@@ -133,14 +145,14 @@ def run_encode(args) -> None:
 
     def flush_appends() -> None:
         nonlocal next_append
-        while next_append in ready:
-            cp = chunk_paths[next_append]
+        for i in contiguous_run(next_append, ready):
+            cp = chunk_paths[i]
             with cp.open("rb") as r:
                 shutil.copyfileobj(r, movie_fh, length=8 << 20)
             movie_fh.flush()
             if not args.keep:
                 cp.unlink(missing_ok=True)
-            next_append += 1
+            next_append = i + 1
 
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         futs = {ex.submit(encode_chunk, t): t[0] for t in tasks}
