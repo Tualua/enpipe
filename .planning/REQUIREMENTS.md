@@ -30,7 +30,7 @@ Requirements for this productionization milestone. Each maps to roadmap phases.
 
 ### CI
 
-- [ ] **CI-01**: A CI pipeline runs lint + pure-logic unit tests + subprocess-mocked tests + the software-fallback regression test on every push, against the pinned lockfile, with the hardware-gated tier excluded by design and named distinctly
+- [x] **CI-01**: A CI pipeline runs lint + pure-logic unit tests + subprocess-mocked tests + the software-fallback regression test on every push, against the pinned lockfile, with the hardware-gated tier excluded by design and named distinctly
 
 ## v2 Requirements
 
@@ -84,7 +84,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEBT-02 | Phase 2 | Complete |
 | DEBT-03 | Phase 3 | Complete |
 | DEBT-04 | Phase 3 | Complete |
-| CI-01 | Phase 3 | Pending |
+| CI-01 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total

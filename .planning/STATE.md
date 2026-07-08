@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-07-08T15:31:53.668Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-07-08T15:37:51.064Z"
 last_activity: 2026-07-08 -- Phase 3 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
-  percent: 50
+  completed_plans: 8
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 3 of 3
 Status: Executing Phase 3
 Last activity: 2026-07-08 -- Phase 3 execution started
 
-Progress: [█████████░] 88%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [█████████░] 88%
 | Phase 02 P02 | 5min | 3 tasks | 5 files |
 | Phase 03 P01 | 6min | 3 tasks | 5 files |
 | Phase 03 P02 | 14min | 3 tasks | 3 files |
+| Phase 03 P03 | 6min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,10 @@ Recent decisions affecting current work:
 - [Phase 03-01]: DEBT-04: kept dovi_tool installed in devcontainer, documented retention for planned Phase-4 TEST-04 DV RPU work without overclaiming AV1 support (extract-rpu is HEVC-only)
 - [Phase 03-02]: TEST-03 clip recipe (four ~55s color/smptebars segments, 220s@24fps) verified via ffprobe to clear the jobs*min_span gate for jobs=[2,3] with margin
 - [Phase 03-02]: Engagement proof primary target is enpipe.detection.detect.detect_scenes (deferred fallback), call_count==0, executor-agnostic; _segment_worker call_count>1 refinement gated on active executor to avoid PicklingError under ProcessPoolExecutor
+- [Phase 03-03]: ruff pinned exactly (==0.15.20) to match project's exact-pin convention, rather than uv add's default >= constraint
+- [Phase 03-03]: select = ["F", "E9"] only for ruff — fuller E/W set fires 15x E702 on the deliberately dense mkv/ebml.py parser
+- [Phase 03-03]: mkvtoolnix install kept as a separate continue-on-error CI step so an unavailable mkvmerge package cannot block the ffmpeg-only TEST-03 regression test
+- [Phase 03-03]: Comment-only hardware-tier exclusion in ci.yml (no stub self-hosted job) per RESEARCH Open Question 3 discretion
 
 ### Pending Todos
 
@@ -111,6 +116,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T15:31:53.647Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-07-08T15:37:51.038Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None

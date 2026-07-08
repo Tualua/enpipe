@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Package Foundation, Migration & Fast Test Tier** - Installable, pinned package with detection/encoding mechanically migrated behind a shared subprocess seam, plus fast hardware-free tests (completed 2026-07-08)
 - [x] **Phase 2: Correctness-Critical Extraction** - EBML/Cues parser and seek/trim/high-water-mark arithmetic isolated into pure, tested modules with zero behavior change (completed 2026-07-08)
-- [ ] **Phase 3: Concurrency Resolution + Regression Baseline + CI** - ThreadPool/ProcessPool inconsistency resolved, mandatory parallel==sequential regression test captured, CI runs everything on every push
+- [x] **Phase 3: Concurrency Resolution + Regression Baseline + CI** - ThreadPool/ProcessPool inconsistency resolved, mandatory parallel==sequential regression test captured, CI runs everything on every push (completed 2026-07-08)
 - [ ] **Phase 4: Unified CLI + Hardware-Gated Real-Media Validation** - Single `enpipe` entry point over both independently-verified stages, plus real-Arc-hardware end-to-end validation
 
 ## Phase Details
@@ -96,7 +96,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-03-PLAN.md — CI-01: minimal [tool.ruff] + ruff dev dep, and .github/workflows/ci.yml (SHA-pinned setup-uv, uv sync --locked, ruff check, pytest -m "not hardware", hardware tier named-out)
+- [x] 03-03-PLAN.md — CI-01: minimal [tool.ruff] + ruff dev dep, and .github/workflows/ci.yml (SHA-pinned setup-uv, uv sync --locked, ruff check, pytest -m "not hardware", hardware tier named-out)
 
 ### Phase 4: Unified CLI + Hardware-Gated Real-Media Validation
 
@@ -125,5 +125,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete    | 2026-07-08 |
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
-| 3. Concurrency Resolution + Regression Baseline + CI | 2/3 | In Progress|  |
+| 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete   | 2026-07-08 |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/TBD | Not started | - |
