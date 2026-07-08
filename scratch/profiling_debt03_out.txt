@@ -1,0 +1,13 @@
+Generating profiling clip: /workspaces/enpipe/scratch/profiling_debt03_sample.mkv (156s @ 24fps)
+
+=== Layer 1: real-path wall-clock A/B (current ThreadPoolExecutor) ===
+use_qsv=True: jobs=1 10.88s, jobs=2 13.57s, speedup 0.80x | _segment_worker calls=2 (engagement check PASSED) | seq_scenes=2 par_scenes=2
+use_qsv=False: jobs=1 6.53s, jobs=2 9.81s, speedup 0.67x | _segment_worker calls=2 (engagement check PASSED) | seq_scenes=2 par_scenes=2
+
+=== Layer 2: CPU-isolated microbenchmark (thread vs process) ===
+Loaded 300 frames into memory for microbenchmark (use_qsv=True)
+threadPool: single-worker baseline=0.707s, 2-way split=0.678s, internal speedup=1.04x
+processPool: single-worker baseline=1.075s, 2-way split=0.473s, internal speedup=2.27x
+Layer-2 ProcessPool/ThreadPool speedup ratio: 1.43x
+
+=== DONE ===
