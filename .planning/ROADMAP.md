@@ -21,7 +21,6 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### Phase 1: Package Foundation, Migration & Fast Test Tier
 **Goal**: enpipe is an installable, pinned Python package with detection and encoding code mechanically migrated behind a shared subprocess seam, and every pure-logic function and subprocess call site has a fast, hardware-free test
-**Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: PKG-02, TEST-01, TEST-02
 **Success Criteria** (what must be TRUE):
@@ -36,7 +35,6 @@ Plans:
 
 ### Phase 2: Correctness-Critical Extraction
 **Goal**: The hand-rolled EBML/Cues parser and the seek/trim/high-water-mark arithmetic are isolated into pure, directly unit-tested modules with zero behavior change, verified against legacy/
-**Mode:** mvp
 **Depends on**: Phase 1 (fast test tier + `shared.proc` seam must exist before touching correctness-critical code)
 **Requirements**: DEBT-01, DEBT-02
 **Success Criteria** (what must be TRUE):
@@ -50,7 +48,6 @@ Plans:
 
 ### Phase 3: Concurrency Resolution + Regression Baseline + CI
 **Goal**: Parallel scene detection uses a profiling-justified executor, the mandatory parallel==sequential regression test runs against that resolved implementation, and every push is automatically verified by CI using the pinned lockfile
-**Mode:** mvp
 **Depends on**: Phase 1, Phase 2
 **Requirements**: DEBT-03, DEBT-04, TEST-03, CI-01
 **Success Criteria** (what must be TRUE):
@@ -65,7 +62,6 @@ Plans:
 
 ### Phase 4: Unified CLI + Hardware-Gated Real-Media Validation
 **Goal**: A single `enpipe` entry point dispatches to the independently-verified detect and encode stages, and the full pipeline is validated end-to-end against real media on real Arc hardware, closing the "never run on real video" gap
-**Mode:** mvp
 **Depends on**: Phase 1, Phase 2, Phase 3
 **Requirements**: PKG-01, TEST-04
 **Success Criteria** (what must be TRUE):
