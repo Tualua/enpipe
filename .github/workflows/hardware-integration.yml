@@ -1,0 +1,41 @@
+# D-08: named home for the `hardware` pytest tier -- a distinct,
+# NEVER-auto-triggered GitHub Actions job.
+#
+# This workflow requires a SELF-HOSTED runner with a real Intel Arc GPU
+# (/dev/dri/renderD128 passthrough + qsvencc installed), labeled e.g.
+# `[self-hosted, arc]` in repository/organization runner settings. No such
+# runner is provisioned by this repository -- this file is intentionally a
+# documented STUB that a maintainer wires up (or dispatches manually) once
+# a real Arc-equipped self-hosted runner exists.
+#
+# It is deliberately decoupled from ci.yml's hosted cpu-fallback tier:
+# ci.yml runs on hosted `ubuntu-latest` (no GPU) and explicitly excludes
+# the `hardware` marker (`pytest -m "not hardware"`). HOSTED CI GREEN DOES
+# NOT MEAN HARDWARE VALIDATION RAN -- only a manual dispatch of THIS
+# workflow, on a machine with real Arc hardware, exercises TEST-04's
+# hardware-gated tests (tests/integration/test_hardware_real_media.py).
+#
+# Trigger: workflow_dispatch ONLY -- no `push`, no `pull_request`. A
+# self-hosted runner with /dev/dri passthrough must never execute
+# untrusted (e.g. fork PR) code (Elevation-of-Privilege mitigation, see
+# 04-RESEARCH.md's Security Domain / STRIDE threat register T-04-05).
+name: Hardware Integration (self-hosted Arc, manual only)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  hardware:
+    name: "hardware-integration / pytest -m hardware (real Arc QSV)"
+    runs-on: [self-hosted, arc]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Install project (locked, falling back if the lockfile is stale)
+        run: uv sync --locked || uv pip install -e .
+
+      - name: Test (hardware tier ONLY -- the sole workflow selecting this marker)
+        run: uv run pytest -m hardware -rs
