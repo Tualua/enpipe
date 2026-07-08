@@ -13,7 +13,7 @@
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Package Foundation, Migration & Fast Test Tier** - Installable, pinned package with detection/encoding mechanically migrated behind a shared subprocess seam, plus fast hardware-free tests
+- [x] **Phase 1: Package Foundation, Migration & Fast Test Tier** - Installable, pinned package with detection/encoding mechanically migrated behind a shared subprocess seam, plus fast hardware-free tests (completed 2026-07-08)
 - [ ] **Phase 2: Correctness-Critical Extraction** - EBML/Cues parser and seek/trim/high-water-mark arithmetic isolated into pure, tested modules with zero behavior change
 - [ ] **Phase 3: Concurrency Resolution + Regression Baseline + CI** - ThreadPool/ProcessPool inconsistency resolved, mandatory parallel==sequential regression test captured, CI runs everything on every push
 - [ ] **Phase 4: Unified CLI + Hardware-Gated Real-Media Validation** - Single `enpipe` entry point over both independently-verified stages, plus real-Arc-hardware end-to-end validation
@@ -45,7 +45,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Encoding mechanical migration + fast tests + byte-identical parity
+- [x] 01-03-PLAN.md — Encoding mechanical migration + fast tests + byte-identical parity
 
 ### Phase 2: Correctness-Critical Extraction
 
@@ -107,7 +107,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Package Foundation, Migration & Fast Test Tier | 2/3 | In Progress|  |
+| 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete   | 2026-07-08 |
 | 2. Correctness-Critical Extraction | 0/TBD | Not started | - |
 | 3. Concurrency Resolution + Regression Baseline + CI | 0/TBD | Not started | - |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/TBD | Not started | - |

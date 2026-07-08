@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-07-08T12:18:16.696Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-07-08T12:40:01.163Z"
 last_activity: 2026-07-08 -- Phase 1 execution started
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 3 of 3
 Status: Executing Phase 1
 Last activity: 2026-07-08 -- Phase 1 execution started
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [███████░░░] 67%
 *Updated after each plan completion*
 | Phase 01 P01 | 20min | 2 tasks | 10 files |
 | Phase 01 P02 | 20min | 3 tasks | 7 files |
+| Phase 01 P03 | 50min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,10 @@ Recent decisions affecting current work:
 - [Phase 01-01]: Ran uv lock immediately after writing pyproject.toml deps (fail-fast) before scaffolding source files, per plan instruction
 - [Phase 01-02]: jobs=1 used on both sides of the D-14 detection parity check (oracle CLI and migrated detect_scenes) for a deterministic comparison, isolating mechanical-migration correctness from the separately-verified parallel-jobs circular-import path
 - [Phase 01-02]: use_qsv probed once via Path('/dev/dri/renderD128').exists() (True in this devcontainer) and applied explicitly/identically to both the legacy oracle CLI and DetectionConfig(use_qsv=...) for the parity check
+- [Phase 01-03]: Preflight (shutil.which + video.is_file()) retained in run_encode as the sanctioned minimal structural change while stripping argparse - D-13 zero-logic-change contract stays explicit
+- [Phase 01-03]: Switched pytest to --import-mode=importlib to resolve test_chunk.py/test_keyframes.py basename collision between tests/unit/encoding and tests/subprocess/encoding
+- [Phase 01-03]: Determinism pre-check confirmed qsvencc deterministic on this box - byte-identical pre-mux movie.obu used as the primary D-14 parity gate
+- [Phase 01-03]: qsvencc --psnr/--ssim require OpenCL, unavailable in this devcontainer (pre-existing) - Task 3 parity gate runs with metrics disabled symmetrically on both oracle and migrated sides
 
 ### Pending Todos
 
@@ -93,6 +98,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T12:18:16.676Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-07-08T12:40:01.143Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
