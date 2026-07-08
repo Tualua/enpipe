@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Package scaffold (uv/uv_build/pyproject/uv.lock) + shared proc/logging seam
+- [x] 01-01-PLAN.md — Package scaffold (uv/uv_build/pyproject/uv.lock) + shared proc/logging seam
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -107,7 +107,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Package Foundation, Migration & Fast Test Tier | 0/TBD | Not started | - |
+| 1. Package Foundation, Migration & Fast Test Tier | 1/3 | In Progress|  |
 | 2. Correctness-Critical Extraction | 0/TBD | Not started | - |
 | 3. Concurrency Resolution + Regression Baseline + CI | 0/TBD | Not started | - |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/TBD | Not started | - |

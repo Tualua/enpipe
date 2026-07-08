@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-07-08T11:27:43.278Z"
-last_activity: 2026-07-08 — Roadmap created (4 phases, 11/11 v1 requirements mapped)
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-07-08T12:03:56.442Z"
+last_activity: 2026-07-08 -- Phase 1 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 1 (Package Foundation, Migration & Fast Test Tier)
+**Current focus:** Phase 1 — Package Foundation, Migration & Fast Test Tier
 
 ## Current Position
 
-Phase: 1 of 4 (Package Foundation, Migration & Fast Test Tier)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-07-08 — Roadmap created (4 phases, 11/11 v1 requirements mapped)
+Phase: 1 (Package Foundation, Migration & Fast Test Tier) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 1
+Last activity: 2026-07-08 -- Phase 1 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01 P01 | 20min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,8 @@ Recent decisions affecting current work:
 - Roadmap: Fast test tier + `shared.proc` seam (Phase 1) must exist before any refactor of correctness-critical code (EBML isolation, seek/trim extraction — Phase 2)
 - Roadmap: ThreadPool-vs-ProcessPool resolution (DEBT-03) must land before the parallel==sequential regression baseline (TEST-03) is captured — both placed in Phase 3
 - Roadmap: Unified CLI entry point (PKG-01) deliberately deferred to Phase 4, after both detect and encode stages are independently verified
+- [Phase 01-01]: Confirmed scenedetect exact pin ==0.7 matches installed/working version (PEP 440 0.7.0); no other 0.7.x exists on PyPI
+- [Phase 01-01]: Ran uv lock immediately after writing pyproject.toml deps (fail-fast) before scaffolding source files, per plan instruction
 
 ### Pending Todos
 
@@ -87,6 +90,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T10:45:53.612Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-package-foundation-migration-fast-test-tier/01-CONTEXT.md
+Last session: 2026-07-08T12:03:56.421Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None

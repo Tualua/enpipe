@@ -101,3 +101,7 @@ None - no external service configuration required. `uv` was self-bootstrapped vi
 ---
 *Phase: 01-package-foundation-migration-fast-test-tier*
 *Completed: 2026-07-08*
+
+## Self-Check: PASSED
+
+All 11 claimed files verified present on disk (pyproject.toml, uv.lock, .gitignore, src/enpipe/__init__.py, src/enpipe/{detection,encoding,shared}/__init__.py, src/enpipe/shared/{proc,logging}.py, .devcontainer/post-create.sh, this SUMMARY.md). All 3 claimed commits (`c86169b`, `2cdf91f`, `03b3845`) verified present in `git log --oneline --all`.
