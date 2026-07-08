@@ -82,11 +82,21 @@ Plans:
   3. The orphaned `dovi_tool` devcontainer reference is removed, or a documented reason for keeping it is recorded
   4. A CI pipeline runs lint, pure-logic unit tests, subprocess-mocked tests, and the software-fallback regression test on every push against the pinned lockfile, with checks named distinctly from any hardware-gated tier
 
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
 
-- [ ] 03-01: TBD
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — DEBT-03 + DEBT-04: profile the parallel-detection executor (Layer-1 wall-clock A/B + Layer-2 CPU-isolated microbenchmark), resolve parallel.py (swap to ProcessPool OR keep threads + fix the comment with measured numbers), and document-and-keep dovi_tool
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — TEST-03: pure gate-arithmetic unit test + real-clip parallel==sequential regression test (software fallback, >=120s clip, non-hardware tier)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-03-PLAN.md — CI-01: minimal [tool.ruff] + ruff dev dep, and .github/workflows/ci.yml (SHA-pinned setup-uv, uv sync --locked, ruff check, pytest -m "not hardware", hardware tier named-out)
 
 ### Phase 4: Unified CLI + Hardware-Gated Real-Media Validation
 
