@@ -116,7 +116,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — PKG-01: unified `enpipe` CLI (single `cli/main.py` argparse dispatcher + `[project.scripts]`), new `run_detect(args)` mirroring `run_encode`, preserving the two-stage `.scenes` handoff + Russian flag surfaces
+- [x] 04-01-PLAN.md — PKG-01: unified `enpipe` CLI (single `cli/main.py` argparse dispatcher + `[project.scripts]`), new `run_detect(args)` mirroring `run_encode`, preserving the two-stage `.scenes` handoff + Russian flag surfaces
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -132,4 +132,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete    | 2026-07-08 |
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
 | 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete    | 2026-07-08 |
-| 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/2 | Not started | - |
+| 4. Unified CLI + Hardware-Gated Real-Media Validation | 1/2 | In Progress|  |

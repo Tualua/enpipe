@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 4 context gathered
-last_updated: "2026-07-08T16:21:15.663Z"
-last_activity: 2026-07-08 -- Phase 4 planning complete
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-07-08T16:49:07.963Z"
+last_activity: 2026-07-08 -- Phase 4 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 75
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 4 — unified cli + hardware gated real media validation
+**Current focus:** Phase 4 — Unified CLI + Hardware-Gated Real-Media Validation
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-08 -- Phase 4 planning complete
+Phase: 4 (Unified CLI + Hardware-Gated Real-Media Validation) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 4
+Last activity: 2026-07-08 -- Phase 4 execution started
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [██████████] 100%
 | Phase 03 P01 | 6min | 3 tasks | 5 files |
 | Phase 03 P02 | 14min | 3 tasks | 3 files |
 | Phase 03 P03 | 6min | 2 tasks | 3 files |
+| Phase 04 P01 | 12min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,9 @@ Recent decisions affecting current work:
 - [Phase 03-03]: select = ["F", "E9"] only for ruff — fuller E/W set fires 15x E702 on the deliberately dense mkv/ebml.py parser
 - [Phase 03-03]: mkvtoolnix install kept as a separate continue-on-error CI step so an unavailable mkvmerge package cannot block the ffmpeg-only TEST-03 regression test
 - [Phase 03-03]: Comment-only hardware-tier exclusion in ci.yml (no stub self-hosted job) per RESEARCH Open Question 3 discretion
+- [Phase 04-01]: run_detect docstring documents the intentionally-absent shutil.which preflight as a sanctioned deviation, mirroring run_encode's docstring style but for the opposite deviation
+- [Phase 04-01]: cli/main.py uses typing.Optional[Sequence[str]] for main(argv=...), not RESEARCH.md's draft PEP 604 syntax, per typing-generics requirement
+- [Phase 04-01]: uv sync used (not uv pip install -e .) since the lockfile still resolved cleanly for the console_script wiring
 
 ### Pending Todos
 
@@ -117,6 +121,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T15:48:37.907Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-unified-cli-hardware-gated-real-media-validation/04-CONTEXT.md
+Last session: 2026-07-08T16:49:07.943Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: .planning/phases/04-unified-cli-hardware-gated-real-media-validation/04-02-PLAN.md

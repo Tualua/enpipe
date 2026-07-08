@@ -11,7 +11,7 @@ Requirements for this productionization milestone. Each maps to roadmap phases.
 
 ### Packaging
 
-- [ ] **PKG-01**: The two `legacy/` scripts are restructured into an installable `src/enpipe/` package with a shared library layer and a unified `enpipe` entry point (e.g. `enpipe detect` / `enpipe encode`), preserving the existing two-stage `<video>.scenes` file handoff as a supported mode
+- [x] **PKG-01**: The two `legacy/` scripts are restructured into an installable `src/enpipe/` package with a shared library layer and a unified `enpipe` entry point (e.g. `enpipe detect` / `enpipe encode`), preserving the existing two-stage `<video>.scenes` file handoff as a supported mode
 - [x] **PKG-02**: All Python dependencies are pinned and locked (manifest + lockfile), and container provisioning installs from the lockfile instead of ad hoc unpinned `pip install`
 
 ### Testing
@@ -74,7 +74,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PKG-01 | Phase 4 | Pending |
+| PKG-01 | Phase 4 | Complete |
 | PKG-02 | Phase 1 | Complete |
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
