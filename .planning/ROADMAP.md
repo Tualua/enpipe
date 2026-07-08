@@ -64,7 +64,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — DEBT-01: isolate EBML/Cues parser into enpipe.mkv.ebml (read/parse split) + byte-fixture corpus + ffprobe cross-validation
+- [x] 02-01-PLAN.md — DEBT-01: isolate EBML/Cues parser into enpipe.mkv.ebml (read/parse split) + byte-fixture corpus + ffprobe cross-validation
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -114,6 +114,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete    | 2026-07-08 |
-| 2. Correctness-Critical Extraction | 0/TBD | Not started | - |
+| 2. Correctness-Critical Extraction | 1/2 | In Progress|  |
 | 3. Concurrency Resolution + Regression Baseline + CI | 0/TBD | Not started | - |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/TBD | Not started | - |
