@@ -94,9 +94,43 @@ def _sanitize_boundaries(bnds: List[Tuple[int, float, bool]],
     return [(f, seen[f][0], seen[f][1]) for f in sorted(seen)]
 
 
-# Воркеры для ProcessPoolExecutor (module-level — лямбды/замыкания не пиклятся).
-# Настоящий параллелизм в обход GIL: CPU-детектор PySceneDetect в потоках
-# сериализуется, в процессах — нет.
+# Воркеры module-level (лямбды/замыкания не пиклятся) — по тому же паттерну,
+# что и ProcessPoolExecutor-совместимые воркеры, даже когда фактически
+# используются с ThreadPoolExecutor (см. ниже).
+#
+# ИЗМЕРЕНО (DEBT-03, scratch/profiling_debt03.py — воспроизводимо):
+# ThreadPoolExecutor ОСТАВЛЕН, ProcessPoolExecutor НЕ переключён. Раньше
+# здесь было утверждение "настоящий параллелизм в обход GIL нужен
+# процессам" — оно противоречило коду (оба `with`-блока ниже уже
+# ThreadPoolExecutor). Решение ниже основано на реальных числах, а не на
+# этом утверждении.
+#
+# Layer 1 — реальный путь, синтетический клип 156с@24fps, jobs=1 vs jobs=2:
+#   use_qsv=True:  jobs=1 10.88s, jobs=2 13.57s, speedup 0.80x
+#   use_qsv=False: jobs=1  6.53s, jobs=2  9.81s, speedup 0.67x
+#   На клипе такой длины jobs=2 ФАКТИЧЕСКИ МЕДЛЕННЕЕ: фиксированная
+#   стоимость поиска границ (доп. ffmpeg-субпроцессы) и рестарта декодера
+#   на каждый сегмент перекрывает выигрыш от параллелизма.
+#
+# Layer 2 — изолированный CPU-микробенч (чистый
+# AdaptiveDetector.process_frame, БЕЗ subprocess/pipe I/O), 300 кадров,
+# 2-way split против baseline на 1 воркере:
+#   ThreadPoolExecutor:  baseline 0.71s, split 0.68s (внутренний speedup
+#                        1.04x — детектор частично сериализуется по GIL)
+#   ProcessPoolExecutor: baseline 1.08s, split 0.47s (внутренний speedup
+#                        2.27x — реальный параллелизм в обход GIL)
+#   ProcessPool/ThreadPool ratio = 1.43x
+#
+# Количественное правило (D-02): переключаться на ProcessPoolExecutor ТОЛЬКО
+# ЕСЛИ (Layer-1 speedup при use_qsv=False < 1.5x) И (Layer-2 ratio > 2x).
+# Первое условие выполнено (0.67x < 1.5x), второе — НЕТ (1.43x < 2x) →
+# ОСТАВИТЬ потоки. GIL действительно частично сериализует CPU-детектор в
+# потоках (это видно по Layer 2), но это малая доля общего wall-time,
+# доминируемого subprocess/декод I/O, которое потоки и так корректно
+# перекрывают; переход на процессы добавил бы реальную стоимость старта
+# процесса и повторного импорта scenedetect/numpy/cv2 (дважды за вызов —
+# по разу на каждый `with`-блок ниже), что на этом масштабе задачи ухудшило
+# бы, а не улучшило, картину по реальному пути (Layer 1 это уже отражает).
 
 def _boundary_worker(args: tuple) -> Optional[Tuple[int, float, bool]]:
     path, config, mark, fps, total = args
