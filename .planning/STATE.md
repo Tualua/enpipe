@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-07-08T12:03:56.442Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-07-08T12:18:16.696Z"
 last_activity: 2026-07-08 -- Phase 1 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-07-08)
 ## Current Position
 
 Phase: 1 (Package Foundation, Migration & Fast Test Tier) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Executing Phase 1
 Last activity: 2026-07-08 -- Phase 1 execution started
 
-Progress: [███░░░░░░░] 33%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [███░░░░░░░] 33%
 
 *Updated after each plan completion*
 | Phase 01 P01 | 20min | 2 tasks | 10 files |
+| Phase 01 P02 | 20min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,8 @@ Recent decisions affecting current work:
 - Roadmap: Unified CLI entry point (PKG-01) deliberately deferred to Phase 4, after both detect and encode stages are independently verified
 - [Phase 01-01]: Confirmed scenedetect exact pin ==0.7 matches installed/working version (PEP 440 0.7.0); no other 0.7.x exists on PyPI
 - [Phase 01-01]: Ran uv lock immediately after writing pyproject.toml deps (fail-fast) before scaffolding source files, per plan instruction
+- [Phase 01-02]: jobs=1 used on both sides of the D-14 detection parity check (oracle CLI and migrated detect_scenes) for a deterministic comparison, isolating mechanical-migration correctness from the separately-verified parallel-jobs circular-import path
+- [Phase 01-02]: use_qsv probed once via Path('/dev/dri/renderD128').exists() (True in this devcontainer) and applied explicitly/identically to both the legacy oracle CLI and DetectionConfig(use_qsv=...) for the parity check
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T12:03:56.421Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-07-08T12:18:16.676Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
