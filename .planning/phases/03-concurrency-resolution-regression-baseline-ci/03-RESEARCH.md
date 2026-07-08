@@ -459,22 +459,25 @@ Notes tying this back to the codebase:
 
 **If this table is empty:** N/A — see above; three assumptions logged, none block this phase's execution.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **What is the actual measured wall-clock/CPU-time signal for the GIL question?**
    - What we know: The methodology (Layers 1-3 above) is sound and immediately runnable in this exact sandbox (real Arc GPU, 16 cores, all tools present).
    - What's unclear: The actual numbers — this is this phase's own deliverable, not a research-phase output.
    - Recommendation: The planner should sequence a dedicated task to run Layer 1 (and Layer 2 if Layer 1 is ambiguous) as the FIRST task in this phase, before any code changes to `parallel.py`, and record the raw numbers in the eventual PR/commit for future re-verification.
+   - **RESOLVED:** Addressed by Plan 03-01 Task 1 — Layer-1 wall-clock A/B (use_qsv True vs False) + Layer-2 CPU-isolated microbenchmark, run first (Wave 1) before any `parallel.py` change, recording the raw numbers that back the D-02 decision.
 
 2. **Does the TEST-03 synthetic clip's exact duration/segment layout need tuning beyond the recipe above?**
    - What we know: The `jobs * min_span` gate is deterministic and verified; the recipe above (two 68s segments = 136s total, cut at the exact 50% mark) satisfies it for `jobs=2` with margin.
    - What's unclear: Whether `find_boundary`'s cut-detection actually fires reliably at a hard color-to-pattern transition with `AdaptiveDetector`'s default `adaptive_threshold=3.0`/`min_content_val=15.0` — Phase 2's `parity_detect.py` already validated a similar (shorter) recipe produces real cuts, but the longer duration here is new and unverified until run.
    - Recommendation: Reuse Phase 2's exact color/pattern choices (`color=red` vs `smptebars`, proven to produce a detectable cut) rather than inventing new visual content, and have the phase's TEST-03 task assert `len(scenes) >= 2` from BOTH `detect_scenes` and `detect_scenes_parallel` as an explicit precondition before the equality assertion (fails loudly and clearly if the clip doesn't produce real cuts, rather than silently passing a vacuous test).
+   - **RESOLVED:** Addressed by Plan 03-02 — clip recipe scaled to two ~78s segments (~156s, headroom over the 120s jobs=2 gate) reusing color=red/smptebars, the >=2-scene precondition on both paths, AND a RUNTIME ffprobe engagement assertion (`actual_total_frames >= jobs*min_span` derived from the probed clip) added in 03-02 Task 2, so a short real output fails loudly instead of silently degrading to the sequential fallback.
 
 3. **Should the hardware-tier exclusion be a comment-only note or a stub `workflow_dispatch` job?**
    - What we know: D-08 explicitly leaves this to discretion ("a comment, a separate never-triggered job, or a documented runbook line").
    - What's unclear: No strong signal either way from research; a stub job adds YAML surface area with no immediate value since Phase 4 (TEST-04) is what actually introduces the first `hardware`-marked test.
    - Recommendation: Comment-only in `ci.yml` (as drafted in Code Examples above) is the lowest-effort option that still satisfies Pitfall 3's "visibly named, never confused with hardware validation" requirement — defer the stub/self-hosted job construction to Phase 4, when there is an actual hardware test to gate.
+   - **RESOLVED:** Addressed by Plan 03-03 (CI workflow) as a comment-only hardware-tier exclusion in `ci.yml`, per D-08 discretion.
 
 ## Environment Availability
 
