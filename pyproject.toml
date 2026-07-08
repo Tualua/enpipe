@@ -20,6 +20,7 @@ dev = [
     "pytest==9.1.1",
     "pytest-subprocess==1.6.0",
     "pytest-mock==3.15.1",
+    "ruff==0.15.20",
 ]
 
 [tool.pytest.ini_options]
@@ -32,5 +33,24 @@ markers = [
 # module, per RESEARCH.md's project structure) — "prepend" mode requires
 # globally-unique test basenames absent __init__.py packages; importlib mode
 # resolves each file by its own path instead, with no other behavior change.
-addopts = "-m \"not hardware\" --import-mode=importlib"
+# --strict-markers: the `hardware` marker above is registered, so this is
+# safe — it makes a future marker-name typo fail loudly (unknown marker
+# error) instead of silently selecting zero tests.
+addopts = "-m \"not hardware\" --import-mode=importlib --strict-markers"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100          # generous; not enforced under this rule selection (E501 not
+                            # selected), set for forward-compat if the selection is ever widened
+target-version = "py312"
+
+[tool.ruff.lint]
+# pyflakes-only + syntax errors: F401 (unused imports), F811 (redefinition),
+# F841 (unused locals), F821 (undefined names), plus E999/E902 (syntax / file
+# read errors). Deliberately excludes the E/W pycodestyle style-rule set —
+# that fuller selection fires 15x E702 ("multiple statements on one line")
+# against src/enpipe/mkv/ebml.py's deliberately dense binary-parsing style
+# (a documented convention, not a defect) and would fight CONVENTIONS.md's
+# preserved legacy style. This selection catches real defects (unused
+# imports, undefined names, unused locals) without reformatting anything.
+select = ["F", "E9"]
