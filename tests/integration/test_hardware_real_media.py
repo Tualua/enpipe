@@ -20,11 +20,11 @@ rc=255 deterministically. Metrics *parsing* is already covered by TEST-01's
 fast tier (tests/unit/encoding/test_chunk.py) -- it is not this test's job.
 
 DV RPU verification NEVER uses the mutating dovi_rpu ffmpeg bitstream
-filter to write, and NEVER uses `dovi_tool extract-rpu` (broken on AV1 in
-2.3.2, confirmed in 04-RESEARCH.md). Only a read-only `ffmpeg -h
-bsf=dovi_rpu` self-check (AV1-support probe) and read-only
-`ffprobe -show_entries frame=side_data_list` inspection are used -- see
-Task 2's helpers below.
+filter to write, and NEVER uses dovi_tool's RPU-extraction subcommand
+(confirmed broken on AV1 input in the installed 2.3.2 version -- see
+04-RESEARCH.md). Only a read-only `ffmpeg -h bsf=dovi_rpu` self-check
+(AV1-support probe) and read-only `ffprobe -show_entries
+frame=side_data_list` inspection are used -- see Task 2's helpers below.
 
 EMPIRICAL CORRECTION vs. the plan's draft interface (recorded here, not
 just in the SUMMARY, so a future reader isn't misled by stale assumptions):
@@ -42,12 +42,13 @@ DV RPU check (Task 2) but a different side_data_type string."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 import pytest
 
@@ -380,3 +381,146 @@ def test_sdr_legacy_oracle_parity(tmp_path: Path) -> None:
             "pre-mux movie.obu differs AND frame counts differ -- qsvencc "
             "non-determinism alone cannot explain this; real parity failure"
         )
+
+
+# --------------------------------------------------------------------------- #
+# D-06/D-07: fixture-gated HDR10+/Dolby-Vision cases. Genuine HDR10+ dynamic
+# metadata and genuine DV RPU content cannot be reliably synthesized
+# in-sandbox (04-RESEARCH.md "What is confirmed NOT synthesizable") -- these
+# tests look for operator-supplied real sample files at FIXTURES_DIR and
+# skip cleanly with an explanatory how-to-supply message when absent. A
+# pass is NEVER faked: absence of a fixture is not treated as success.
+# --------------------------------------------------------------------------- #
+
+FIXTURES_DIR = Path(
+    os.environ.get("ENPIPE_TEST_MEDIA", str(REPO_ROOT / "tests" / "fixtures" / "media"))
+)
+
+
+def _fixture(name: str) -> Optional[Path]:
+    p = FIXTURES_DIR / name
+    return p if p.is_file() else None
+
+
+def _av1_dovi_self_check() -> bool:
+    """Read-only AV1-DOVI-parsing self-check (D-07/Assumption A2, opencode
+    L2): confirms the installed ffmpeg's dovi_rpu bitstream filter declares
+    AV1 support in its Supported-codecs line via a WORD-BOUNDARY match (not
+    a bare substring, which could match spuriously). This is a READ-ONLY
+    `-h` (help) invocation -- it does not filter, mutate, or process any
+    media; it only inspects what the installed ffmpeg build claims to
+    support, so a toolchain downgrade fails loud (skip with an explanation)
+    rather than silently under-reporting RPU frames."""
+    proc = subprocess.run(["ffmpeg", "-hide_banner", "-h", "bsf=dovi_rpu"],
+                           capture_output=True, text=True)
+    return re.search(r"\bav1\b", proc.stdout + proc.stderr, re.I) is not None
+
+
+def _dv_rpu_frame_count(path: Path) -> Tuple[int, int]:
+    """Returns (frames_with_rpu, total_frames) via the SAME read-only
+    frame-level ffprobe probe as the HDR10 survival check
+    (_frame_side_data_types) -- no bitstream filter, no mutation. Counts
+    frames whose side_data_list contains a "Dolby Vision RPU Data" entry."""
+    per_frame_types = _frame_side_data_types(path)
+    with_rpu = sum(1 for types in per_frame_types if "Dolby Vision RPU Data" in types)
+    return with_rpu, len(per_frame_types)
+
+
+def test_hdr10plus(tmp_path: Path) -> None:
+    fixture = _fixture("hdr10plus.mkv")
+    if fixture is None:
+        pytest.skip(
+            f"no HDR10+ fixture at {FIXTURES_DIR / 'hdr10plus.mkv'} (or set "
+            f"$ENPIPE_TEST_MEDIA to a directory containing hdr10plus.mkv) -- "
+            f"see tests/fixtures/media/README.md for how to supply one. This "
+            f"is NOT a failure: genuine HDR10+ dynamic-metadata source "
+            f"material cannot be synthesized (D-06) and must be operator-"
+            f"supplied."
+        )
+
+    src = tmp_path / fixture.name
+    shutil.copyfile(fixture, src)
+    scenes = src.with_name(src.name + ".scenes")
+    out = tmp_path / "hdr10plus.av1.mkv"
+    workdir = tmp_path / "hdr10plus.chunks"
+
+    _run_cli(["detect", str(src), "--jobs", "2"])
+    assert scenes.is_file(), f"enpipe detect did not write {scenes}"
+
+    _run_cli([
+        "encode", str(src), str(scenes),
+        "-o", str(out), "--workdir", str(workdir),
+        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
+    ])
+    assert out.is_file(), f"enpipe encode did not write {out}"
+
+    _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+
+
+def test_dv(tmp_path: Path) -> None:
+    fixture = _fixture("dv.mkv")
+    if fixture is None:
+        pytest.skip(
+            f"no Dolby Vision fixture at {FIXTURES_DIR / 'dv.mkv'} (or set "
+            f"$ENPIPE_TEST_MEDIA to a directory containing dv.mkv) -- see "
+            f"tests/fixtures/media/README.md for how to supply one. This is "
+            f"NOT a failure: genuine DV RPU source material cannot be "
+            f"synthesized (D-06) and must be operator-supplied."
+        )
+    if not _av1_dovi_self_check():
+        pytest.skip(
+            "installed ffmpeg's dovi_rpu bitstream filter does not report "
+            "AV1 support -- this toolchain cannot verify AV1 DOVI RPU "
+            "side-data (see 04-RESEARCH.md 'DV RPU Verification Mechanism' "
+            "/ Assumption A2); upgrade ffmpeg to re-enable this check"
+        )
+
+    src_with_rpu, src_total = _dv_rpu_frame_count(fixture)
+    assert src_with_rpu > 0, (
+        f"DV fixture {fixture} carries no per-frame RPU side-data -- not a "
+        f"valid DV fixture, or the fixture itself lacks genuine RPU"
+    )
+
+    src = tmp_path / fixture.name
+    shutil.copyfile(fixture, src)
+    scenes = src.with_name(src.name + ".scenes")
+    out = tmp_path / "dv.av1.mkv"
+    workdir = tmp_path / "dv.chunks"
+
+    _run_cli(["detect", str(src), "--jobs", "2"])
+    assert scenes.is_file(), f"enpipe detect did not write {scenes}"
+
+    _run_cli([
+        "encode", str(src), str(scenes),
+        "-o", str(out), "--workdir", str(workdir),
+        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
+    ])
+    assert out.is_file(), f"enpipe encode did not write {out}"
+
+    _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+
+    # SOURCE-parity of the RPU frame count (opencode M1/qwen M3): the
+    # genuine survival invariant is that the RPU frame-count SURVIVES the
+    # splice/mux, matching the SOURCE fixture's own count -- not merely
+    # "== total", which would be too strict if the source itself is
+    # partial (e.g. RPU present only on some frames).
+    out_with_rpu, out_total = _dv_rpu_frame_count(out)
+    assert out_with_rpu == src_with_rpu and out_with_rpu > 0, (
+        f"DV RPU frame-count did not survive splice/mux: source had "
+        f"{src_with_rpu}/{src_total} RPU frames, final output has "
+        f"{out_with_rpu}/{out_total}"
+    )
+
+    # ALSO check source-parity at the pre-mux .obu chunk level (RESEARCH
+    # Assumption A3 -- mkvmerge's DV-side-data mux path is distinct from
+    # HDR10's, so pre-mux and post-mux must both be verified independently).
+    scene_list = read_scenes(scenes)
+    chunk_with_rpu_total = 0
+    for i in range(len(scene_list)):
+        chunk = workdir / f"chunk_{i:05d}.obu"
+        w, _ = _dv_rpu_frame_count(chunk)
+        chunk_with_rpu_total += w
+    assert chunk_with_rpu_total == src_with_rpu, (
+        f"pre-mux chunk RPU frame total ({chunk_with_rpu_total}) does not "
+        f"match source RPU frame count ({src_with_rpu})"
+    )

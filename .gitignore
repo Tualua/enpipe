@@ -223,3 +223,8 @@ scratch/*.scenes
 scratch/*.obu
 scratch/*.metrics.csv
 scratch/wd_*/
+
+# enpipe TEST-04 hardware-tier media fixtures (operator-supplied,
+# non-redistributable HDR10+/DV samples -- README.md stays tracked)
+tests/fixtures/media/*
+!tests/fixtures/media/README.md
