@@ -110,11 +110,17 @@ Plans:
   3. The hardware-gated test suite covers at least SDR, HDR10/HDR10+, and Dolby Vision sources, with results kept distinct from (not conflated with) the software-fallback regression test from Phase 3
   4. `legacy/scene_detection.py` and `legacy/encode_scenes.py` remain in place, unmodified, as the parity oracle throughout
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 
-- [ ] 04-01: TBD
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — PKG-01: unified `enpipe` CLI (single `cli/main.py` argparse dispatcher + `[project.scripts]`), new `run_detect(args)` mirroring `run_encode`, preserving the two-stage `.scenes` handoff + Russian flag surfaces
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — TEST-04: `hardware`-marked end-to-end (detect→encode→mux via the `enpipe` CLI) test on real Arc — independent per-chunk/total frame counts + keyframe alignment (SDR/HDR10 live), fixture-gated HDR10+/DV with ffprobe-native DV RPU parity, optional D-08 self-hosted CI stub
 
 ## Progress
 
@@ -126,4 +132,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete    | 2026-07-08 |
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
 | 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete    | 2026-07-08 |
-| 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/TBD | Not started | - |
+| 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/2 | Not started | - |
