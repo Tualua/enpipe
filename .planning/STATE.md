@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-07-08T15:19:59.663Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-07-08T15:31:53.668Z"
 last_activity: 2026-07-08 -- Phase 3 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 50
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-07-08)
 ## Current Position
 
 Phase: 3 (Concurrency Resolution + Regression Baseline + CI) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Executing Phase 3
 Last activity: 2026-07-08 -- Phase 3 execution started
 
-Progress: [████████░░] 75%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [████████░░] 75%
 | Phase 02 P01 | 7min | 3 tasks | 8 files |
 | Phase 02 P02 | 5min | 3 tasks | 5 files |
 | Phase 03 P01 | 6min | 3 tasks | 5 files |
+| Phase 03 P02 | 14min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,8 @@ Recent decisions affecting current work:
 - [Phase 02-02]: chunk_command wrapped (not stubbed) in the wiring test so real command-building logic runs while recording seek/trim args
 - [Phase 03-01]: DEBT-03: measured Layer-1 (0.67x-0.80x speedup) and Layer-2 (1.43x ratio) both fall short of the quantified switch thresholds -- kept ThreadPoolExecutor, rewrote the contradictory comment with measured rationale
 - [Phase 03-01]: DEBT-04: kept dovi_tool installed in devcontainer, documented retention for planned Phase-4 TEST-04 DV RPU work without overclaiming AV1 support (extract-rpu is HEVC-only)
+- [Phase 03-02]: TEST-03 clip recipe (four ~55s color/smptebars segments, 220s@24fps) verified via ffprobe to clear the jobs*min_span gate for jobs=[2,3] with margin
+- [Phase 03-02]: Engagement proof primary target is enpipe.detection.detect.detect_scenes (deferred fallback), call_count==0, executor-agnostic; _segment_worker call_count>1 refinement gated on active executor to avoid PicklingError under ProcessPoolExecutor
 
 ### Pending Todos
 
@@ -108,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T15:19:59.604Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-concurrency-resolution-regression-baseline-ci/03-CONTEXT.md
+Last session: 2026-07-08T15:31:53.647Z
+Stopped at: Completed 03-02-PLAN.md
+Resume file: None

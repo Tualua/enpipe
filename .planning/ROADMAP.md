@@ -92,7 +92,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — TEST-03: pure gate-arithmetic unit test (jobs=[2,3]) + real-clip parallel==sequential regression test (software fallback, >=220s clip, jobs=[2,3], runtime ffprobe + direct _segment_worker call-count engagement guards) + pure non_cut_offsets merge unit test (non-hardware tier)
+- [x] 03-02-PLAN.md — TEST-03: pure gate-arithmetic unit test (jobs=[2,3]) + real-clip parallel==sequential regression test (software fallback, >=220s clip, jobs=[2,3], runtime ffprobe + direct _segment_worker call-count engagement guards) + pure non_cut_offsets merge unit test (non-hardware tier)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -125,5 +125,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete    | 2026-07-08 |
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
-| 3. Concurrency Resolution + Regression Baseline + CI | 1/3 | In Progress|  |
+| 3. Concurrency Resolution + Regression Baseline + CI | 2/3 | In Progress|  |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/TBD | Not started | - |
