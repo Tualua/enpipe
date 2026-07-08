@@ -58,11 +58,17 @@ Plans:
   2. A byte-fixture test corpus (normal Cues, missing SeekHead, malformed/truncated structures) exercises the isolated EBML parser without invoking real media
   3. The seek/trim math and the high-water-mark flush ordering are extracted into pure functions with unit tests covering synthetic edge cases (scene boundaries off-keyframe, out-of-order chunk completion), with no change to encoded output versus `legacy/`
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 
-- [ ] 02-01: TBD
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — DEBT-01: isolate EBML/Cues parser into enpipe.mkv.ebml (read/parse split) + byte-fixture corpus + ffprobe cross-validation
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — DEBT-02: extract pure compute_chunk_seek_trim + contiguous_run from pipeline.py + edge-case unit tests
 
 ### Phase 3: Concurrency Resolution + Regression Baseline + CI
 
