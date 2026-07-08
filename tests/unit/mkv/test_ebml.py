@@ -114,10 +114,19 @@ def test_case_f_empty_cues_body_returns_none():
 
 # --- Case G: sub-header / too-short input --------------------------------- #
 # Fewer than 8 bytes' worth of structure for the `while q < len(head) - 8`
-# walk to even begin meaningfully -- must return None via the IndexError ->
-# None containment, never raise.
+# walk to even begin meaningfully -- returns None via the "no matching EBML
+# header ID" path (not the exception branch; see Case H for that), never raises.
 def test_case_g_sub_header_too_short_returns_none():
     assert find_cues_position(b"\x00" * 10, total_size=10) is None
+
+
+# --- Case H: valid EBML header ID but truncated body ---------------------- #
+# A real EBML segment/header ID (0x1A45DFA3) whose declared size VINT runs
+# past the buffer end -- this genuinely drives the `except (IndexError,
+# ValueError): return None` containment in find_cues_position (the T-02-01
+# parser-robustness path Case G's comment claimed but did not reach).
+def test_case_h_valid_id_truncated_hits_exception_containment():
+    assert find_cues_position(bytes.fromhex("1a45dfa3"), total_size=4) is None
 
 
 # --- Moved from tests/unit/encoding/test_keyframes.py (Pitfall 4) -------- #
