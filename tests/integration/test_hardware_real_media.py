@@ -59,6 +59,7 @@ from enpipe.encoding.keyframes import (
     compute_chunk_seek_trim,
     fmt_seek,
     kf_before,
+    keyframe_table,
     keyframe_table_ffprobe,
 )
 from enpipe.encoding.pipeline import probe_fps
@@ -184,23 +185,38 @@ def _verify_frame_counts_and_keyframes(
     )
 
     fps = probe_fps(src)
-    gt_table = keyframe_table_ffprobe(src, fps)  # ground-truth, slow path
+    # INDEPENDENT ground truth: full ffprobe packet scan.
+    gt_table = keyframe_table_ffprobe(src, fps)
     gt_kf_frames = {f for f, _ in gt_table}
+    # PRODUCTION path: what a real `enpipe encode` actually uses to place chunk
+    # seeks -- the hand-rolled EBML/Cues fast-path for .mkv (ffprobe fallback
+    # otherwise), i.e. the function ARCHITECTURE.md flags as risking a silent
+    # "wrong-but-parseable" keyframe table.
+    prod_table = keyframe_table(src, fps)
+    prod_kf_frames = {f for f, _ in prod_table}
+
+    # Cross-validate the PRODUCTION keyframe path against the INDEPENDENT ground
+    # truth. This is the non-tautological check: a corrupt/wrong Cues parse would
+    # yield keyframe frames the ffprobe ground truth does not contain, and fail.
+    assert prod_kf_frames == gt_kf_frames, (
+        f"production keyframe_table (EBML fast-path) disagrees with the "
+        f"independent ffprobe ground truth on {src.name}: "
+        f"prod-only={sorted(prod_kf_frames - gt_kf_frames)}, "
+        f"gt-only={sorted(gt_kf_frames - prod_kf_frames)}"
+    )
 
     for i, (s, e) in enumerate(scenes):
-        # Exercise the pipeline's OWN pure seek/trim decision against the
-        # independent ground-truth table.
-        seek, _trim = compute_chunk_seek_trim(gt_table, s, e)
-        kf_frame, kf_time = kf_before(gt_table, s)
+        # Derive the seek from the PRODUCTION table (what real encode used), then
+        # assert the chosen keyframe is a genuine keyframe per the INDEPENDENT
+        # ground truth -- catches the production path landing a chunk seek on a
+        # non-keyframe (silent frame-shift), not just re-checking a table vs itself.
+        seek, _trim = compute_chunk_seek_trim(prod_table, s, e)
+        kf_frame, kf_time = kf_before(prod_table, s)
         assert kf_frame in gt_kf_frames, (
-            f"scene {i}'s derived seek keyframe (frame {kf_frame}) is NOT a "
-            f"member of the independent ground-truth keyframe set -- "
-            f"keyframe alignment violated"
+            f"scene {i}'s production-derived seek keyframe (frame {kf_frame}) is "
+            f"NOT in the independent ground-truth keyframe set -- keyframe "
+            f"alignment violated (possible wrong-but-parseable Cues table)"
         )
-        # compute_chunk_seek_trim's returned seek string must agree with an
-        # independent fmt_seek(kf_time) derivation -- both consume the same
-        # ground-truth table, so this cross-checks the pure function against
-        # its own building block, not itself.
         assert seek == fmt_seek(kf_time)
 
 
