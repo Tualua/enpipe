@@ -24,7 +24,7 @@ Requirements for this productionization milestone. Each maps to roadmap phases.
 ### Tech Debt
 
 - [x] **DEBT-01**: The hand-rolled EBML/Cues parser is isolated into its own module with a read/parse split, behind a tested boundary
-- [ ] **DEBT-02**: The correctness-critical seek/trim math and high-water-mark flush ordering are extracted into pure, directly unit-testable functions with no behavior change
+- [x] **DEBT-02**: The correctness-critical seek/trim math and high-water-mark flush ordering are extracted into pure, directly unit-testable functions with no behavior change
 - [ ] **DEBT-03**: The ThreadPool-vs-ProcessPool inconsistency in parallel detection is resolved (profiling-informed) or explicitly documented, before the TEST-03 baseline is captured
 - [ ] **DEBT-04**: The orphaned `dovi_tool` reference is removed or justified with a documented reason
 
@@ -81,7 +81,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-03 | Phase 3 | Pending |
 | TEST-04 | Phase 4 | Pending |
 | DEBT-01 | Phase 2 | Complete |
-| DEBT-02 | Phase 2 | Pending |
+| DEBT-02 | Phase 2 | Complete |
 | DEBT-03 | Phase 3 | Pending |
 | DEBT-04 | Phase 3 | Pending |
 | CI-01 | Phase 3 | Pending |
