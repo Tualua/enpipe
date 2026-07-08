@@ -88,7 +88,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — DEBT-03 + DEBT-04: profile the parallel-detection executor (Layer-1 wall-clock A/B + Layer-2 CPU-isolated microbenchmark), resolve parallel.py (swap to ProcessPool OR keep threads + fix the comment with measured numbers), and document-and-keep dovi_tool
+- [x] 03-01-PLAN.md — DEBT-03 + DEBT-04: profile the parallel-detection executor (Layer-1 wall-clock A/B + Layer-2 CPU-isolated microbenchmark), resolve parallel.py (swap to ProcessPool OR keep threads + fix the comment with measured numbers), and document-and-keep dovi_tool
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -125,5 +125,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete    | 2026-07-08 |
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
-| 3. Concurrency Resolution + Regression Baseline + CI | 0/TBD | Not started | - |
+| 3. Concurrency Resolution + Regression Baseline + CI | 1/3 | In Progress|  |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 0/TBD | Not started | - |

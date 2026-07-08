@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
+status: executing
 stopped_at: Phase 3 context gathered
-last_updated: "2026-07-08T14:40:44.904Z"
-last_activity: 2026-07-08 -- Phase 3 planning complete
+last_updated: "2026-07-08T15:19:59.663Z"
+last_activity: 2026-07-08 -- Phase 3 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 50
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 3 — concurrency resolution + regression baseline + ci
+**Current focus:** Phase 3 — Concurrency Resolution + Regression Baseline + CI
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-08 -- Phase 3 planning complete
+Phase: 3 (Concurrency Resolution + Regression Baseline + CI) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 3
+Last activity: 2026-07-08 -- Phase 3 execution started
 
-Progress: [██████████] 100%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [██████████] 100%
 | Phase 01 P03 | 50min | 3 tasks | 16 files |
 | Phase 02 P01 | 7min | 3 tasks | 8 files |
 | Phase 02 P02 | 5min | 3 tasks | 5 files |
+| Phase 03 P01 | 6min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 02-02]: Used the 2-tuple (seek, trim) return for compute_chunk_seek_trim per D-04's minimal-diff allowance
 - [Phase 02-02]: contiguous_run annotated Union[Dict[int,int], Set[int]] using typing generics (D-11), not PEP 604 |
 - [Phase 02-02]: chunk_command wrapped (not stubbed) in the wiring test so real command-building logic runs while recording seek/trim args
+- [Phase 03-01]: DEBT-03: measured Layer-1 (0.67x-0.80x speedup) and Layer-2 (1.43x ratio) both fall short of the quantified switch thresholds -- kept ThreadPoolExecutor, rewrote the contradictory comment with measured rationale
+- [Phase 03-01]: DEBT-04: kept dovi_tool installed in devcontainer, documented retention for planned Phase-4 TEST-04 DV RPU work without overclaiming AV1 support (extract-rpu is HEVC-only)
 
 ### Pending Todos
 
@@ -105,6 +108,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T14:12:52.322Z
+Last session: 2026-07-08T15:19:59.604Z
 Stopped at: Phase 3 context gathered
 Resume file: .planning/phases/03-concurrency-resolution-regression-baseline-ci/03-CONTEXT.md
