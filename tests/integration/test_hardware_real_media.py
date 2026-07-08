@@ -24,10 +24,25 @@ filter to write, and NEVER uses `dovi_tool extract-rpu` (broken on AV1 in
 2.3.2, confirmed in 04-RESEARCH.md). Only a read-only `ffmpeg -h
 bsf=dovi_rpu` self-check (AV1-support probe) and read-only
 `ffprobe -show_entries frame=side_data_list` inspection are used -- see
-Task 2's helpers below."""
+Task 2's helpers below.
+
+EMPIRICAL CORRECTION vs. the plan's draft interface (recorded here, not
+just in the SUMMARY, so a future reader isn't misled by stale assumptions):
+HDR10 mastering-display/max-CLL metadata does NOT appear at ffprobe's
+STREAM level for this pipeline's mkvmerge-muxed AV1-in-.mkv output --
+`ffprobe -show_streams -show_entries stream=side_data_list` returns no
+side_data_list key at all (verified directly against a real produced HDR10
+.mkv in this session; `mkvinfo` also confirms mkvmerge does not lift
+Mastering-display/MaxCLL into a Matroska Colour element for a raw-OBU AV1
+track). The metadata DOES survive, but only at the FRAME level
+(`frame=side_data_list`), on every single frame -- so test_hdr10 below
+checks frame-level side data for HDR10 survival, same probe entry as the
+DV RPU check (Task 2) but a different side_data_type string."""
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -211,3 +226,89 @@ def test_sdr(tmp_path: Path) -> None:
     assert out.is_file(), f"enpipe encode did not write {out}"
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+
+
+_HDR10_CODEC_ARGS: List[str] = [
+    "-pix_fmt", "yuv420p10le",
+    "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc",
+    "-c:v", "libx265", "-preset", "ultrafast",
+    "-x265-params",
+    "hdr10=1:hdr10-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:"
+    "colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)"
+    "WP(15635,16450)L(10000000,1):max-cll=1000,400",
+]
+
+
+def _encoder_available(name: str) -> bool:
+    """Word-boundary check of `ffmpeg -encoders` output (opencode M4) --
+    symmetric with the hardware-availability gate: the self-hosted Arc
+    runner's ffmpeg build may lack libx265, so test_hdr10 must skip cleanly
+    rather than fail loud on an environment gap."""
+    proc = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                           capture_output=True, text=True)
+    return re.search(rf"\b{re.escape(name)}\b", proc.stdout) is not None
+
+
+def _frame_side_data_types(path: Path) -> List[List[str]]:
+    """Per-frame list of side_data_type strings, via read-only ffprobe
+    (frame=side_data_list) -- shared by the HDR10 survival check here and
+    the DV RPU survival check in Task 2."""
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
+           "-show_entries", "frame=side_data_list", "-of", "json", str(path)]
+    data = json.loads(subprocess.run(cmd, capture_output=True, text=True, check=True).stdout)
+    return [
+        [sd.get("side_data_type", "") for sd in f.get("side_data_list", [])]
+        for f in data.get("frames", [])
+    ]
+
+
+def test_hdr10(tmp_path: Path) -> None:
+    if not _encoder_available("libx265"):
+        pytest.skip("libx265 encoder not available in this ffmpeg build")
+
+    src = tmp_path / "hdr10.mkv"
+    _make_multiscene_clip(src, codec_args=_HDR10_CODEC_ARGS, seg_dur=10)
+
+    assert "--master-display" in detect_hdr(src), (
+        "sanity: HDR10 clip must classify with --master-display"
+    )
+
+    scenes = src.with_name(src.name + ".scenes")
+    out = tmp_path / "hdr10.av1.mkv"
+    workdir = tmp_path / "hdr10.chunks"
+
+    _run_cli(["detect", str(src), "--jobs", "2"])
+    assert scenes.is_file(), f"enpipe detect did not write {scenes}"
+
+    _run_cli([
+        "encode", str(src), str(scenes),
+        "-o", str(out), "--workdir", str(workdir),
+        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
+    ])
+    assert out.is_file(), f"enpipe encode did not write {out}"
+
+    _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+
+    # HDR10 metadata survival -- FRAME-level (see module docstring's
+    # "EMPIRICAL CORRECTION" note): every video frame of the final .mkv
+    # must still carry both Mastering-display and Content-light-level side
+    # data. Per-frame side data is used here for HDR10 survival ONLY
+    # because that is where this pipeline's mkvmerge output actually puts
+    # it -- DV RPU (Task 2) also uses frame-level side data, but for a
+    # different side_data_type string ("Dolby Vision RPU Data").
+    per_frame_types = _frame_side_data_types(out)
+    assert per_frame_types, f"no frames read from {out}"
+    missing_mastering = sum(
+        1 for types in per_frame_types if "Mastering display metadata" not in types
+    )
+    missing_cll = sum(
+        1 for types in per_frame_types if "Content light level metadata" not in types
+    )
+    assert missing_mastering == 0, (
+        f"{missing_mastering}/{len(per_frame_types)} frames of {out} are missing "
+        f"Mastering display metadata -- HDR10 survival violated"
+    )
+    assert missing_cll == 0, (
+        f"{missing_cll}/{len(per_frame_types)} frames of {out} are missing "
+        f"Content light level metadata -- HDR10 survival violated"
+    )
