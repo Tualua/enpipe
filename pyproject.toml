@@ -1,0 +1,30 @@
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "enpipe"
+version = "0.1.0"
+description = "Scene-aware AV1 re-encode pipeline (Intel Arc QSV)"
+requires-python = ">=3.12"
+dependencies = [
+    "scenedetect[opencv-headless]==0.7",
+    "numpy==2.5.1",
+]
+
+# [project.scripts] intentionally omitted this phase — Phase 4 (PKG-01) adds
+# `enpipe = "enpipe.cli.app:main"` once cli/detect.py + cli/encode.py exist.
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-subprocess==1.6.0",
+    "pytest-mock==3.15.1",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "hardware: requires real QSV hardware and real media; excluded by default (Phase 4 adds the first test)",
+]
+addopts = "-m \"not hardware\""
+testpaths = ["tests"]

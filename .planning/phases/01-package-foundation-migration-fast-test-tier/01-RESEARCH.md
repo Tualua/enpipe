@@ -623,19 +623,22 @@ def test_parse_metrics_extracts_ssim_and_psnr():
 | A2 | Installing `uv` via `curl -LsSf https://astral.sh/uv/install.sh \| sh` inside `post-create.sh` (rather than a devcontainer feature) is an acceptable interpretation of D-03's "update post-create.sh" | `pyproject.toml`/post-create.sh section | If the planner/user prefers the devcontainer-feature approach instead, this is a one-line implementation choice to revisit, not a blocking assumption — flagged explicitly as an open alternative in the same section |
 | A3 | `probe_fps` (encoding stage) is intentionally *not* in D-11's TEST-02 target list, and this is a deliberate scope decision rather than an oversight | Mechanical Migration Map, Open Questions | If it was an oversight, the fast tier has a coverage gap symmetrical to `probe_source` (detection stage) being explicitly required — low risk since `probe_fps` is simple and its die()-on-failure path is easy to add opportunistically even if not strictly required |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `probe_fps` get a TEST-02 mocked test even though D-11 doesn't name it explicitly?**
+   - **RESOLVED:** probe_fps left untested this phase — D-11's named list is the binding minimum. The plans (01-03 Task 2) cover only the six D-11-named TEST-02 targets; probe_fps coverage is a cheap opportunistic add, not a phase gate.
    - What we know: D-11 lists `probe_source` (detection) but not `probe_fps` (encoding) — both are structurally identical (ffprobe JSON call, `die()`/exception on failure), and `probe_fps` is the fps source of truth used throughout `run_encode`.
    - What's unclear: whether this was a deliberate scoping choice (keep TEST-02 minimal, matching the 6 named functions exactly) or an oversight in CONTEXT.md's drafting.
    - Recommendation: treat D-11's list as the binding minimum (don't block phase completion on `probe_fps` coverage), but note it as a natural, cheap addition if time permits within this phase — it reuses the exact same `fp.register(["ffprobe", ...])` pattern as `probe_source`'s test with no new technique needed.
 
 2. **Exact byte-identical parity verification mechanics for the encoding stage, given it needs real hardware.**
+   - **RESOLVED:** both parity checks use a synthetic ffmpeg `-f lavfi` clip generated in-script. 01-02 Task 3 writes `scratch/parity_detect_sample.mkv`; 01-03 Task 3 writes `scratch/parity_encode_sample.mkv` (distinct filenames to avoid collision). No real `/data/media` access needed.
    - What we know: this research session confirmed `ffmpeg`, `ffprobe`, `qsvencc`, `mkvmerge`, and `/dev/dri/renderD128` are all present and functional in this devcontainer (see Environment Availability) — so D-14's "sample run" comparison for `run_encode` can genuinely execute against real QSV hardware, not just be simulated.
    - What's unclear: whether the planner should source/create a tiny synthetic test video (e.g., via `ffmpeg -f lavfi`) for this one-time parity check, or require access to a real media file under `/data/media`. A synthetic clip is faster to set up and sufficient for byte-identical-output comparison (the goal is "does the migrated code produce the same bytes as the old code," not "is the encode visually correct" — that's Phase 4's concern).
    - Recommendation: use a short (a few seconds) synthetic source generated with `ffmpeg -f lavfi -i testsrc=duration=10:size=640x360:rate=24 -f lavfi -i sine=duration=10 parity_sample.mkv` (or similar) for both the detection and encoding parity checks — avoids needing real media access for a mechanical-migration acceptance gate.
 
 3. **Does the `pyproject.toml` `[tool.ruff]`/`[tool.pyright]` block get added this phase?**
+   - **RESOLVED:** ruff/pyright config deferred to Phase 3 (QUAL-01). No `[tool.ruff]`/`[tool.pyright]` block is added this phase — `pyproject.toml` stays minimal, per the plans.
    - What we know: D-46 (Claude's Discretion) says optional, must not gate.
    - What's unclear: whether adding an empty/minimal config now (with zero enforcement, just so Phase 3 has less setup) is worth the extra `pyproject.toml` surface area in a phase focused on packaging + migration + tests.
    - Recommendation: skip it this phase — keep `pyproject.toml` minimal and focused on D-01/D-02/D-09/D-10's literal requirements; Phase 3 (QUAL-01) can add the config block when it's actually going to be enforced, avoiding a config block that sits unused for two phases.
