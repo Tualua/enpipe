@@ -45,6 +45,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import List
 
@@ -312,3 +313,70 @@ def test_hdr10(tmp_path: Path) -> None:
         f"{missing_cll}/{len(per_frame_types)} frames of {out} are missing "
         f"Content light level metadata -- HDR10 survival violated"
     )
+
+
+def test_sdr_legacy_oracle_parity(tmp_path: Path) -> None:
+    """SC4: legacy/encode_scenes.py remains the executable parity oracle.
+    Runs the FROZEN legacy oracle (read-only subprocess, never imported,
+    never modified) on the SAME sample + SAME .scenes file the enpipe
+    pipeline used, isolating ENCODE parity from detect. Both sides run
+    --no-metrics (qsvencc --psnr/--ssim needs an OpenCL device unavailable
+    on this devcontainer -- scratch/parity_encode.py:81-94)."""
+    src = tmp_path / "sdr_parity.mkv"
+    _make_multiscene_clip(
+        src,
+        codec_args=["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"],
+        seg_dur=10,
+    )
+    scenes = src.with_name(src.name + ".scenes")
+
+    _run_cli(["detect", str(src), "--jobs", "2"])
+    assert scenes.is_file(), f"enpipe detect did not write {scenes}"
+
+    wd_enpipe = tmp_path / "wd_enpipe"
+    enpipe_out = tmp_path / "enpipe_out.mkv"
+    _run_cli([
+        "encode", str(src), str(scenes),
+        "-o", str(enpipe_out), "--workdir", str(wd_enpipe),
+        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
+    ])
+    assert enpipe_out.is_file()
+
+    wd_legacy = tmp_path / "wd_legacy"
+    legacy_out = tmp_path / "legacy_out.mkv"
+    legacy_cmd = [
+        sys.executable, str(REPO_ROOT / "legacy" / "encode_scenes.py"),
+        str(src), str(scenes),
+        "-o", str(legacy_out), "--workdir", str(wd_legacy),
+        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
+    ]
+    legacy_proc = subprocess.run(
+        legacy_cmd, cwd=REPO_ROOT, capture_output=True, text=True
+    )
+    assert legacy_proc.returncode == 0, (
+        f"legacy oracle encode_scenes.py failed (rc={legacy_proc.returncode}): "
+        f"{legacy_proc.stderr[-2000:]}"
+    )
+    assert legacy_out.is_file()
+
+    # PRIMARY GATE: final .mkv frame-count parity.
+    assert count_frames(legacy_out) == count_frames(enpipe_out), (
+        "enpipe encode frame count does not match the frozen legacy oracle "
+        "on the same sample + scenes"
+    )
+
+    # Determinism-aware PRE-MUX movie.obu comparison (scratch/parity_encode.py:199-234):
+    # byte-identical -> qsvencc is deterministic on this box (STRONG gate holds).
+    # differ -> HW AV1 is commonly non-deterministic (EXPECTED case per
+    # parity_encode.py) -> fall back to frame-count parity on the pre-mux .obu,
+    # which is correct, not a weakening of the check.
+    legacy_movie = wd_legacy / "movie.obu"
+    enpipe_movie = wd_enpipe / "movie.obu"
+    assert legacy_movie.is_file() and enpipe_movie.is_file()
+    if legacy_movie.read_bytes() == enpipe_movie.read_bytes():
+        pass  # deterministic qsvencc on this box -- byte-identical parity holds
+    else:
+        assert count_frames(legacy_movie) == count_frames(enpipe_movie), (
+            "pre-mux movie.obu differs AND frame counts differ -- qsvencc "
+            "non-determinism alone cannot explain this; real parity failure"
+        )
