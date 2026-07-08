@@ -50,6 +50,9 @@ echo "  ffmpeg QSV-энкодеры:"
 ffmpeg -hide_banner -encoders 2>/dev/null | grep -iE 'av1_qsv|hevc_qsv' | sed 's/^/    /' \
     || echo "    QSV-энкодеров нет"
 printf "  qsvencc:   "; command -v qsvencc >/dev/null && qsvencc --version 2>/dev/null | head -1 || echo "НЕТ"
+# dovi_tool: пока нигде в пайплайне не вызывается — держим ради Phase-4 DV RPU
+# проверки (TEST-04, DEBT-04); AV1-совместимость extract-rpu НЕ подтверждена,
+# см. комментарий у RUN-блока установки в Dockerfile.
 printf "  dovi_tool: "; command -v dovi_tool >/dev/null && dovi_tool --version 2>/dev/null || echo "НЕТ"
 printf "  mkvmerge:  "; command -v mkvmerge >/dev/null && mkvmerge --version 2>/dev/null | head -1 || echo "НЕТ"
 printf "  tmux:      "; command -v tmux >/dev/null && tmux -V || echo "НЕТ"
