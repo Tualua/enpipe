@@ -26,5 +26,11 @@ dev = [
 markers = [
     "hardware: requires real QSV hardware and real media; excluded by default (Phase 4 adds the first test)",
 ]
-addopts = "-m \"not hardware\""
+# --import-mode=importlib (not the default "prepend"): tests/unit/encoding/
+# and tests/subprocess/encoding/ both contain a test_chunk.py/test_keyframes.py
+# (TEST-01 pure-logic vs TEST-02 mocked-subprocess coverage of the same
+# module, per RESEARCH.md's project structure) — "prepend" mode requires
+# globally-unique test basenames absent __init__.py packages; importlib mode
+# resolves each file by its own path instead, with no other behavior change.
+addopts = "-m \"not hardware\" --import-mode=importlib"
 testpaths = ["tests"]
