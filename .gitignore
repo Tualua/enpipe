@@ -221,3 +221,5 @@ __marimo__/
 scratch/*.mkv
 scratch/*.scenes
 scratch/*.obu
+scratch/*.metrics.csv
+scratch/wd_*/
