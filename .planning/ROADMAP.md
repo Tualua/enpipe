@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Package Foundation, Migration & Fast Test Tier** - Installable, pinned package with detection/encoding mechanically migrated behind a shared subprocess seam, plus fast hardware-free tests (completed 2026-07-08)
 - [x] **Phase 2: Correctness-Critical Extraction** - EBML/Cues parser and seek/trim/high-water-mark arithmetic isolated into pure, tested modules with zero behavior change (completed 2026-07-08)
 - [x] **Phase 3: Concurrency Resolution + Regression Baseline + CI** - ThreadPool/ProcessPool inconsistency resolved, mandatory parallel==sequential regression test captured, CI runs everything on every push (completed 2026-07-08)
-- [ ] **Phase 4: Unified CLI + Hardware-Gated Real-Media Validation** - Single `enpipe` entry point over both independently-verified stages, plus real-Arc-hardware end-to-end validation
+- [x] **Phase 4: Unified CLI + Hardware-Gated Real-Media Validation** - Single `enpipe` entry point over both independently-verified stages, plus real-Arc-hardware end-to-end validation (completed 2026-07-08)
 
 ## Phase Details
 
@@ -120,7 +120,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-02-PLAN.md — TEST-04: `hardware`-marked end-to-end (detect→encode→mux via the `enpipe` CLI) test on real Arc — independent per-chunk/total frame counts + keyframe alignment (SDR/HDR10 live), fixture-gated HDR10+/DV with ffprobe-native DV RPU parity, optional D-08 self-hosted CI stub
+- [x] 04-02-PLAN.md — TEST-04: `hardware`-marked end-to-end (detect→encode→mux via the `enpipe` CLI) test on real Arc — independent per-chunk/total frame counts + keyframe alignment (SDR/HDR10 live), fixture-gated HDR10+/DV with ffprobe-native DV RPU parity, optional D-08 self-hosted CI stub
 
 ## Progress
 
@@ -132,4 +132,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Package Foundation, Migration & Fast Test Tier | 3/3 | Complete    | 2026-07-08 |
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
 | 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete    | 2026-07-08 |
-| 4. Unified CLI + Hardware-Gated Real-Media Validation | 1/2 | In Progress|  |
+| 4. Unified CLI + Hardware-Gated Real-Media Validation | 2/2 | Complete   | 2026-07-08 |

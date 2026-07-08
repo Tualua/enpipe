@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-07-08T16:49:07.963Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-07-08T17:06:28.228Z"
 last_activity: 2026-07-08 -- Phase 4 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 10
-  completed_plans: 9
-  percent: 75
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 2 of 2
 Status: Executing Phase 4
 Last activity: 2026-07-08 -- Phase 4 execution started
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [█████████░] 90%
 | Phase 03 P02 | 14min | 3 tasks | 3 files |
 | Phase 03 P03 | 6min | 2 tasks | 3 files |
 | Phase 04 P01 | 12min | 3 tasks | 6 files |
+| Phase 04 P02 | 15min | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,8 @@ Recent decisions affecting current work:
 - [Phase 04-01]: run_detect docstring documents the intentionally-absent shutil.which preflight as a sanctioned deviation, mirroring run_encode's docstring style but for the opposite deviation
 - [Phase 04-01]: cli/main.py uses typing.Optional[Sequence[str]] for main(argv=...), not RESEARCH.md's draft PEP 604 syntax, per typing-generics requirement
 - [Phase 04-01]: uv sync used (not uv pip install -e .) since the lockfile still resolved cleanly for the console_script wiring
+- [Phase 04-02]: Empirical correction: HDR10 mastering-display/max-CLL survival is checked via ffprobe FRAME-level side data (frame=side_data_list), not STREAM-level -- this pipeline's mkvmerge-muxed raw-OBU AV1 output has no stream-level side_data_list at all
+- [Phase 04-02]: Multi-scene synthetic clips (SDR + HDR10) reuse test_parallel_regression.py's 4-segment color=/smptebars= lavfi cut recipe, shortened to 10s/segment (40s total, 3 cuts) for fast real-hardware wall time
 
 ### Pending Todos
 
@@ -121,6 +124,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T16:49:07.943Z
-Stopped at: Completed 04-01-PLAN.md
-Resume file: .planning/phases/04-unified-cli-hardware-gated-real-media-validation/04-02-PLAN.md
+Last session: 2026-07-08T17:06:28.206Z
+Stopped at: Completed 04-02-PLAN.md
+Resume file: None

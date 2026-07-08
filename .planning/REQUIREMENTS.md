@@ -19,7 +19,7 @@ Requirements for this productionization milestone. Each maps to roadmap phases.
 - [x] **TEST-01**: Pure-logic functions with no subprocess/GPU dependency (e.g. `kf_before`, `fmt_seek`, `read_scenes`, EBML byte helpers, metrics parsing) have unit tests using synthetic inputs
 - [x] **TEST-02**: Subprocess-boundary call sites (ffmpeg/ffprobe/qsvencc/mkvmerge) have mocked tests asserting exact argv construction (flags, seek/trim, HDR selection) and error-path behavior, with no real media
 - [x] **TEST-03**: A regression test asserts parallel detection equals sequential detection by `(start_frame, end_frame)` pairs, runnable with the software (`--no-qsv`) fallback so it runs in ordinary CI without GPU hardware
-- [ ] **TEST-04**: A hardware-gated integration test runs the full detect → encode → mux pipeline against real media and verifies the correctness invariants (per-chunk and total frame counts, keyframe alignment, DV RPU survival), gated behind a marker excluded from default CI
+- [x] **TEST-04**: A hardware-gated integration test runs the full detect → encode → mux pipeline against real media and verifies the correctness invariants (per-chunk and total frame counts, keyframe alignment, DV RPU survival), gated behind a marker excluded from default CI
 
 ### Tech Debt
 
@@ -79,7 +79,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 3 | Complete |
-| TEST-04 | Phase 4 | Pending |
+| TEST-04 | Phase 4 | Complete |
 | DEBT-01 | Phase 2 | Complete |
 | DEBT-02 | Phase 2 | Complete |
 | DEBT-03 | Phase 3 | Complete |
