@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-07-08T13:56:22.157Z"
+status: ready_to_plan
+stopped_at: Phase 2 complete (2/2) — ready to discuss Phase 3
+last_updated: 2026-07-08T14:06:03.013Z
 last_activity: 2026-07-08 -- Phase 2 execution started
 progress:
   total_phases: 4
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 2 — Correctness-Critical Extraction
+**Current focus:** Phase 3 — concurrency resolution + regression baseline + ci
 
 ## Current Position
 
-Phase: 2 (Correctness-Critical Extraction) — EXECUTING
-Plan: 2 of 2
-Status: Executing Phase 2
-Last activity: 2026-07-08 -- Phase 2 execution started
+Phase: 3
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-08
 
 Progress: [██████████] 100%
 
@@ -36,7 +36,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 3
+- Total plans completed: 5
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -45,6 +45,7 @@ Progress: [██████████] 100%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 3 | - | - |
+| 2 | 2 | - | - |
 
 **Recent Trend:**
 
