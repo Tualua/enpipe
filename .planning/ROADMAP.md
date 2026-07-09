@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Correctness-Critical Extraction** - EBML/Cues parser and seek/trim/high-water-mark arithmetic isolated into pure, tested modules with zero behavior change (completed 2026-07-08)
 - [x] **Phase 3: Concurrency Resolution + Regression Baseline + CI** - ThreadPool/ProcessPool inconsistency resolved, mandatory parallel==sequential regression test captured, CI runs everything on every push (completed 2026-07-08)
 - [x] **Phase 4: Unified CLI + Hardware-Gated Real-Media Validation** - Single `enpipe` entry point over both independently-verified stages, plus real-Arc-hardware end-to-end validation (completed 2026-07-08)
-- [ ] **Phase 5: Single-Command Pipeline Entry Point** - `enpipe run <video>` composes detect → `.scenes` → encode sequentially in one invocation, byte-identical to the manual two-step run
+- [x] **Phase 5: Single-Command Pipeline Entry Point** - `enpipe run <video>` composes detect → `.scenes` → encode sequentially in one invocation, byte-identical to the manual two-step run (completed 2026-07-09)
 
 ## Phase Details
 
@@ -144,7 +144,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 05-01-PLAN.md — RUN-01..RUN-04: add the `run` subparser + thin sequential run_detect→run_encode orchestrator (`--detect-jobs`/`--encode-jobs` collision split, kept `<video>.scenes`, `-o` = final `.mkv`) + fast mocked order/arg-routing unit test + hardware-gated run-vs-two-step parity test
+- [x] 05-01-PLAN.md — RUN-01..RUN-04: add the `run` subparser + thin sequential run_detect→run_encode orchestrator (`--detect-jobs`/`--encode-jobs` collision split, kept `<video>.scenes`, `-o` = final `.mkv`) + fast mocked order/arg-routing unit test + hardware-gated run-vs-two-step parity test
 
 ## Progress
 
@@ -157,5 +157,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
 | 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete    | 2026-07-08 |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 2/2 | Complete    | 2026-07-08 |
-| 5. Single-Command Pipeline Entry Point | 0/1 | Not started | - |
+| 5. Single-Command Pipeline Entry Point | 1/1 | Complete   | 2026-07-09 |
 </content>

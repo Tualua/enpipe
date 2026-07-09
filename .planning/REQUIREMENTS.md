@@ -13,10 +13,10 @@
 
 ### Single-command pipeline
 
-- [ ] **RUN-01**: User can transcode a video end-to-end with one `enpipe run <video>` command that runs scene detection, writes the `<video>.scenes` intermediate, then runs the AV1 encode — sequentially, in a single invocation — producing the final `.mkv`.
-- [ ] **RUN-02**: `enpipe run` accepts and forwards the relevant detect options (`--jobs`, `--no-qsv`, `--threshold`, `--min-scene-len-frames`, …) and encode options (`-o/--out`, `--no-audio`, `--no-metrics`, `--from`/`--to`, …) to the correct stage, with clear handling of any flag-name overlaps.
-- [ ] **RUN-03**: `enpipe run <video>` produces output byte-identical to running `enpipe detect` then `enpipe encode` by hand with the same options; the two-stage `enpipe detect`/`enpipe encode` commands remain available and unchanged, and the `.scenes` intermediate is handled (kept or in a workdir) without behavior change to either stage.
-- [ ] **RUN-04**: A hardware-gated end-to-end test verifies `enpipe run` byte-identical parity vs the two-step invocation on real Arc, and a fast (non-hardware) unit test verifies `enpipe run` dispatches detect → encode in the correct order with correct argument routing (mocked, no hardware).
+- [x] **RUN-01**: User can transcode a video end-to-end with one `enpipe run <video>` command that runs scene detection, writes the `<video>.scenes` intermediate, then runs the AV1 encode — sequentially, in a single invocation — producing the final `.mkv`.
+- [x] **RUN-02**: `enpipe run` accepts and forwards the relevant detect options (`--jobs`, `--no-qsv`, `--threshold`, `--min-scene-len-frames`, …) and encode options (`-o/--out`, `--no-audio`, `--no-metrics`, `--from`/`--to`, …) to the correct stage, with clear handling of any flag-name overlaps.
+- [x] **RUN-03**: `enpipe run <video>` produces output byte-identical to running `enpipe detect` then `enpipe encode` by hand with the same options; the two-stage `enpipe detect`/`enpipe encode` commands remain available and unchanged, and the `.scenes` intermediate is handled (kept or in a workdir) without behavior change to either stage.
+- [x] **RUN-04**: A hardware-gated end-to-end test verifies `enpipe run` byte-identical parity vs the two-step invocation on real Arc, and a fast (non-hardware) unit test verifies `enpipe run` dispatches detect → encode in the correct order with correct argument routing (mocked, no hardware).
 
 ---
 
@@ -100,10 +100,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEBT-03 | Phase 3 | Complete |
 | DEBT-04 | Phase 3 | Complete |
 | CI-01 | Phase 3 | Complete |
-| RUN-01 | Phase 5 | Pending |
-| RUN-02 | Phase 5 | Pending |
-| RUN-03 | Phase 5 | Pending |
-| RUN-04 | Phase 5 | Pending |
+| RUN-01 | Phase 5 | Complete |
+| RUN-02 | Phase 5 | Complete |
+| RUN-03 | Phase 5 | Complete |
+| RUN-04 | Phase 5 | Complete |
 
 **Coverage (v1.0, shipped):**
 - v1 requirements: 11 total
