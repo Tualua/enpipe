@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from fractions import Fraction
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Union
 
 import numpy as np
 from scenedetect.common import FrameTimecode
@@ -96,7 +96,8 @@ class QsvPipeStream(VideoStream):
 
     def __init__(self, path: PathLike, config: DetectionConfig,
                  seek_sec: Optional[float] = None, to_sec: Optional[float] = None,
-                 max_frames: Optional[int] = None):
+                 max_frames: Optional[int] = None,
+                 progress_cb: Optional[Callable[[int], None]] = None):
         self._source_path = Path(path)
         self._config = config
         # Сегментный режим (для параллельного детекта): декод точного pts-окна
@@ -109,6 +110,9 @@ class QsvPipeStream(VideoStream):
         self._seek_sec = seek_sec
         self._to_sec = to_sec
         self._max_frames = max_frames
+        # Покадровый хук для агрегированного прогресс-бара параллельного
+        # детекта; дефолт None -> нулевое изменение поведения.
+        self._progress_cb = progress_cb
         self._info = probe_source(path, config)
 
         # nv12 и vpp_qsv требуют чётных размеров.
@@ -261,6 +265,10 @@ class QsvPipeStream(VideoStream):
             self._eof = True
             return False
         self._frame_num += 1
+        # Дёргаем хук на КАЖДЫЙ прочитанный кадр — так общий бар в
+        # параллельном режиме двигается покадрово, а не рывками по сегментам.
+        if self._progress_cb is not None:
+            self._progress_cb(1)
         if not decode:
             return True
         # .copy(): frombuffer поверх immutable bytes даёт read-only массив;
