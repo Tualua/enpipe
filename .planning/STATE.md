@@ -5,7 +5,7 @@ milestone_name: Single-command pipeline entry point
 status: milestone_complete
 stopped_at: Milestone complete (Phase 5 was final phase)
 last_updated: 2026-07-09T01:58:25.420Z
-last_activity: 2026-07-09 -- Phase 5 execution started
+last_activity: 2026-07-09 -- Completed quick task 260709-4h8 (-o accepts a directory)
 progress:
   total_phases: 5
   completed_phases: 5
@@ -117,6 +117,12 @@ None yet.
 ### Blockers/Concerns
 
 - Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260709-4h8 | `-o` accepts a directory → `<stem>.Encoded<suffix>` inside it (fixes chunks-workdir PermissionError) | 2026-07-09 | cb49cc7 | [260709-4h8-o-accepts-a-directory-output-filename-be](./quick/260709-4h8-o-accepts-a-directory-output-filename-be/) |
 
 ## Deferred Items
 
