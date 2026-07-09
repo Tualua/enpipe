@@ -157,5 +157,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
 | 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete    | 2026-07-08 |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 2/2 | Complete    | 2026-07-08 |
-| 5. Single-Command Pipeline Entry Point | 1/1 | Complete   | 2026-07-09 |
+| 5. Single-Command Pipeline Entry Point | 1/1 | Complete    | 2026-07-09 |
 </content>
