@@ -31,13 +31,17 @@ def _min_scene_len(config: DetectionConfig, fps: float) -> int:
 
 
 def _detect_relative(stream: QsvPipeStream,
-                     config: DetectionConfig) -> List[Tuple[int, int]]:
+                     config: DetectionConfig,
+                     show_progress: bool = False) -> List[Tuple[int, int]]:
     """AdaptiveDetector по потоку -> список (start, end) кадров ОТНОСИТЕЛЬНО
     начала потока. Поток корректно закрывается при ошибке.
 
     start_in_scene=True: при отсутствии резов вернётся одна сцена на весь поток,
     а не пустой список (иначе валидное видео без резов трактовалось бы как
     «нет кадров»).
+
+    show_progress пробрасывается напрямую в SceneManager.detect_scenes —
+    дефолт False сохраняет прежнее «немое» поведение.
     """
     detector = AdaptiveDetector(
         adaptive_threshold=config.adaptive_threshold,
@@ -48,7 +52,7 @@ def _detect_relative(stream: QsvPipeStream,
     manager = SceneManager()
     manager.add_detector(detector)
     try:
-        manager.detect_scenes(video=stream, show_progress=False)
+        manager.detect_scenes(video=stream, show_progress=show_progress)
         raw = manager.get_scene_list(start_in_scene=True)
     except BaseException:
         stream.close()
@@ -66,18 +70,22 @@ def _build_scenes(pairs: List[Tuple[int, int]], fps: float) -> List[Scene]:
 
 
 def detect_scenes(
-    path: PathLike, config: DetectionConfig = DetectionConfig(), jobs: int = 1
+    path: PathLike, config: DetectionConfig = DetectionConfig(), jobs: int = 1,
+    show_progress: bool = False,
 ) -> List[Scene]:
     """Детектирование сцен для одного файла -> непрерывное разбиение [0, N).
 
     jobs>1 — параллельный детект несколькими сегментами (см.
     detect_scenes_parallel); jobs=1 — один последовательный проход.
+    show_progress=True включает живой tqdm-прогресс (штатный бар
+    PySceneDetect на последовательном пути, один агрегированный бар на
+    параллельном); дефолт False — прежнее «немое» поведение.
     """
     if jobs and jobs > 1:
         from .parallel import detect_scenes_parallel  # deferred: breaks the cycle
-        return detect_scenes_parallel(path, config, jobs)
+        return detect_scenes_parallel(path, config, jobs, show_progress=show_progress)
     stream = QsvPipeStream(path, config)
-    rel = _detect_relative(stream, config)
+    rel = _detect_relative(stream, config, show_progress=show_progress)
     if not rel:
         raise SceneDetectionError(f"Не прочитано ни одного кадра: {path}")
     return _build_scenes(rel, float(stream.frame_rate))

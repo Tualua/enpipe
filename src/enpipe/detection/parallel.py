@@ -15,8 +15,10 @@ legacy-файла на два модуля — см. RESEARCH.md Pattern 2."""
 from __future__ import annotations
 
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Tuple
+
+from scenedetect.platform import tqdm
 
 from enpipe.shared import proc
 
@@ -144,8 +146,12 @@ def _segment_worker(args: tuple) -> List[Tuple[int, int]]:
 
 
 def detect_scenes_parallel(
-    path: PathLike, config: DetectionConfig, jobs: int
+    path: PathLike, config: DetectionConfig, jobs: int,
+    show_progress: bool = False,
 ) -> List[Scene]:
+    """show_progress=True рисует ОДИН агрегированный tqdm-бар поверх всех
+    сегментов (см. шаг 2 ниже); дефолт False сохраняет прежний ex.map-путь
+    байт-идентичным."""
     info = probe_source(path, config)
     fps = float(info.frame_rate)
     total = round(info.duration_sec * fps) if info.duration_sec else None
@@ -154,7 +160,7 @@ def detect_scenes_parallel(
     min_span = max(2 * _min_scene_len(config, fps), round(60 * fps))
     if total is None or jobs < 2 or total < jobs * min_span:
         from .detect import detect_scenes  # deferred: breaks the cycle
-        return detect_scenes(path, config, jobs=1)
+        return detect_scenes(path, config, jobs=1, show_progress=show_progress)
 
     # 1) границы на реальных резах у меток i/jobs (пред-проходы параллельно)
     marks = [round(total * i / jobs) for i in range(1, jobs)]
@@ -166,7 +172,7 @@ def detect_scenes_parallel(
         + [(total, total / fps, True)], total)
     if len(bnds) < 3:                       # границы схлопнулись -> последовательно
         from .detect import detect_scenes  # deferred: breaks the cycle
-        return detect_scenes(path, config, jobs=1)
+        return detect_scenes(path, config, jobs=1, show_progress=show_progress)
 
     # 2) детект каждого сегмента [b_i, b_{i+1}) параллельно, кадры -> абсолютные
     seg_args = []
@@ -178,7 +184,31 @@ def detect_scenes_parallel(
             None if is_last else bnds[i + 1][1],    # to_sec (None для последнего)
         ))
     with ThreadPoolExecutor(max_workers=jobs) as ex:
-        results = list(ex.map(_segment_worker, seg_args))
+        if not show_progress:
+            # Байт-идентичный прежнему поведению путь — не трогать.
+            results = list(ex.map(_segment_worker, seg_args))
+        else:
+            # Сабмитим В ИСХОДНОМ ПОРЯДКЕ, чтобы каждому future заранее было
+            # известно, какому сегменту (и какому кадровому размаху) он
+            # соответствует — это нужно и для прогресс-бара (update на
+            # завершение любого сегмента), и, ниже, для сборки results СТРОГО
+            # по futures[i], а не по порядку завершения (as_completed),
+            # иначе склейка на «стыках-не-резах» (шаги 3-4) сломается: она
+            # зависит от порядка сегментов, а не от того, какой закончился
+            # раньше.
+            futures = [ex.submit(_segment_worker, a) for a in seg_args]
+            span_by_future = {
+                futures[i]: bnds[i + 1][0] - bnds[i][0]
+                for i in range(len(futures))
+            }
+            bar = tqdm(total=total, unit="frame",
+                      desc=f"Детект сцен (jobs={jobs})")
+            try:
+                for f in as_completed(span_by_future):
+                    bar.update(span_by_future[f])
+            finally:
+                bar.close()
+            results = [f.result() for f in futures]  # В ИСХОДНОМ ПОРЯДКЕ
 
     # 3) абсолютные кадры = накопленная сумма реальных счётчиков (НЕ round(pts*fps),
     #    он дрейфует от индекса декода). copyts+select в потоке убирает ведущие
