@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -158,6 +159,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    args.func(args)
+    # Верхнеуровневый перехват Ctrl-C: без него KeyboardInterrupt всплывает
+    # необработанным исключением (в т.ч. из потоков ThreadPoolExecutor на
+    # этапе энкода) и печатает шумный Python-трейсбек. 130 -- стандартный
+    # код выхода для SIGINT (128 + номер сигнала). Дочерние ffmpeg/qsvencc/
+    # mkvmerge и ThreadPoolExecutor гибнут сами по групповому SIGINT и при
+    # разворачивании стека -- никаких signal-хендлеров или kill по группе не
+    # добавляем (локированное решение).
+    try:
+        parser = build_parser()
+        args = parser.parse_args(argv)
+        args.func(args)
+    except KeyboardInterrupt:
+        print("enpipe: прервано (Ctrl-C)", file=sys.stderr)
+        raise SystemExit(130)
