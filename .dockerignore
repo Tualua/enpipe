@@ -1,0 +1,28 @@
+# Build-контекст слим-рантайм-образа (см. корневой Dockerfile) минимизирован:
+# builder-стадии реально нужны только pyproject.toml, uv.lock и src/.
+# Всё остальное (dev-окружение, история, доки, тестовые артефакты) сюда не
+# копируем — быстрее сборка и меньше риск случайно затащить лишнее в слой.
+
+.git
+.github
+.planning
+.devcontainer
+tests
+legacy
+scratch
+docker
+
+**/__pycache__
+*.pyc
+*.pyo
+*.mkv
+*.scenes
+
+.venv
+.pytest_cache
+.ruff_cache
+dist
+
+*.md
+LICENSE
+PIPELINE_DESIGN.md
