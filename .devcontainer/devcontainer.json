@@ -1,0 +1,41 @@
+{
+  "name": "encode-scripts — Arc QSV AV1 (детект + энкод)",
+  "build": { "dockerfile": "Dockerfile" },
+
+  // --- Встроенные devcontainer-фичи (максимум готового, минимум ручного) ---
+  // Python, git, common-utils (vscode-юзер, zsh) уже в базовом python-образе —
+  // фичами их не дублируем. Ставим только то, чего в образе нет.
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": { "version": "lts" },
+    // Claude Code — официальная фича Anthropic
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
+
+  // --- Проброс Intel Arc A380 (VA-API/QSV): узлы /dev/dri (card* + renderD*) ---
+  // Права на renderD-узел выдаёт post-create (GID группы render зависит от хоста).
+  "runArgs": [
+    "--device=/dev/dri:/dev/dri"
+  ],
+
+  // --- Проброс медиапапок хоста ---
+  "mounts": [
+    "source=/data/media,target=/data/media,type=bind,consistency=cached",
+    "source=/data/downloads,target=/data/downloads,type=bind,consistency=cached"
+  ],
+
+  "containerEnv": {
+    // iHD — драйвер Intel Media для Arc/Alchemist (тот же, что на хосте)
+    "LIBVA_DRIVER_NAME": "iHD"
+  },
+
+  // opencode + qwen-code (npm), Python-зависимости проекта, права на GPU, проверки
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-python.vscode-pylance"]
+    }
+  },
+
+  "remoteUser": "vscode"
+}

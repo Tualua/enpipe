@@ -228,3 +228,12 @@ scratch/wd_*/
 # non-redistributable HDR10+/DV samples -- README.md stays tracked)
 tests/fixtures/media/*
 !tests/fixtures/media/README.md
+
+# enpipe генерируемые выводы и исходное медиа (нередистрибутируемое):
+# логи сцен, raw-OBU чанки, финальные AV1-выходы, любые mkv. В репозиторий
+# не коммитим -- это артефакты прогонов, а не исходники.
+*.scenes
+*.obu
+*.av1.mkv
+*.Encoded.*
+*.mkv
