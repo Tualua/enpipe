@@ -104,11 +104,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # распаковываем .deb, вырезаем эти две зависимости из control, пересобираем
 # и ставим через apt — так реальные зависимости (libc/libstdc++/…)
 # резолвятся штатно. Рантайм oneVPL/OpenCL уже стоит выше.
-RUN set -eux; \
-    url="$(curl -fsSL https://api.github.com/repos/rigaya/QSVEnc/releases/latest \
+#
+# Опциональная авторизация к api.github.com: неавторизованный лимит —
+# 60 запросов/час НА ОБЩИЙ IP раннера (флаки-403 на shared CI-раннерах);
+# секрет опционален (required=false), локальная сборка без него ведёт
+# себя как раньше; с токеном лимит поднимается до 5000/час.
+RUN --mount=type=secret,id=github_token,required=false set -eux; \
+    if [ -s /run/secrets/github_token ]; then \
+        set -- -H "Authorization: Bearer $(cat /run/secrets/github_token)"; \
+    else \
+        set --; \
+    fi; \
+    url="$(curl -fsSL "$@" https://api.github.com/repos/rigaya/QSVEnc/releases/latest \
           | jq -r '.assets[].browser_download_url | select(test("_amd64.deb$"))' | head -1)"; \
     test -n "$url"; \
-    curl -fsSL -o /tmp/qsvencc.deb "$url"; \
+    curl -fsSL "$@" -o /tmp/qsvencc.deb "$url"; \
     tmpd="$(mktemp -d)"; \
     dpkg-deb -R /tmp/qsvencc.deb "$tmpd"; \
     awk 'BEGIN{FS=OFS=": "} /^Depends:/{n=split($2,a,","); s=""; for(i=1;i<=n;i++){t=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",t); g=t; sub(/[ (|].*/,"",g); if(g!="intel-opencl-icd" && g!="libmfx1"){s=(s==""?t:s","t)}} $0="Depends: " s} {print}' \
@@ -127,11 +137,21 @@ RUN set -eux; \
 # per-chunk, без dovi_tool); держим его установленным ЦЕЛЕНАПРАВЛЕННО ради
 # запланированной точной DV RPU-проверки (см. DEBT-04 в .devcontainer/
 # Dockerfile) — по решению пользователя оставить и в рантайм-образе.
-RUN set -eux; \
-    url="$(curl -fsSL https://api.github.com/repos/quietvoid/dovi_tool/releases/latest \
+#
+# Опциональная авторизация к api.github.com: неавторизованный лимит —
+# 60 запросов/час НА ОБЩИЙ IP раннера (флаки-403 на shared CI-раннерах);
+# секрет опционален (required=false), локальная сборка без него ведёт
+# себя как раньше; с токеном лимит поднимается до 5000/час.
+RUN --mount=type=secret,id=github_token,required=false set -eux; \
+    if [ -s /run/secrets/github_token ]; then \
+        set -- -H "Authorization: Bearer $(cat /run/secrets/github_token)"; \
+    else \
+        set --; \
+    fi; \
+    url="$(curl -fsSL "$@" https://api.github.com/repos/quietvoid/dovi_tool/releases/latest \
           | jq -r '.assets[].browser_download_url | select(test("x86_64-unknown-linux-musl.tar.gz$"))' | head -1)"; \
     test -n "$url"; \
-    curl -fsSL -o /tmp/dovi.tgz "$url"; \
+    curl -fsSL "$@" -o /tmp/dovi.tgz "$url"; \
     tmpd="$(mktemp -d)"; \
     tar -xzf /tmp/dovi.tgz -C "$tmpd"; \
     install -m0755 "$(find "$tmpd" -type f -name dovi_tool | head -1)" /usr/local/bin/dovi_tool; \
