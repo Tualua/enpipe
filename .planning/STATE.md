@@ -4,12 +4,12 @@ milestone: v1.1
 milestone_name: Single-command pipeline entry point
 status: "Roadmap defined, awaiting `/gsd:plan-phase 5`"
 stopped_at: Phase 5 context gathered
-last_updated: "2026-07-09T01:21:40.357Z"
+last_updated: "2026-07-09T01:30:53.526Z"
 last_activity: 2026-07-09 — v1.1 roadmap created (Phase 5, continues numbering from v1.0's Phase 4)
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 10
+  total_plans: 11
   completed_plans: 10
   percent: 80
 ---
