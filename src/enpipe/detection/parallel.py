@@ -15,7 +15,7 @@ legacy-файла на два модуля — см. RESEARCH.md Pattern 2."""
 from __future__ import annotations
 
 import subprocess
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Tuple
 
 from scenedetect.platform import tqdm
@@ -140,8 +140,13 @@ def _boundary_worker(args: tuple) -> Optional[Tuple[int, float, bool]]:
 
 
 def _segment_worker(args: tuple) -> List[Tuple[int, int]]:
-    path, config, seek_sec, to_sec = args
-    stream = QsvPipeStream(path, config, seek_sec=seek_sec, to_sec=to_sec)
+    # 5-й элемент (progress_cb) опционален — 4-кортежные вызовы (ветка
+    # show_progress=False через ex.map + test_parallel_merge) продолжают
+    # работать без правок.
+    path, config, seek_sec, to_sec = args[0], args[1], args[2], args[3]
+    progress_cb = args[4] if len(args) > 4 else None
+    stream = QsvPipeStream(path, config, seek_sec=seek_sec, to_sec=to_sec,
+                           progress_cb=progress_cb)
     return _detect_relative(stream, config)
 
 
@@ -188,27 +193,25 @@ def detect_scenes_parallel(
             # Байт-идентичный прежнему поведению путь — не трогать.
             results = list(ex.map(_segment_worker, seg_args))
         else:
-            # Сабмитим В ИСХОДНОМ ПОРЯДКЕ, чтобы каждому future заранее было
-            # известно, какому сегменту (и какому кадровому размаху) он
-            # соответствует — это нужно и для прогресс-бара (update на
-            # завершение любого сегмента), и, ниже, для сборки results СТРОГО
-            # по futures[i], а не по порядку завершения (as_completed),
-            # иначе склейка на «стыках-не-резах» (шаги 3-4) сломается: она
-            # зависит от порядка сегментов, а не от того, какой закончился
-            # раньше.
-            futures = [ex.submit(_segment_worker, a) for a in seg_args]
-            span_by_future = {
-                futures[i]: bnds[i + 1][0] - bnds[i][0]
-                for i in range(len(futures))
-            }
+            # Один общий бар, который двигают ПОКАДРОВЫЕ cb-вызовы из
+            # read() КАЖДОГО сегментного потока (tqdm.update потокобезопасен)
+            # — так бар плавно ползёт по мере декода, а не рывком по
+            # завершению целого сегмента. КРИТИЧНО: results собираются ниже
+            # СТРОГО по futures[i] (не as_completed) — cut-математика шагов
+            # 3-4 зависит от порядка сегментов, а не от того, какой
+            # закончился раньше; иначе склейка на «стыках-не-резах» сломается.
+            # Сумма покадровых update ≈ total (ведущие -ss кадры отбрасывает
+            # select в _build_command и в read() не попадают) — бар может
+            # закрыться на ~99%, это косметика, tqdm недо/переполнение терпит.
             bar = tqdm(total=total, unit="frame",
                       desc=f"Детект сцен (jobs={jobs})")
+            cb = bar.update
+            seg_args_p = [a + (cb,) for a in seg_args]  # cb пятым элементом
             try:
-                for f in as_completed(span_by_future):
-                    bar.update(span_by_future[f])
+                futures = [ex.submit(_segment_worker, a) for a in seg_args_p]
+                results = [f.result() for f in futures]  # В ИСХОДНОМ ПОРЯДКЕ
             finally:
                 bar.close()
-            results = [f.result() for f in futures]  # В ИСХОДНОМ ПОРЯДКЕ
 
     # 3) абсолютные кадры = накопленная сумма реальных счётчиков (НЕ round(pts*fps),
     #    он дрейфует от индекса декода). copyts+select в потоке убирает ведущие
