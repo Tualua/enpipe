@@ -14,6 +14,8 @@ FileNotFoundError из недр detect_scenes, ровно как в legacy, а �
 
 from __future__ import annotations
 
+import sys
+import time
 from pathlib import Path
 
 from .config import DetectionConfig
@@ -41,7 +43,15 @@ def run_detect(args) -> None:
     # по умолчанию: <путь-к-видео>.scenes (напр. movie.mkv -> movie.mkv.scenes)
     out_path = args.output or Path(str(args.input) + ".scenes")
 
-    scenes = detect_scenes(args.input, cfg, jobs=args.jobs)
+    # СТАРТ/ФИНИШ-строки и живой прогресс-бар — в stderr, чтобы не смешиваться
+    # с парсибельной итог-строкой в stdout (ниже).
+    mode = "параллельный" if args.jobs and args.jobs > 1 else "последовательный"
+    print(f"Детекция сцен: {args.input} (jobs={args.jobs}, {mode})",
+          file=sys.stderr, flush=True)
+    t0 = time.monotonic()
+    scenes = detect_scenes(args.input, cfg, jobs=args.jobs, show_progress=True)
+    print(f"Готово: {len(scenes)} сцен за {time.monotonic() - t0:.1f}с",
+          file=sys.stderr, flush=True)
     lines = [
         f"scene {scene.index:4d}  frames [{scene.start_frame:8d}, "
         f"{scene.end_frame:8d})  {scene.start_sec:10.3f}s .. {scene.end_sec:10.3f}s"

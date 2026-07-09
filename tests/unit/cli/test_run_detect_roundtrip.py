@@ -41,10 +41,11 @@ def test_run_detect_writes_lines_matching_scene_re_and_round_trips(tmp_path, mon
 
     recorded = {}
 
-    def _detect_scenes_stub(path, cfg, jobs):
+    def _detect_scenes_stub(path, cfg, jobs, show_progress=False):
         recorded["path"] = path
         recorded["cfg"] = cfg
         recorded["jobs"] = jobs
+        recorded["show_progress"] = show_progress
         return list(_SYNTHETIC_SCENES)
 
     monkeypatch.setattr(p, "detect_scenes", _detect_scenes_stub)
@@ -75,7 +76,9 @@ def test_run_detect_output_flag_overrides_default_path(tmp_path, monkeypatch):
     video.write_bytes(b"dummy")
     explicit_out = tmp_path / "custom.scenes"
 
-    monkeypatch.setattr(p, "detect_scenes", lambda path, cfg, jobs: list(_SYNTHETIC_SCENES))
+    monkeypatch.setattr(
+        p, "detect_scenes",
+        lambda path, cfg, jobs, show_progress=False: list(_SYNTHETIC_SCENES))
 
     args = _base_args(input=video, output=explicit_out)
     p.run_detect(args)
@@ -92,7 +95,7 @@ def test_run_detect_min_scene_len_precedence_frames_wins(monkeypatch, tmp_path):
     video.write_bytes(b"dummy")
     captured_cfg = {}
 
-    def _detect_scenes_stub(path, cfg, jobs):
+    def _detect_scenes_stub(path, cfg, jobs, show_progress=False):
         captured_cfg["cfg"] = cfg
         return list(_SYNTHETIC_SCENES)
 
@@ -110,7 +113,7 @@ def test_run_detect_min_scene_len_precedence_seconds_when_no_frames(monkeypatch,
     video.write_bytes(b"dummy")
     captured_cfg = {}
 
-    def _detect_scenes_stub(path, cfg, jobs):
+    def _detect_scenes_stub(path, cfg, jobs, show_progress=False):
         captured_cfg["cfg"] = cfg
         return list(_SYNTHETIC_SCENES)
 
@@ -128,7 +131,7 @@ def test_run_detect_min_scene_len_default_when_neither_given(monkeypatch, tmp_pa
     video.write_bytes(b"dummy")
     captured_cfg = {}
 
-    def _detect_scenes_stub(path, cfg, jobs):
+    def _detect_scenes_stub(path, cfg, jobs, show_progress=False):
         captured_cfg["cfg"] = cfg
         return list(_SYNTHETIC_SCENES)
 
@@ -146,7 +149,7 @@ def test_run_detect_no_qsv_maps_use_qsv_false(monkeypatch, tmp_path):
     video.write_bytes(b"dummy")
     captured_cfg = {}
 
-    def _detect_scenes_stub(path, cfg, jobs):
+    def _detect_scenes_stub(path, cfg, jobs, show_progress=False):
         captured_cfg["cfg"] = cfg
         return list(_SYNTHETIC_SCENES)
 
