@@ -23,35 +23,28 @@ from typing import Optional, Sequence
 
 from enpipe.detection.pipeline import run_detect
 from enpipe.encoding.pipeline import JOBS as ENCODE_JOBS
-from enpipe.encoding.pipeline import run_encode
+from enpipe.encoding.pipeline import resolve_output_path, run_encode
+from enpipe.shared.batch import iter_input_videos, run_batch
 from enpipe.shared.logging import die
 
 
-def run_pipeline(args) -> None:
-    """Тонкий последовательный оркестратор `enpipe run` (D-01/D-02): собирает
-    detect-Namespace -> run_detect (пишет <video>.scenes) -> encode-Namespace
+def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
+    """Один прогон detect->encode для ОДНОГО видео (D-01/D-02): собирает
+    detect-Namespace -> run_detect (пишет scenes_path) -> encode-Namespace
     (scenes = только что записанный путь) -> run_encode. Строго
     последовательно (без overlap/queue.Queue) -- run_encode стартует только
     после возврата run_detect. Никакой собственной пайплайн-логики -- обе
     стадии вызываются с теми же значениями атрибутов, что и ручной
     двухшаговый запуск, поэтому байт-идентичность гарантирована по
-    построению.
+    построению. Namespace-поля НЕ переименовывать -- test_cli_run.py
+    проверяет их поимённо (в т.ч. non-contamination между стадиями).
 
-    ДОПОЛНИТЕЛЬНЫЙ fail-fast preflight (аддитивный UX, не меняет поведение
-    ни run_detect, ни run_encode -- у run_encode остаётся СВОЙ preflight):
-    проверяет инструменты энкод-стадии ДО запуска (потенциально долгого)
-    детекта, чтобы не тратить его впустую, если энкодер всё равно упадёт из-за
-    отсутствующего инструмента."""
-    for tool in ("qsvencc", "ffprobe", "ffmpeg", "mkvmerge"):
-        if not shutil.which(tool):
-            die(f"не найден {tool}")
-
-    # тот же путь, что использует enpipe detect (detection/pipeline.py:42);
-    # сохраняется (D-04), не удаляется
-    scenes_path = args.scenes or Path(str(args.video) + ".scenes")
-
+    Извлечено из run_pipeline (QUICK-260709-89t) для переиспользования и
+    одиночным путём, и батч-веткой директории — тело дословно то же, что
+    было в run_pipeline до извлечения; which-preflight остаётся в
+    run_pipeline (делается один раз на весь батч, не на файл)."""
     detect_args = argparse.Namespace(
-        input=args.video,
+        input=video,
         output=scenes_path,
         width=args.width,
         threshold=args.threshold,
@@ -64,7 +57,7 @@ def run_pipeline(args) -> None:
     run_detect(detect_args)
 
     encode_args = argparse.Namespace(
-        video=args.video,
+        video=video,
         scenes=scenes_path,
         out=args.out,
         frm=args.frm,
@@ -77,6 +70,57 @@ def run_pipeline(args) -> None:
         csv=args.csv,
     )
     run_encode(encode_args)
+
+
+def run_pipeline(args) -> None:
+    """Диспетчер `enpipe run` (D-01/D-02, QUICK-260709-89t): which-preflight
+    -> ветвление файл-или-директория СТРОГО по `.is_dir()` (несуществующий
+    путь и файл идут одиночным путём -- байт-идентичность с
+    test_cli_run.py/test_cli_dispatch.py гарантирована тем, что ветка
+    директории вообще не задействуется).
+
+    ДОПОЛНИТЕЛЬНЫЙ fail-fast preflight (аддитивный UX, не меняет поведение
+    ни run_detect, ни run_encode -- у run_encode остаётся СВОЙ preflight):
+    проверяет инструменты энкод-стадии ДО запуска (потенциально долгого)
+    детекта, чтобы не тратить его впустую, если энкодер всё равно упадёт из-за
+    отсутствующего инструмента."""
+    for tool in ("qsvencc", "ffprobe", "ffmpeg", "mkvmerge"):
+        if not shutil.which(tool):
+            die(f"не найден {tool}")
+
+    if args.video.is_dir():
+        # GUARD: батч пробрасывает out/workdir/csv в КАЖДОЕ видео папки —
+        # если они указывают на ОДИН путь/файл, выходы всех видео
+        # схлопываются в один, и второе+ видео молча уходит в skipped
+        # вместо кодирования (T-89t-04, потеря видео тихо — нарушение
+        # correctness-first). --scenes тоже одноместный: .scenes должен
+        # писаться РЯДОМ с каждым файлом, а не в один общий путь.
+        if args.scenes is not None:
+            die("--scenes нельзя с папкой: .scenes пишется рядом с каждым файлом")
+        if args.out is not None and not args.out.is_dir():
+            die("в батче -o должен быть папкой или опущен, иначе все выходы "
+                "схлопнутся в один файл")
+        if args.workdir is not None:
+            die("--workdir нельзя с папкой: единый workdir смешает чанки разных источников")
+        if args.csv is not None:
+            die("--csv нельзя с папкой: единый csv перезапишется каждым видео")
+
+        videos = iter_input_videos(args.video, getattr(args, "recursive", False))
+        if not videos:
+            die("в папке нет видеофайлов")
+
+        def process_one(v: Path) -> None:
+            _pipeline_one(v, Path(str(v) + ".scenes"), args)
+
+        def should_skip(v: Path) -> Optional[str]:
+            return "уже готов" if resolve_output_path(v, args.out).exists() else None
+
+        run_batch(videos, process_one, "run", should_skip)
+        return
+
+    # одиночный файл ИЛИ несуществующий путь: байт-идентично прежнему
+    scenes_path = args.scenes or Path(str(args.video) + ".scenes")
+    _pipeline_one(args.video, scenes_path, args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -98,12 +142,16 @@ def build_parser() -> argparse.ArgumentParser:
     detect_p.add_argument("--qsv-device", default=None)
     detect_p.add_argument("--jobs", type=int, default=4,
                            help="параллельных сегментов детекта (дефолт 4; 1 = последовательно)")
+    detect_p.add_argument("--recursive", action="store_true",
+                           help="рекурсивный обход вложенных папок (только если input — папка)")
     detect_p.set_defaults(func=run_detect)
 
     encode_p = sub.add_parser(
         "encode", description="Сцен-осознанный AV1-энкод (Arc/QSV)")
     encode_p.add_argument("video", type=Path)
-    encode_p.add_argument("scenes", type=Path, help="scene_out.log от enpipe detect")
+    encode_p.add_argument("scenes", type=Path, nargs="?", default=None,
+                           help="scene_out.log от enpipe detect "
+                                "(по умолчанию <видео>.scenes рядом с источником)")
     encode_p.add_argument("-o", "--out", type=Path, default=None,
                            help="итоговый .mkv (по умолчанию <видео>.av1.mkv рядом с источником); "
                                 "если указан путь к СУЩЕСТВУЮЩЕЙ директории, файл кладётся внутрь "
@@ -118,6 +166,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="не считать PSNR/SSIM (быстрее)")
     encode_p.add_argument("--csv", type=Path, default=None,
                            help="CSV с метриками (по умолчанию <out>.metrics.csv)")
+    encode_p.add_argument("--recursive", action="store_true",
+                           help="рекурсивный обход вложенных папок (только если video — папка)")
     encode_p.set_defaults(func=run_encode)
 
     run_p = sub.add_parser(
@@ -153,6 +203,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="CSV с метриками (по умолчанию <out>.metrics.csv)")
     run_p.add_argument("--encode-jobs", type=int, default=ENCODE_JOBS,
                         help="параллельных qsvencc-сессий (дефолт из JOBS/env)")
+    run_p.add_argument("--recursive", action="store_true",
+                        help="рекурсивный обход вложенных папок (только если video — папка)")
     run_p.set_defaults(func=run_pipeline)
 
     return parser
