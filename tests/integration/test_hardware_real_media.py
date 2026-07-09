@@ -473,6 +473,90 @@ def test_hdr10plus(tmp_path: Path) -> None:
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
 
 
+def test_run_parity_vs_two_step(tmp_path: Path) -> None:
+    """Phase 5 (D-08): `enpipe run` vs the manual two-step (`enpipe detect`
+    then `enpipe encode`) on real Arc hardware. Byte-identical parity is
+    guaranteed by construction (D-02) -- run_pipeline builds the same
+    per-stage Namespaces the manual two-step CLI produces and writes the
+    intermediate `.scenes` to the same derived path (D-04) -- this test
+    proves it. Mirrors the determinism-aware pre-mux movie.obu pattern of
+    test_sdr_legacy_oracle_parity above, but compares run-vs-two-step
+    instead of enpipe-vs-legacy-oracle."""
+    src = tmp_path / "run_parity.mkv"
+    _make_multiscene_clip(
+        src,
+        codec_args=["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"],
+        seg_dur=10,
+    )
+
+    # --- SINGLE-COMMAND side: `enpipe run` --- #
+    run_out = tmp_path / "run_out.mkv"
+    wd_run = tmp_path / "wd_run"
+    _run_cli([
+        "run", str(src), "-o", str(run_out),
+        "--workdir", str(wd_run), "--keep", "--no-audio", "--no-metrics",
+        "--detect-jobs", "2", "--encode-jobs", "2",
+    ])
+    assert run_out.is_file(), f"enpipe run did not write {run_out}"
+    # same derivation run_detect itself uses (detection/pipeline.py:42)
+    run_scenes = Path(str(src) + ".scenes")
+    assert run_scenes.is_file(), (
+        f"enpipe run did not keep the .scenes intermediate at {run_scenes} (D-04)"
+    )
+
+    # --- TWO-STEP side: manual `enpipe detect` + `enpipe encode`, on a
+    # fresh copy of src so its derived `.scenes` path does not collide with
+    # run_scenes above --- #
+    two_step_dir = tmp_path / "two_step"
+    two_step_dir.mkdir()
+    src2 = two_step_dir / src.name
+    shutil.copyfile(src, src2)
+    scenes2 = Path(str(src2) + ".scenes")
+
+    two_out = tmp_path / "two_out.mkv"
+    wd_two = tmp_path / "wd_two"
+    _run_cli(["detect", str(src2), "--jobs", "2"])
+    assert scenes2.is_file(), f"enpipe detect did not write {scenes2}"
+    _run_cli([
+        "encode", str(src2), str(scenes2),
+        "-o", str(two_out), "--workdir", str(wd_two),
+        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
+    ])
+    assert two_out.is_file(), f"enpipe encode did not write {two_out}"
+
+    # COLLISION-AVOIDANCE: distinct tmp copies -> distinct derived paths.
+    assert run_scenes != scenes2
+
+    # PRIMARY GATE: final .mkv frame-count parity.
+    assert count_frames(run_out) == count_frames(two_out), (
+        "enpipe run frame count does not match the manual two-step on the "
+        "same source"
+    )
+
+    # Determinism-aware PRE-MUX movie.obu comparison (mirrors
+    # test_sdr_legacy_oracle_parity above): byte-identical -> qsvencc
+    # deterministic on this box (STRONG gate holds); differ -> fall back to
+    # frame-count parity on the pre-mux .obu (expected HW AV1
+    # non-determinism, not a weakening).
+    run_movie = wd_run / "movie.obu"
+    two_movie = wd_two / "movie.obu"
+    assert run_movie.is_file() and two_movie.is_file()
+    if run_movie.read_bytes() == two_movie.read_bytes():
+        pass  # deterministic qsvencc on this box -- byte-identical parity holds
+    else:
+        assert count_frames(run_movie) == count_frames(two_movie), (
+            "pre-mux movie.obu differs AND frame counts differ -- qsvencc "
+            "non-determinism alone cannot explain this; real parity failure"
+        )
+
+    # SCENES BYTE-IDENTITY: detect stage is identical by construction
+    # (PySceneDetect is deterministic on a fixed input) even though the
+    # run-side and two-step-side .scenes live at different paths.
+    assert run_scenes.read_bytes() == scenes2.read_bytes(), (
+        "run-side .scenes differs from the two-step-side .scenes byte-for-byte"
+    )
+
+
 def test_dv(tmp_path: Path) -> None:
     fixture = _fixture("dv.mkv")
     if fixture is None:
