@@ -1,13 +1,21 @@
-"""QUICK-TQDM-01: hardware-free proof that show_progress пробрасывается через
-detect_scenes (последовательный путь) и detect_scenes_parallel (параллельный
-путь), причём при show_progress=False|True детект_scenes_parallel даёт
-СТРОГО ОДНИ И ТЕ ЖЕ Scene (порядок и границы, не зависящие от порядка
-завершения futures). Как и test_parallel_merge.py, никакого subprocess/GPU:
+"""QUICK-TQDM-01 + QUICK-260709-711: hardware-free proof that show_progress
+пробрасывается через detect_scenes (последовательный путь) и
+detect_scenes_parallel (параллельный путь), причём при
+show_progress=False|True детект_scenes_parallel даёт СТРОГО ОДНИ И ТЕ ЖЕ
+Scene (порядок и границы, не зависящие от порядка завершения futures).
+
+QUICK-260709-711: as_completed-путь в parallel.py убран — общий tqdm-бар
+теперь двигают ПОКАДРОВЫЕ progress_cb-вызовы из read() каждого сегментного
+потока (5-й элемент seg_args), а не span-апдейт по факту завершения
+сегмента. _fake_segment_worker ниже эмулирует это, дёргая cb ровно _SEG_LEN
+раз на сегмент — так `sum(updates) == _TOTAL_FRAMES` остаётся валидной
+регрессией уже под новую модель.
+
+Как и test_parallel_merge.py, никакого subprocess/GPU:
 QsvPipeStream/SceneManager (последовательный путь) и
-probe_source/_boundary_worker/_segment_worker/ThreadPoolExecutor/
-as_completed/tqdm (параллельный путь) — замоканы синтетическими
-заглушками, так что реальная логика detect.py/parallel.py, которую
-затронул QUICK-TQDM-01, выполняется целиком и именно она проверяется."""
+probe_source/_boundary_worker/_segment_worker/ThreadPoolExecutor/tqdm
+(параллельный путь) — замоканы синтетическими заглушками, так что реальная
+логика detect.py/parallel.py выполняется целиком и именно она проверяется."""
 
 from __future__ import annotations
 
@@ -139,14 +147,6 @@ class _SyncExecutor:
         return _FakeFuture(fn(arg))
 
 
-def _fake_as_completed(futures_iterable):
-    """Дублёр concurrent.futures.as_completed: наши _FakeFuture — не
-    настоящие Future и завершены сразу (синхронный submit выше), поэтому
-    просто возвращаем их в порядке итерации (span_by_future — dict, порядок
-    вставки сохранён)."""
-    return list(futures_iterable)
-
-
 def _make_fake_tqdm(sink: Dict[str, object]):
     class _FakeTqdm:
         def __init__(self, total=None, unit=None, desc=None) -> None:
@@ -181,7 +181,14 @@ def _fake_boundary_worker(args: tuple) -> Optional[Tuple[int, float, bool]]:
 
 
 def _fake_segment_worker(args: tuple) -> List[Tuple[int, int]]:
-    _path, _config, _seek_sec, _to_sec = args
+    """Симулирует покадровое чтение реального QsvPipeStream.read(): если
+    передан progress_cb (5-й элемент, show_progress=True-путь), дёргает его
+    ровно _SEG_LEN раз — по разу на "прочитанный" кадр сегмента. Путь
+    show_progress=False (4-кортеж, ex.map) даёт cb=None -> 0 вызовов."""
+    cb = args[4] if len(args) > 4 else None
+    if cb is not None:
+        for _ in range(_SEG_LEN):
+            cb(1)
     return [(0, _SEG_LEN)]
 
 
@@ -192,7 +199,6 @@ def _patch_media_layer(monkeypatch) -> None:
     monkeypatch.setattr(
         parallel_module, "_segment_worker", _fake_segment_worker)
     monkeypatch.setattr(parallel_module, "ThreadPoolExecutor", _SyncExecutor)
-    monkeypatch.setattr(parallel_module, "as_completed", _fake_as_completed)
 
 
 def test_parallel_progress_preserves_order(monkeypatch) -> None:
