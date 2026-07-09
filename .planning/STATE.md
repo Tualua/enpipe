@@ -5,7 +5,7 @@ milestone_name: Single-command pipeline entry point
 status: milestone_complete
 stopped_at: Milestone complete (Phase 5 was final phase)
 last_updated: 2026-07-09T04:53:00.000Z
-last_activity: 2026-07-09 -- Completed quick task 260709-6jo (живой tqdm-прогресс детекции сцен)
+last_activity: 2026-07-09 -- Completed quick task 260709-711 (плавный покадровый параллельный прогресс-бар)
 progress:
   total_phases: 5
   completed_phases: 5
@@ -125,6 +125,7 @@ None yet.
 | 260709-4h8 | `-o` accepts a directory → `<stem>.Encoded<suffix>` inside it (fixes chunks-workdir PermissionError) | 2026-07-09 | cb49cc7 | [260709-4h8-o-accepts-a-directory-output-filename-be](./quick/260709-4h8-o-accepts-a-directory-output-filename-be/) |
 | 260709-629 | Тихий выход по Ctrl-C (SIGINT): перехват `KeyboardInterrupt` в `main()` → `SystemExit(130)`, без трейсбеков | 2026-07-09 | c942e05 | [260709-629-ctrl-c-sigint](./quick/260709-629-ctrl-c-sigint/) |
 | 260709-6jo | Живой tqdm-прогресс детекции сцен: СТАРТ/ФИНИШ-строки в stderr, штатный бар (последовательно) / агрегированный бар (параллельно); cut-математика и порядок результатов не изменились | 2026-07-09 | b39d1c9 | [260709-6jo-live-tqdm](./quick/260709-6jo-live-tqdm/) |
+| 260709-711 | Плавный ПОКАДРОВЫЙ прогресс-бар в параллельном режиме: `progress_cb`-хук в `QsvPipeStream.read()` двигает общий бар из всех сегмент-потоков (было: скачки по завершении целого сегмента, висело на 0%). Ветка `show_progress=False`, cut-математика и порядок `results` не тронуты | 2026-07-09 | 05c8ab6 | [260709-711-smooth-per-frame-progress-bar](./quick/260709-711-smooth-per-frame-progress-bar/) |
 
 ## Deferred Items
 
