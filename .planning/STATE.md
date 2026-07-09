@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Single-command pipeline entry point
 status: planning
-last_updated: "2026-07-09T01:13:50.263Z"
+last_updated: "2026-07-09T00:00:00.000Z"
 last_activity: 2026-07-09
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-08)
+See: .planning/PROJECT.md (updated 2026-07-09)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Milestone complete
+**Current focus:** Phase 5 — Single-Command Pipeline Entry Point (`enpipe run`)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-09 — Milestone v1.1 started
+Phase: 5 — Single-Command Pipeline Entry Point (not started)
+Plan: — (roadmap created, plans not yet written)
+Status: Roadmap defined, awaiting `/gsd:plan-phase 5`
+Last activity: 2026-07-09 — v1.1 roadmap created (Phase 5, continues numbering from v1.0's Phase 4)
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Last activity: 2026-07-09 — Milestone v1.1 started
 | 2 | 2 | - | - |
 | 3 | 3 | - | - |
 | 4 | 2 | - | - |
+| 5 | 0 | - | - |
 
 **Recent Trend:**
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - Roadmap: Fast test tier + `shared.proc` seam (Phase 1) must exist before any refactor of correctness-critical code (EBML isolation, seek/trim extraction — Phase 2)
 - Roadmap: ThreadPool-vs-ProcessPool resolution (DEBT-03) must land before the parallel==sequential regression baseline (TEST-03) is captured — both placed in Phase 3
 - Roadmap: Unified CLI entry point (PKG-01) deliberately deferred to Phase 4, after both detect and encode stages are independently verified
+- Roadmap (v1.1): Phase numbering continues from v1.0 (starts at Phase 5, not reset to 1)
+- Roadmap (v1.1): All 4 RUN-* requirements collapsed into a single Phase 5 — coarse granularity + this is a thin sequential wrapper over already-verified v1.0 stages, not a multi-capability milestone; no natural sub-boundary to split on
+- Roadmap (v1.1): Phase 5 depends only on Phase 4 (needs `run_detect`/`run_encode` + the unified CLI dispatcher to exist and be hardware-verified before wrapping them)
 - [Phase 01-01]: Confirmed scenedetect exact pin ==0.7 matches installed/working version (PEP 440 0.7.0); no other 0.7.x exists on PyPI
 - [Phase 01-01]: Ran uv lock immediately after writing pyproject.toml deps (fail-fast) before scaffolding source files, per plan instruction
 - [Phase 01-02]: jobs=1 used on both sides of the D-14 detection parity check (oracle CLI and migrated detect_scenes) for a deterministic comparison, isolating mechanical-migration correctness from the separately-verified parallel-jobs circular-import path
@@ -107,8 +111,9 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 3 (ThreadPool/ProcessPool): resolution direction is genuinely unknown until profiled; do not pre-decide during planning
-- Phase 4 (hardware-gated validation): self-hosted GitHub Actions runner with `/dev/dri` passthrough is a nontrivial, security-sensitive setup; real DV/HDR10+ source material does not yet exist and needs sourcing
+- Phase 5 (`enpipe run`): flag-name overlaps between detect and encode argparse surfaces (e.g. `--jobs` exists on both, with different defaults — detect hardcodes 4, encode reads `JOBS` env default 3) need an unambiguous resolution strategy before implementation (e.g. per-stage prefixed flags, or a single shared flag with documented precedence) — do not pre-decide during planning, resolve in Phase 5 planning/implementation
+- Phase 5 (`enpipe run`): the `.scenes` intermediate file handling (kept vs. workdir-scoped vs. cleaned up) must not change `run_detect`/`run_encode` behavior — needs explicit design in the phase plan
+- Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual
 
 ## Deferred Items
 
@@ -119,9 +124,11 @@ Items acknowledged and carried forward from previous milestone close:
 | v2 | OBS-01 (stdlib logging) | Deferred to v2 | Roadmap creation 2026-07-08 |
 | v2 | CFG-01 (typed config layer) | Deferred to v2 | Roadmap creation 2026-07-08 |
 | v2 | QUAL-01/02/03, CI-02 (ruff+pyright in CI, golden-file EBML fixtures, coverage/hypothesis, image parity+Renovate) | Deferred to v2 | Roadmap creation 2026-07-08 |
+| Out of scope | Overlapped/streaming orchestrator (`queue.Queue` producer/consumer) | Deferred until source moves to SSD/NVMe | v1.1 scoping 2026-07-08 |
 
 ## Session Continuity
 
-Last session: 2026-07-08T17:06:28.206Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-07-09T00:00:00.000Z
+Stopped at: v1.1 roadmap created (Phase 5: Single-Command Pipeline Entry Point)
 Resume file: None
+</content>

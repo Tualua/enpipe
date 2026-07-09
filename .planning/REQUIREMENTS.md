@@ -100,12 +100,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEBT-03 | Phase 3 | Complete |
 | DEBT-04 | Phase 3 | Complete |
 | CI-01 | Phase 3 | Complete |
+| RUN-01 | Phase 5 | Pending |
+| RUN-02 | Phase 5 | Pending |
+| RUN-03 | Phase 5 | Pending |
+| RUN-04 | Phase 5 | Pending |
 
-**Coverage:**
+**Coverage (v1.0, shipped):**
 - v1 requirements: 11 total
 - Mapped to phases: 11 (roadmap created)
 - Unmapped: 0
 
+**Coverage (v1.1, active):**
+- v1.1 requirements: 4 total (RUN-01, RUN-02, RUN-03, RUN-04)
+- Mapped to phases: 4 (Phase 5)
+- Unmapped: 0
+
 ---
 *Requirements defined: 2026-07-08*
-*Last updated: 2026-07-08 after roadmap creation (4 phases, coarse granularity)*
+*Last updated: 2026-07-09 after v1.1 roadmap creation (Phase 5 added, coarse granularity, continues numbering from v1.0 Phase 4)*

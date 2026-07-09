@@ -4,6 +4,8 @@
 
 `enpipe` is currently two working, unpackaged, untested `argparse` scripts (`legacy/scene_detection.py`, `legacy/encode_scenes.py`) that have never been run against real media. This milestone is engineering maturity — not new transcode features, not the streaming orchestrator. The journey: first make the codebase installable and pinned with a fast, hardware-free test tier and a subprocess seam (Phase 1); then, and only then, isolate the correctness-critical EBML parser and seek/trim arithmetic behind pure, unit-tested functions with zero behavior change (Phase 2); then resolve the ThreadPool/ProcessPool inconsistency, capture the mandatory parallel==sequential regression baseline on top of that resolved implementation, and wire it all into CI (Phase 3); and finally add the unified CLI entry point and close the "never run on real video" gap with hardware-gated validation against real Arc GPU hardware (Phase 4). `legacy/` remains in place throughout as the byte-identical parity oracle.
 
+**v1.1 (Single-command pipeline entry point):** With both stages independently verified in v1.0, this milestone adds a single thin `enpipe run <video>` wrapper that composes `run_detect` → `run_encode` sequentially (Phase 5) — zero behavior change to either stage, no overlap/streaming orchestrator, the two-stage `enpipe detect`/`enpipe encode` commands unchanged.
+
 ## Phases
 
 **Phase Numbering:**
@@ -17,6 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Correctness-Critical Extraction** - EBML/Cues parser and seek/trim/high-water-mark arithmetic isolated into pure, tested modules with zero behavior change (completed 2026-07-08)
 - [x] **Phase 3: Concurrency Resolution + Regression Baseline + CI** - ThreadPool/ProcessPool inconsistency resolved, mandatory parallel==sequential regression test captured, CI runs everything on every push (completed 2026-07-08)
 - [x] **Phase 4: Unified CLI + Hardware-Gated Real-Media Validation** - Single `enpipe` entry point over both independently-verified stages, plus real-Arc-hardware end-to-end validation (completed 2026-07-08)
+- [ ] **Phase 5: Single-Command Pipeline Entry Point** - `enpipe run <video>` composes detect → `.scenes` → encode sequentially in one invocation, byte-identical to the manual two-step run
 
 ## Phase Details
 
@@ -122,10 +125,25 @@ Plans:
 
 - [x] 04-02-PLAN.md — TEST-04: `hardware`-marked end-to-end (detect→encode→mux via the `enpipe` CLI) test on real Arc — independent per-chunk/total frame counts + keyframe alignment (SDR/HDR10 live), fixture-gated HDR10+/DV with ffprobe-native DV RPU parity, optional D-08 self-hosted CI stub
 
+### Phase 5: Single-Command Pipeline Entry Point
+
+**Goal**: A user can run `enpipe run <video>` and get the final `.mkv` from one command — detect then encode, strictly sequential, byte-identical to the manual two-step invocation — with the existing two-stage `enpipe detect`/`enpipe encode` commands unchanged
+**Depends on**: Phase 4 (`run_detect`/`run_encode` and the unified CLI dispatcher must already exist and be hardware-verified)
+**Requirements**: RUN-01, RUN-02, RUN-03, RUN-04
+**Success Criteria** (what must be TRUE):
+
+  1. `enpipe run <video>` runs `run_detect` then, on completion, `run_encode` — strictly sequentially, no overlap — writing the `<video>.scenes` intermediate and producing the final `.mkv` in a single invocation
+  2. `enpipe run` accepts and forwards the relevant detect options (`--jobs`, `--no-qsv`, `--threshold`, `--min-scene-len-frames`, …) and encode options (`-o/--out`, `--no-audio`, `--no-metrics`, `--from`/`--to`, …) to the correct stage, with any flag-name overlaps (e.g. `--jobs` existing on both stages) resolved unambiguously rather than silently colliding
+  3. `enpipe run <video> [opts]` produces a final `.mkv` byte-identical to running `enpipe detect` then `enpipe encode` by hand with the equivalent per-stage options; `enpipe detect` and `enpipe encode` remain available as unchanged, independently-runnable commands
+  4. A fast, non-hardware unit test (mocked `run_detect`/`run_encode`) proves `enpipe run` dispatches detect → encode in that order with correct per-stage argument routing
+  5. A hardware-gated end-to-end test verifies `enpipe run` produces byte-identical parity against the manual two-step `enpipe detect` + `enpipe encode` invocation on real Arc hardware, kept distinct from the fast unit test tier
+
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -133,3 +151,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
 | 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete    | 2026-07-08 |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 2/2 | Complete    | 2026-07-08 |
+| 5. Single-Command Pipeline Entry Point | 0/? | Not started | - |
+</content>
+</invoke>
