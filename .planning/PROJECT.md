@@ -8,6 +8,17 @@
 
 Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
 
+## Current Milestone: v1.1 Single-command pipeline entry point
+
+**Goal:** Give the user one command — `enpipe run <video>` — that runs scene detection then encoding **sequentially** in a single invocation and produces the final `.mkv`, so no manual two-step `detect` → `encode` orchestration is required.
+
+**Target features:**
+- `enpipe run <video>` executes `run_detect` → writes the `<video>.scenes` intermediate → `run_encode`, in sequence (no overlap), producing the final output.
+- Relevant detect + encode options pass through to the correct stage; the result is identical to running `enpipe detect` then `enpipe encode` by hand.
+- The existing two-stage `enpipe detect` / `enpipe encode` commands remain available and unchanged.
+
+**Key context:** This is the sequential `detect jobs=4 → encode jobs=4` workflow `PIPELINE_DESIGN.md` recommends — a thin convenience wrapper over the already-verified v1.0 stages, NOT the overlapped/streaming orchestrator (which remains out of scope on current hardware).
+
 ## Requirements
 
 ### Validated
@@ -26,20 +37,26 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 ### Active
 
-<!-- Productionization scope — harden and formalize the existing sequential pipeline. Hypotheses until shipped and validated. -->
+<!-- v1.1 milestone: the single-command sequential pipeline wrapper. -->
 
-- [ ] Validate the existing pipeline against real media end-to-end (the detector docstring notes it has never been run on real video)
-- [ ] Add the mandatory regression test asserting parallel detection matches sequential detection on a real sample, by `(start_frame, end_frame)` pairs
-- [ ] Package the two scripts into a proper installable module structure with a shared library layer and a unified entry point
-- [ ] Pin Python dependencies (manifest + lockfile) instead of unpinned `pip install` at container build time
-- [ ] Reduce tech debt: isolate the hand-rolled EBML/Cues parser behind a tested module boundary; reconcile the GIL/ThreadPool-vs-ProcessPool inconsistency in parallel detection; remove orphaned/vestigial references
-- [ ] Establish CI and a test harness so correctness invariants are checked automatically
+- [ ] `enpipe run <video>` transcodes a file end-to-end in one command (detect → `.scenes` → encode, sequential), with detect/encode options passed through and output identical to the manual two-step run
+
+### Validated
+
+<!-- v1.0 (Productionization) — shipped and verified. -->
+
+- ✓ Installable `uv`/`uv_build` package with pinned lockfile; `import enpipe` / `pip install -e .` work — v1.0 (PKG-02)
+- ✓ Both stages migrated into `src/enpipe/{detection,encoding,shared}` behind a single `shared.proc` subprocess seam, byte-identical to `legacy/` (the parity oracle) — v1.0
+- ✓ EBML/Cues parser isolated into a pure `enpipe.mkv.ebml` module; seek/trim + high-water-mark extracted into pure, unit-tested functions — v1.0 (DEBT-01, DEBT-02)
+- ✓ Fast test tier (pure-logic + mocked-subprocess) + parallel==sequential regression test; ThreadPool-vs-ProcessPool resolved by profiling (kept threads) — v1.0 (TEST-01/02/03, DEBT-03)
+- ✓ GitHub Actions CI (ruff + `pytest -m "not hardware"` on push) with the hardware tier named-out; `dovi_tool` documented — v1.0 (CI-01, DEBT-04)
+- ✓ Unified `enpipe detect` / `enpipe encode` CLI (`[project.scripts]`); hardware-gated real-media validation on real Arc (SDR/HDR10/legacy-parity), HDR10+/DV fixture-gated — v1.0 (PKG-01, TEST-04)
 
 ### Out of Scope
 
 <!-- Explicit boundaries with reasoning to prevent re-adding. -->
 
-- Streaming/pipelined orchestrator (in-process `queue.Queue` producer/consumer overlapping detect + encode) — `PIPELINE_DESIGN.md`'s own verdict is "do not build" on current spinning-disk ZFS + Arc A380 hardware: Amdahl ceiling ~10–18%, erased by disk seek contention (realistic −5% to ~0%). Deferred until the source moves to SSD/NVMe.
+- **Overlapped / streaming orchestrator** (in-process `queue.Queue` producer/consumer running detect + encode *concurrently*) — `PIPELINE_DESIGN.md`'s own verdict is "do not build" on current spinning-disk ZFS + Arc A380 hardware: Amdahl ceiling ~10–18%, erased by disk seek contention (realistic −5% to ~0%). Deferred until the source moves to SSD/NVMe. NOTE: the v1.1 `enpipe run` command is the *sequential* (non-overlapped) single-command wrapper, which IS in scope and is distinct from this.
 - Rewriting the core detect/encode algorithms or seek/trim math — the correctness-by-construction invariants (keyframe-aligned chunks, DV RPU survives `cat`) are load-bearing; productionization must preserve them, not re-derive them.
 - A non-QSV / alternative-encoder AV1 path — the toolchain is deliberately coupled to Intel Arc QSV; a software-encode fallback is not a goal.
 - Any network service, auth, or multi-user layer — this is a local/NAS CLI toolchain by design.
@@ -64,7 +81,8 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 |----------|-----------|---------|
 | Productionize the existing sequential pipeline; do not build the streaming orchestrator | `PIPELINE_DESIGN.md` verdict: no meaningful gain on spinning-disk hardware, tail risk of regression; orchestrator gated on SSD/NVMe | — Pending |
 | Keep sequential `detect jobs=4 → encode jobs=4` as the production path | Proven faster than jobs=3 encode; sequential detect warms ZFS ARC so encode reads from RAM | — Pending |
-| Preserve existing correctness invariants rather than rewrite core algorithms | Keyframe-alignment and DV RPU handling are load-bearing and hard to re-derive safely | — Pending |
+| Preserve existing correctness invariants rather than rewrite core algorithms | Keyframe-alignment and DV RPU handling are load-bearing and hard to re-derive safely | ✓ Good — v1.0 shipped byte-identical to legacy oracle |
+| v1.1: `enpipe run` is a SEQUENTIAL one-command wrapper (detect→.scenes→encode), not the overlapped orchestrator | Delivers the single-command UX users want at zero regression risk, reusing the verified v1.0 stages; matches PIPELINE_DESIGN.md's recommended sequential path | — Pending |
 
 ## Evolution
 
@@ -84,4 +102,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-08 after initialization*
+*Last updated: 2026-07-09 — started milestone v1.1 (single-command pipeline entry point) after v1.0 complete*
