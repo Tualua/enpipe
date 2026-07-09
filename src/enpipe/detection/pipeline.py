@@ -16,13 +16,39 @@ from __future__ import annotations
 
 import sys
 import time
+from argparse import Namespace
 from pathlib import Path
+
+from enpipe.shared.batch import iter_input_videos, run_batch
+from enpipe.shared.logging import die
 
 from .config import DetectionConfig
 from .detect import detect_scenes
 
 
 def run_detect(args) -> None:
+    # --- батч-ветка: args.input — директория (QUICK-260709-89t) --- #
+    if args.input.is_dir():
+        # -o одноместный: .scenes должен писаться РЯДОМ с каждым файлом
+        # папки, а не в один общий путь (T-89t-04).
+        if args.output is not None:
+            die("-o нельзя с папкой: .scenes пишется рядом с каждым файлом")
+
+        videos = iter_input_videos(args.input, getattr(args, "recursive", False))
+        if not videos:
+            die("в папке нет видеофайлов")
+
+        def process_one(v: Path) -> None:
+            run_detect(Namespace(**{**vars(args), "input": v, "output": None}))
+
+        def should_skip(v: Path):
+            out_path = Path(str(v) + ".scenes")
+            return "уже готов" if out_path.exists() else None
+
+        run_batch(videos, process_one, "детект", should_skip)
+        return
+
+    # --- одиночный файл ИЛИ несуществующий путь: без изменений --- #
     # приоритет: кадры -> секунды -> дефолт 72 кадра (≈3с при 24fps)
     # (дословно из legacy/scene_detection.py:666-672)
     if args.min_scene_len_frames is not None:

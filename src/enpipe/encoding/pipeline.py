@@ -22,11 +22,13 @@ import json
 import os
 import shutil
 import time
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 from enpipe.shared import proc as _proc
+from enpipe.shared.batch import iter_input_videos, run_batch
 from enpipe.shared.logging import _START, die, log, step
 
 from .audio import encode_audio
@@ -86,6 +88,46 @@ def run_encode(args) -> None:
     for tool in ("qsvencc", "ffprobe", "ffmpeg", "mkvmerge"):
         if not shutil.which(tool):
             die(f"не найден {tool}")
+
+    # --- батч-ветка: args.video — директория (QUICK-260709-89t) --- #
+    if args.video.is_dir():
+        # Батч пробрасывает out/workdir/csv в КАЖДОЕ видео папки — если они
+        # указывают на ОДИН путь, выходы всех видео схлопываются в один
+        # файл, и видео 2 молча уходит в skipped вместо encode (T-89t-04,
+        # correctness-first: ни одно видео не теряется тихо). --workdir тоже
+        # смешал бы чанки разных источников; scenes — одноместный, .scenes
+        # берётся РЯДОМ с каждым файлом.
+        if args.scenes is not None:
+            die("scenes нельзя с папкой: <video>.scenes берётся рядом с каждым файлом")
+        if args.out is not None and not args.out.is_dir():
+            die("в батче -o должен быть папкой или опущен, иначе все выходы "
+                "схлопнутся в один файл")
+        if args.workdir is not None:
+            die("--workdir нельзя с папкой: единый workdir смешает чанки разных источников")
+        if args.csv is not None:
+            die("--csv нельзя с папкой: единый csv перезапишется")
+
+        videos = iter_input_videos(args.video, getattr(args, "recursive", False))
+        if not videos:
+            die("в папке нет видеофайлов")
+
+        def process_one(v: Path) -> None:
+            run_encode(Namespace(**{**vars(args), "video": v, "scenes": Path(str(v) + ".scenes")}))
+
+        def should_skip(v: Path):
+            scenes_path = Path(str(v) + ".scenes")
+            if not scenes_path.exists():
+                return "нет .scenes"
+            if resolve_output_path(v, args.out).exists():
+                return "уже готов"
+            return None
+
+        run_batch(videos, process_one, "энкод", should_skip)
+        return
+
+    # --- одиночный файл ИЛИ несуществующий путь: без изменений --- #
+    if args.scenes is None:
+        args.scenes = Path(str(args.video) + ".scenes")
     if not args.video.is_file():
         die(f"нет файла: {args.video}")
 
