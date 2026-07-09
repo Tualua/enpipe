@@ -38,6 +38,34 @@ docker run --rm --device /dev/dri \
 - `ENTRYPOINT` образа уже `enpipe`, поэтому в команде сразу идёт подкоманда
   (`run ...`, `detect ...`, `encode ...`) — не нужно писать `enpipe run`.
 
+## CI / публикация
+
+Образ публикуется в GHCR автоматически по git-тегу `v*` и вручную (manual
+dispatch) воркфлоу `.github/workflows/docker-publish.yml`, как
+`ghcr.io/tualua/enpipe:<version>` и `:latest`.
+
+Пример pull:
+
+```bash
+docker pull ghcr.io/tualua/enpipe:latest
+```
+
+Публикацию выполняет CI-раннер штатным `GITHUB_TOKEN` — заводить и
+настраивать отдельный секрет не нужно.
+
+Локально, если хотите, чтобы ВАША сборка авторизовалась к GitHub API
+(выше лимит запросов, без 403 на общих IP — см. раздел "Опциональная
+авторизация" в комментариях `Dockerfile`), передайте токен как
+BuildKit-секрет:
+
+```bash
+DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpipe:slim .
+```
+
+Секрет опционален (`required=false`) — обычный `docker build` без него
+ведёт себя ровно как раньше. Современный Docker включает BuildKit по
+умолчанию; на старых движках нужен явный `DOCKER_BUILDKIT=1`.
+
 ## Метрики (PSNR/SSIM)
 
 Флаги `--psnr`/`--ssim` требуют OpenCL-VPP-фильтр `qsvencc`, а в Debian
