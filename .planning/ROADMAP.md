@@ -138,7 +138,13 @@ Plans:
   4. A fast, non-hardware unit test (mocked `run_detect`/`run_encode`) proves `enpipe run` dispatches detect → encode in that order with correct per-stage argument routing
   5. A hardware-gated end-to-end test verifies `enpipe run` produces byte-identical parity against the manual two-step `enpipe detect` + `enpipe encode` invocation on real Arc hardware, kept distinct from the fast unit test tier
 
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+
+**Wave 1**
+
+- [ ] 05-01-PLAN.md — RUN-01..RUN-04: add the `run` subparser + thin sequential run_detect→run_encode orchestrator (`--detect-jobs`/`--encode-jobs` collision split, kept `<video>.scenes`, `-o` = final `.mkv`) + fast mocked order/arg-routing unit test + hardware-gated run-vs-two-step parity test
 
 ## Progress
 
@@ -151,6 +157,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Correctness-Critical Extraction | 2/2 | Complete    | 2026-07-08 |
 | 3. Concurrency Resolution + Regression Baseline + CI | 3/3 | Complete    | 2026-07-08 |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | 2/2 | Complete    | 2026-07-08 |
-| 5. Single-Command Pipeline Entry Point | 0/? | Not started | - |
+| 5. Single-Command Pipeline Entry Point | 0/1 | Not started | - |
 </content>
-</invoke>
