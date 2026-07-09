@@ -103,7 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
         "encode", description="Сцен-осознанный AV1-энкод (Arc/QSV)")
     encode_p.add_argument("video", type=Path)
     encode_p.add_argument("scenes", type=Path, help="scene_out.log от enpipe detect")
-    encode_p.add_argument("-o", "--out", type=Path, default=None)
+    encode_p.add_argument("-o", "--out", type=Path, default=None,
+                           help="итоговый .mkv (по умолчанию <видео>.av1.mkv рядом с источником); "
+                                "если указан путь к СУЩЕСТВУЮЩЕЙ директории, файл кладётся внутрь "
+                                "неё как <ориг-имя>.Encoded.<ext>")
     encode_p.add_argument("--from", dest="frm", type=int, default=0, help="первая сцена")
     encode_p.add_argument("--to", dest="to", type=int, default=None, help="последняя (искл.)")
     encode_p.add_argument("--workdir", type=Path, default=None, help="папка чанков")
@@ -121,7 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Полный конвейер одной командой: детект сцен -> AV1-энкод (D-01)")
     run_p.add_argument("video", type=Path)
     run_p.add_argument("-o", "--out", type=Path, default=None,
-                        help="итоговый .mkv (энкод-семантика; см. enpipe encode -o)")
+                        help="итоговый .mkv (энкод-семантика; см. enpipe encode -o); если указан "
+                             "путь к СУЩЕСТВУЮЩЕЙ директории, файл кладётся внутрь неё как "
+                             "<ориг-имя>.Encoded.<ext>")
     run_p.add_argument("--scenes", type=Path, default=None,
                         help="путь для <video>.scenes (по умолчанию рядом с видео)")
     # --- detect-опции (D-06) --- #

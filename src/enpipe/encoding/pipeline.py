@@ -24,7 +24,7 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from enpipe.shared import proc as _proc
 from enpipe.shared.logging import _START, die, log, step
@@ -53,6 +53,20 @@ def contiguous_run(next_append: int, ready: Union[Dict[int, int], Set[int]]) -> 
     return out
 
 
+def resolve_output_path(video: Path, out: Optional[Path]) -> Path:
+    """Определяет итоговый путь мукса. `out is None` -> дефолт рядом с
+    источником (`<видео>.av1.mkv`, поведение не меняется). Если `out` —
+    СУЩЕСТВУЮЩАЯ директория, файл кладётся внутрь неё как
+    `<стем видео>.Encoded<суффикс видео>` (иначе mkvmerge падал бы с
+    PermissionError, пытаясь открыть директорию как файл). Иначе `out`
+    возвращается как есть (явный путь к файлу, поведение не меняется)."""
+    if out is None:
+        return video.with_name(video.stem + ".av1.mkv")
+    if out.is_dir():
+        return out / (video.stem + ".Encoded" + video.suffix)
+    return out
+
+
 def probe_fps(src: Path) -> float:
     cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
            "-show_entries", "stream=avg_frame_rate,r_frame_rate",
@@ -75,7 +89,7 @@ def run_encode(args) -> None:
     if not args.video.is_file():
         die(f"нет файла: {args.video}")
 
-    out = args.out or args.video.with_name(args.video.stem + ".av1.mkv")
+    out = resolve_output_path(args.video, args.out)
     workdir = args.workdir or out.with_name(out.stem + ".chunks")
     workdir.mkdir(parents=True, exist_ok=True)
 
