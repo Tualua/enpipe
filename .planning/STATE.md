@@ -4,8 +4,8 @@ milestone: v1.1
 milestone_name: Single-command pipeline entry point
 status: milestone_complete
 stopped_at: Milestone complete (Phase 5 was final phase)
-last_updated: 2026-07-09T04:53:00.000Z
-last_activity: 2026-07-09 -- Completed quick task 260709-89t (папка на вход enpipe run/detect/encode — батч-обработка)
+last_updated: 2026-07-09T12:12:03.000Z
+last_activity: 2026-07-09 -- Completed quick task 260709-gs0 (слим-рантайм Dockerfile для enpipe)
 progress:
   total_phases: 5
   completed_phases: 5
@@ -127,6 +127,7 @@ None yet.
 | 260709-6jo | Живой tqdm-прогресс детекции сцен: СТАРТ/ФИНИШ-строки в stderr, штатный бар (последовательно) / агрегированный бар (параллельно); cut-математика и порядок результатов не изменились | 2026-07-09 | b39d1c9 | [260709-6jo-live-tqdm](./quick/260709-6jo-live-tqdm/) |
 | 260709-711 | Плавный ПОКАДРОВЫЙ прогресс-бар в параллельном режиме: `progress_cb`-хук в `QsvPipeStream.read()` двигает общий бар из всех сегмент-потоков (было: скачки по завершении целого сегмента, висело на 0%). Ветка `show_progress=False`, cut-математика и порядок `results` не тронуты | 2026-07-09 | 05c8ab6 | [260709-711-smooth-per-frame-progress-bar](./quick/260709-711-smooth-per-frame-progress-bar/) |
 | 260709-89t | `enpipe run/detect/encode <папка>` — новый leaf-модуль `shared/batch.py` (дискавери + collect-then-report оркестратор), `--recursive`, skip-existing, guard'ы схлопывания выходов (-o-файл/--workdir/--csv/--scenes -> die). Одиночный файл byte-identical | 2026-07-09 | f7f8fb7 | [260709-89t-folder-batch-input-enpipe-run-detect-enc](./quick/260709-89t-folder-batch-input-enpipe-run-detect-enc/) |
+| 260709-gs0 | Слим-рантайм-образ enpipe (multi-stage `Dockerfile` + `.dockerignore` + `docker/README.md`); builder: `uv sync --frozen --no-dev --no-editable`; runtime: медиа-стек дословно из `.devcontainer/Dockerfile` (без tmux) + venv-copy. Образ здесь не собран (нет docker) — сборку/GPU-прогон проверяет пользователь на хосте | 2026-07-09 | cbae949 | [260709-gs0-compact-slim-runtime-container-image-for](./quick/260709-gs0-compact-slim-runtime-container-image-for/) |
 
 ## Deferred Items
 
@@ -141,7 +142,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T04:53:00.000Z
-Stopped at: Completed quick task 260709-89t (folder batch input for run/detect/encode)
+Last session: 2026-07-09T12:12:03.000Z
+Stopped at: Completed quick task 260709-gs0 (slim runtime Dockerfile for enpipe)
 Resume file: None
 </content>
