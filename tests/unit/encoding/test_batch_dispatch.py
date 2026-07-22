@@ -33,6 +33,7 @@ def _base_args(**overrides) -> Namespace:
         video=Path("movie.mkv"),
         scenes=None,
         out=None,
+        out_dir=None,
         frm=0,
         to=None,
         workdir=None,
@@ -174,3 +175,72 @@ def test_encode_single_file_defaults_scenes_when_none(monkeypatch, tmp_path):
 
     assert args.scenes == Path(str(video) + ".scenes")
     assert captured_path["path"] == Path(str(video) + ".scenes")
+
+
+# --- --out-dir: mkdir wiring + mutual-exclusion + batch skip-into-folder --- #
+
+def test_out_dir_creates_missing_folder_for_single_file(monkeypatch, tmp_path):
+    _stub_which(monkeypatch)
+    video = _touch(tmp_path / "movie.mkv")
+    out_dir = tmp_path / "newdir"
+
+    def _fake_read_scenes(scenes_path):
+        raise SystemExit("stop early — только проверяем mkdir")
+
+    monkeypatch.setattr(p, "read_scenes", _fake_read_scenes)
+
+    args = _base_args(video=video, out=None, out_dir=out_dir)
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+
+    assert out_dir.is_dir()
+
+
+def test_out_dir_existing_file_dies(monkeypatch, tmp_path):
+    _stub_which(monkeypatch)
+    video = _touch(tmp_path / "movie.mkv")
+    out_dir = _touch(tmp_path / "notadir")
+
+    args = _base_args(video=video, out=None, out_dir=out_dir)
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+
+
+def test_out_dir_permission_error_dies_cleanly(monkeypatch, tmp_path):
+    _stub_which(monkeypatch)
+    video = _touch(tmp_path / "movie.mkv")
+
+    def _raise_permission_error(self, *a, **k):
+        raise PermissionError("perm")
+
+    monkeypatch.setattr(Path, "mkdir", _raise_permission_error)
+
+    args = _base_args(video=video, out=None, out_dir=tmp_path / "x")
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+
+
+def test_out_and_out_dir_together_dies(monkeypatch, tmp_path):
+    _stub_which(monkeypatch)
+    video = _touch(tmp_path / "movie.mkv")
+
+    args = _base_args(video=video, out=tmp_path / "out.mkv", out_dir=tmp_path / "d")
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+
+
+def test_encode_directory_out_dir_creates_folder_and_skip_resolves_inside(monkeypatch, tmp_path):
+    _stub_which(monkeypatch)
+    video = _touch(tmp_path / "a.mkv")
+    Path(str(video) + ".scenes").write_text("x\n")
+    out_dir = tmp_path / "outdir"
+    captured = _capture_run_batch(monkeypatch)
+
+    args = _base_args(video=tmp_path, out=None, out_dir=out_dir)
+    p.run_encode(args)
+
+    assert out_dir.is_dir()
+    should_skip = captured["should_skip"]
+    assert should_skip(video) is None
+    _touch(out_dir / "a.Encoded.mkv")
+    assert should_skip(video) == "уже готов"

@@ -163,6 +163,19 @@ def test_from_to_route_to_encode(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["encode"].to == 3
 
 
+def test_out_dir_routes_to_encode(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: None)
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: captured.setdefault("encode", args))
+
+    main(["run", "x.mkv", "--out-dir", "X", "--no-metrics"])
+
+    e = captured["encode"]
+    assert e.out_dir == Path("X")
+    assert e.out is None
+
+
 def test_scenes_override_routes_to_both_stages(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_all_tools_present(monkeypatch)
     captured = {}

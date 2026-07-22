@@ -155,6 +155,27 @@ def test_run_on_directory_with_csv_dies(monkeypatch, tmp_path):
         main(["run", str(tmp_path), "--csv", str(tmp_path / "m.csv")])
 
 
+def test_run_on_directory_with_out_dir_creates_folder_and_skips_into_it(monkeypatch, tmp_path):
+    _stub_all_tools_present(monkeypatch)
+    video = _touch(tmp_path / "a.mkv")
+    out_dir = tmp_path / "outdir"
+
+    calls: List[str] = []
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))
+
+    main(["run", str(tmp_path), "--out-dir", str(out_dir), "--no-metrics"])
+
+    assert out_dir.is_dir()
+    assert calls == ["detect", "encode"]
+
+    # second run: output already present inside out_dir -> should skip
+    _touch(out_dir / (video.stem + ".Encoded" + video.suffix))
+    calls.clear()
+    main(["run", str(tmp_path), "--out-dir", str(out_dir), "--no-metrics"])
+    assert calls == []
+
+
 def test_run_on_directory_with_o_existing_dir_does_not_die(monkeypatch, tmp_path):
     _stub_all_tools_present(monkeypatch)
     _touch(tmp_path / "a.mkv")

@@ -5,6 +5,7 @@ names, and the two locked flag-default asymmetries (--jobs, -o/--output vs
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -93,3 +94,43 @@ def test_main_invokes_encode_stub_exactly_once(monkeypatch):
 def test_main_no_subcommand_errors():
     with pytest.raises(SystemExit):
         main([])
+
+
+# --- --out-dir: parsing + mutual-exclusion --- #
+
+def test_out_dir_parses_on_encode():
+    parser = build_parser()
+    args = parser.parse_args(["encode", "video.mkv", "video.mkv.scenes", "--out-dir", "d"])
+    assert args.out_dir == Path("d")
+    assert args.out is None
+
+
+def test_out_dir_parses_on_run():
+    parser = build_parser()
+    args = parser.parse_args(["run", "video.mkv", "--out-dir", "d"])
+    assert args.out_dir == Path("d")
+    assert args.out is None
+
+
+def test_out_dir_default_is_none():
+    parser = build_parser()
+    e = parser.parse_args(["encode", "video.mkv", "video.mkv.scenes"])
+    r = parser.parse_args(["run", "video.mkv"])
+    assert e.out_dir is None
+    assert r.out_dir is None
+
+
+def test_out_and_out_dir_together_dies_on_encode(monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda _tool: "/usr/bin/x")
+
+    with pytest.raises(SystemExit):
+        main(["encode", "video.mkv", "video.mkv.scenes", "-o", "out.mkv", "--out-dir", "d"])
+
+
+def test_out_and_out_dir_together_dies_on_run(monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda _tool: "/usr/bin/x")
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: pytest.fail("должно упасть раньше"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: pytest.fail("должно упасть раньше"))
+
+    with pytest.raises(SystemExit):
+        main(["run", "video.mkv", "-o", "out.mkv", "--out-dir", "d"])
