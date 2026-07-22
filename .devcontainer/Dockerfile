@@ -38,12 +38,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # а Intel NEO OpenCL (intel-opencl-icd) на этой базе не устанавливаем; OpenCL-загрузчик
 # для VPP уже стоит выше (ocl-icd-libopencl1). Поэтому распаковываем .deb, вырезаем
 # эти две зависимости из control, пересобираем и ставим через apt — так реальные
-# зависимости (libc/libstdc++/…) резолвятся штатно. Если Rigaya начнёт публиковать
-# отдельные .deb на дистрибутив, фильтр можно ужесточить до
-# `select(test("Ubuntu24.04_amd64.deb$"))`; пока действует общий `_amd64.deb$`.
+# зависимости (libc/libstdc++/…) резолвятся штатно. Rigaya публикует .deb ПОДИСТРИБУТИВНО
+# (Ubuntu20.04/22.04/24.04); база теперь Ubuntu 24.04 — берём именно Ubuntu24.04-ассет,
+# с фолбэком на первый `_amd64.deb`, если схема именования сменится.
 RUN set -eux; \
-    url="$(curl -fsSL https://api.github.com/repos/rigaya/QSVEnc/releases/latest \
-          | jq -r '.assets[].browser_download_url | select(test("_amd64.deb$"))' | head -1)"; \
+    assets="$(curl -fsSL https://api.github.com/repos/rigaya/QSVEnc/releases/latest \
+              | jq -r '.assets[].browser_download_url | select(test("_amd64[.]deb$"))')"; \
+    url="$(printf '%s\n' "$assets" | grep -iE 'ubuntu[._]?24[._]04' | head -1)"; \
+    [ -n "$url" ] || url="$(printf '%s\n' "$assets" | head -1)"; \
     test -n "$url"; \
     curl -fsSL -o /tmp/qsvencc.deb "$url"; \
     tmpd="$(mktemp -d)"; \
