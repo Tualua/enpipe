@@ -31,6 +31,44 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-venv python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
+# --- Dev/debug-утилиты (из болей сегодняшней QSV/media-отладки) ---
+# Отдельный слой (не media-tools- и не qsvencc-блок): список утилит меняется
+# чаще, чем медиа-стек, а вынос в свой RUN не инвалидирует кэш ни блока выше
+# (mkvtoolnix/vainfo/python3), ни тяжёлого qsvencc-слоя ниже.
+# Все 8 пакетов — из main/universe официальной Ubuntu 24.04; universe включён
+# по умолчанию на этой базе. Если пакет из universe и репозиторий вдруг
+# выключен — сборка упадёт на apt-get install; фолбэк — `add-apt-repository
+# universe` (software-properties-common НЕ добавляем без реальной нужды).
+#
+# skopeo — инспекция/копирование OCI-образов без docker-демона (сегодня:
+#   вручную дёргали registry-API GHCR/DockerHub/Launchpad, чтобы осмотреть
+#   dlstreamer-образ и вытащить .deb драйверов).
+# strace — трейс syscall/dlopen (сегодня: смотрели, какой libmfx-gen рантайм
+#   грузит qsvencc; откатывались на LD_DEBUG).
+# ripgrep — быстрый рекурсивный поиск по исходникам/логам, бинарь `rg`
+#   (сегодня: тяжёлый grep/awk по C++-дереву QSVEnc и PSNR-логам).
+# xxd — hex/бинарная инспекция (сегодня: буквально `xxd: command not found`
+#   при разборе байтов tab/десятичная-запятая VMAF CSV).
+# mediainfo — богатая инспекция контейнера/потоков/HDR/DV-метаданных
+#   (media-transcode проект; дополняет ffprobe).
+# intel-gpu-tools — даёт `intel_gpu_top` для наблюдения загрузки движков Arc
+#   (сегодня: НОЛЬ видимости загрузки GPU в стресс-тестах конкурентного
+#   энкода). Может требовать root/CAP_PERFMON — здесь remoteUser root, ОК.
+# hyperfine — воспроизводимый бенчмаркинг (сегодня: fps энкода / wall-time
+#   3-way мерили руками).
+# p7zip-full — `7z` (собственный CI QSVEnc использует `7z h` для хеширования;
+#   общая работа с архивами).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      skopeo \
+      strace \
+      ripgrep \
+      xxd \
+      mediainfo \
+      intel-gpu-tools \
+      hyperfine \
+      p7zip-full \
+    && rm -rf /var/lib/apt/lists/*
+
 # --- qsvencc (Rigaya) — последняя Ubuntu 24.04 .deb с GitHub Releases ---
 # База теперь сама Ubuntu 24.04 — .deb под ubuntu-24.04 нативно подходит (никакого
 # междистрибутивного glibc-подбора, как было на Debian trixie). .deb объявляет
