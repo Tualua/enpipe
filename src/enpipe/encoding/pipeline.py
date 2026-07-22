@@ -301,7 +301,10 @@ def run_encode(args) -> None:
     audio_pool.shutdown(wait=True)
 
     # --- CSV с метриками (строка на сцену + итоговая) ---
-    if rows:
+    # это метрический артефакт: пишется только когда метрики считались
+    # (metrics_on); при --no-metrics файл не создаётся, даже если rows
+    # непуст (rows всё равно копится ради size/time-данных).
+    if metrics_on and rows:
         csv_path = args.csv or Path(str(out) + ".metrics.csv")
         total = write_metrics_csv(csv_path, rows)
         log(f">> метрики -> {csv_path}")
