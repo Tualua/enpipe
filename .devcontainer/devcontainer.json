@@ -1,10 +1,15 @@
 {
-  "name": "encode-scripts — Arc QSV AV1 (детект + энкод)",
+  "name": "encode-scripts — Arc QSV AV1 (dlstreamer/Ubuntu 24.04)",
   "build": { "dockerfile": "Dockerfile" },
 
   // --- Встроенные devcontainer-фичи (максимум готового, минимум ручного) ---
-  // Python, git, common-utils (vscode-юзер, zsh) уже в базовом python-образе —
-  // фичами их не дублируем. Ставим только то, чего в образе нет.
+  // Git/common-utils в базовом образе intel/dlstreamer НЕ гарантированы так же,
+  // как в старом python-devcontainer-образе, но нужный минимум (git, python3,
+  // сборочные тулы) фактически есть в dlstreamer/post-create уже сам ставит
+  // недостающее (см. Dockerfile). Фичами добавляем только то, чего в образе
+  // точно нет: Node и Claude Code. В dlstreamer НЕТ дефолтного vscode-юзера —
+  // но remoteUser здесь "root" и ничего не зависит от юзера vscode, поэтому
+  // фичу создания пользователя добавлять не нужно (не добавляй её случайно).
   "features": {
     "ghcr.io/devcontainers/features/node:2": { "version": "lts" },
     // Claude Code — официальная фича Anthropic
@@ -13,8 +18,21 @@
 
   // --- Проброс Intel Arc A380 (VA-API/QSV): узлы /dev/dri (card* + renderD*) ---
   // Права на renderD-узел выдаёт post-create (GID группы render зависит от хоста).
+  //
+  // --group-add keep-groups (rootless Podman → crun run.oci.keep_original_groups=1):
+  // сохраняет supplementary-группы ХОСТ-пользователя внутри контейнера. Без этого
+  // rootless Podman не пробрасывает членство в группе-владельце bind-mount'ов /data/*
+  // (group rwx на каталогах не срабатывает) → EACCES при записи. Требование: хост-юзер,
+  // запускающий контейнер, должен состоять в группе-владельце датасетов /data (см. STATE).
   "runArgs": [
-    "--device=/dev/dri:/dev/dri"
+    "--device=/dev/dri:/dev/dri",
+    "--group-add", "keep-groups"
+    // Фолбэк, если keep-groups не покрыл запись в /data (хост-юзер не в группе-владельце):
+    // сопоставить хост-юзера с контейнерным vscode 1:1 через user namespace. Тогда всё, что
+    // хост-юзер может писать на /data, сможет и vscode. Раскомментировать вместо/вместе с
+    // keep-groups и пересобрать контейнер:
+    //   , "--userns=keep-id"
+    // При несовпадении uid/gid можно зафиксировать явно: "--userns=keep-id:uid=1010,gid=1011".
   ],
 
   // --- Проброс медиапапок хоста ---
@@ -37,5 +55,6 @@
     }
   },
 
-  "remoteUser": "vscode"
+  // Нет дефолтного vscode-юзера в базе intel/dlstreamer — работаем под root.
+  "remoteUser": "root"
 }

@@ -9,13 +9,24 @@ echo "==================================================================="
 
 # --- 1) Доступ к Intel Arc: добавить пользователя в группу render-узла ---
 # GID группы, владеющей /dev/dri/renderD128, зависит от хоста -> определяем на лету.
+# remoteUser здесь root, а в базе intel/dlstreamer sudo может отсутствовать
+# (старый python-образ его гарантированно ставил вместе с vscode-юзером) —
+# запускаем groupadd/usermod напрямую, если уже root, и через sudo только
+# если он реально есть; так скрипт работает на обеих базах без правки.
 echo "-- GPU: /dev/dri --"
+if [ "$(id -u)" -eq 0 ]; then
+    AS_ROOT=()
+elif command -v sudo >/dev/null 2>&1; then
+    AS_ROOT=(sudo)
+else
+    AS_ROOT=()
+fi
 if [ -e /dev/dri/renderD128 ]; then
     RGID="$(stat -c '%g' /dev/dri/renderD128)"
     if ! getent group "$RGID" >/dev/null 2>&1; then
-        sudo groupadd -g "$RGID" render-host || true
+        "${AS_ROOT[@]}" groupadd -g "$RGID" render-host || true
     fi
-    sudo usermod -aG "$RGID" "$(id -un)" || true
+    "${AS_ROOT[@]}" usermod -aG "$RGID" "$(id -un)" || true
     echo "   renderD128 GID=$RGID -> пользователь добавлен (перелогинь терминал, если GPU не виден сразу)"
 else
     echo "   ВНИМАНИЕ: /dev/dri/renderD128 не проброшен — QSV/VA-API работать не будет."
