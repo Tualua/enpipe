@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-09)
 Phase: 5
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-07-22 - Completed quick task 260722-2rq: флаг --out-dir (кодирование в папку с созданием)
+Last activity: 2026-07-22 - Completed quick task 260722-4oz: при --no-metrics не создавать .metrics.csv
 
 ## Performance Metrics
 
@@ -130,6 +130,7 @@ None yet.
 | 260709-gs0 | Слим-рантайм-образ enpipe (multi-stage `Dockerfile` + `.dockerignore` + `docker/README.md`); builder: `uv sync --frozen --no-dev --no-editable`; runtime: медиа-стек дословно из `.devcontainer/Dockerfile` (без tmux) + venv-copy. Образ здесь не собран (нет docker) — сборку/GPU-прогон проверяет пользователь на хосте | 2026-07-09 | cbae949 | [260709-gs0-compact-slim-runtime-container-image-for](./quick/260709-gs0-compact-slim-runtime-container-image-for/) |
 | 260709-hq2 | GHCR build-and-publish воркфлоу (`.github/workflows/docker-publish.yml`, тег `v*`/`workflow_dispatch`, все `docker/*` action'ы запиннены по реально резолвленному commit-SHA); опциональный BuildKit-секрет `github_token` (`required=false`, POSIX `set --`/`"$@"`) для двух GitHub-release curl-блоков в `Dockerfile` (qsvencc, dovi_tool). Воркфлоу здесь не запускался, образ не собирался — пользователь проверяет пушем тега `vX.Y.Z` | 2026-07-09 | 6b5057e | [260709-hq2-github-actions-workflow-to-build-and-pub](./quick/260709-hq2-github-actions-workflow-to-build-and-pub/) |
 | 260722-2rq | Новый флаг `--out-dir DIR` (кодирование в папку): папка создаётся при необходимости (`mkdir -p`), выход кладётся внутрь как `<стем>.Encoded<суффикс>`. Работает на `encode`/`run`/батч-ветках; `--out` без изменений (строго файл), `--out`/`--out-dir` взаимоисключающи (die). `resolve_output_path` остался чистым; mkdir в `_ensure_out_dir` обёрнут в `except OSError -> die()` (PermissionError на /data / существующий файл). WR-01: mkdir после проверки на пустоту, чтобы не плодить осиротевшие папки. 166 fast-тестов зелёные, ruff чист | 2026-07-22 | 6d2b55a | [260722-2rq-out-encoded](./quick/260722-2rq-out-encoded/) |
+| 260722-4oz | При `--no-metrics` не создавать `.metrics.csv`: гейт `if rows:` -> `if metrics_on and rows:` в `encoding/pipeline.py` (метрический артефакт пишется только когда метрики считались; `rows` копится ради size/time, но файл не нужен). `write_metrics_csv` остался чистым/нетронутым. Тест `test_pipeline_wiring.py` доказывает обе ветки (no_metrics -> не вызывается + нет файла; metrics on -> вызывается). 167 fast-тестов зелёные, ruff чист | 2026-07-22 | 61a38ab | [260722-4oz-skip-metrics-csv](./quick/260722-4oz-skip-metrics-csv/) |
 
 ## Deferred Items
 
@@ -144,7 +145,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-22T02:00:00.000Z
-Stopped at: Completed quick task 260722-2rq (--out-dir flag: encode into a folder, created if missing)
+Last session: 2026-07-22T03:25:00.000Z
+Stopped at: Completed quick task 260722-4oz (skip .metrics.csv creation when --no-metrics)
 Resume file: None
 </content>
