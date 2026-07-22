@@ -109,11 +109,13 @@ def run_pipeline(args) -> None:
         if args.csv is not None:
             die("--csv нельзя с папкой: единый csv перезапишется каждым видео")
 
-        out_base = _ensure_out_dir(args)
-
         videos = iter_input_videos(args.video, getattr(args, "recursive", False))
         if not videos:
             die("в папке нет видеофайлов")
+
+        # mkdir ПОСЛЕ проверки на пустоту: иначе `--out-dir` создал бы
+        # осиротевшую папку на пути-ошибке «нет видео» (WR-01).
+        out_base = _ensure_out_dir(args)
 
         def process_one(v: Path) -> None:
             _pipeline_one(v, Path(str(v) + ".scenes"), args)

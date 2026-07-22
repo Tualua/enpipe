@@ -229,6 +229,21 @@ def test_out_and_out_dir_together_dies(monkeypatch, tmp_path):
         p.run_encode(args)
 
 
+def test_encode_directory_out_dir_not_created_when_no_videos(monkeypatch, tmp_path):
+    """WR-01: mkdir идёт ПОСЛЕ проверки на пустоту — пустая папка-вход с
+    --out-dir должна упасть, НЕ оставив осиротевшую выходную папку."""
+    _stub_which(monkeypatch)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    out_dir = tmp_path / "outdir"
+
+    args = _base_args(video=empty, out=None, out_dir=out_dir)
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+
+    assert not out_dir.exists()
+
+
 def test_encode_directory_out_dir_creates_folder_and_skip_resolves_inside(monkeypatch, tmp_path):
     _stub_which(monkeypatch)
     video = _touch(tmp_path / "a.mkv")
