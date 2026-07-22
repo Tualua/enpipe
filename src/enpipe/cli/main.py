@@ -23,7 +23,7 @@ from typing import Optional, Sequence
 
 from enpipe.detection.pipeline import run_detect
 from enpipe.encoding.pipeline import JOBS as ENCODE_JOBS
-from enpipe.encoding.pipeline import resolve_output_path, run_encode
+from enpipe.encoding.pipeline import _ensure_out_dir, resolve_output_path, run_encode
 from enpipe.shared.batch import iter_input_videos, run_batch
 from enpipe.shared.logging import die
 
@@ -60,6 +60,7 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
         video=video,
         scenes=scenes_path,
         out=args.out,
+        out_dir=args.out_dir,
         frm=args.frm,
         to=args.to,
         workdir=args.workdir,
@@ -88,6 +89,9 @@ def run_pipeline(args) -> None:
         if not shutil.which(tool):
             die(f"не найден {tool}")
 
+    if args.out is not None and getattr(args, "out_dir", None) is not None:
+        die("-o/--out и --out-dir взаимоисключающи: задайте только один")
+
     if args.video.is_dir():
         # GUARD: батч пробрасывает out/workdir/csv в КАЖДОЕ видео папки —
         # если они указывают на ОДИН путь/файл, выходы всех видео
@@ -99,11 +103,13 @@ def run_pipeline(args) -> None:
             die("--scenes нельзя с папкой: .scenes пишется рядом с каждым файлом")
         if args.out is not None and not args.out.is_dir():
             die("в батче -o должен быть папкой или опущен, иначе все выходы "
-                "схлопнутся в один файл")
+                "схлопнутся в один файл (для несуществующей папки используйте --out-dir)")
         if args.workdir is not None:
             die("--workdir нельзя с папкой: единый workdir смешает чанки разных источников")
         if args.csv is not None:
             die("--csv нельзя с папкой: единый csv перезапишется каждым видео")
+
+        out_base = _ensure_out_dir(args)
 
         videos = iter_input_videos(args.video, getattr(args, "recursive", False))
         if not videos:
@@ -113,7 +119,7 @@ def run_pipeline(args) -> None:
             _pipeline_one(v, Path(str(v) + ".scenes"), args)
 
         def should_skip(v: Path) -> Optional[str]:
-            return "уже готов" if resolve_output_path(v, args.out).exists() else None
+            return "уже готов" if resolve_output_path(v, out_base).exists() else None
 
         run_batch(videos, process_one, "run", should_skip)
         return
@@ -156,6 +162,9 @@ def build_parser() -> argparse.ArgumentParser:
                            help="итоговый .mkv (по умолчанию <видео>.av1.mkv рядом с источником); "
                                 "если указан путь к СУЩЕСТВУЮЩЕЙ директории, файл кладётся внутрь "
                                 "неё как <ориг-имя>.Encoded.<ext>")
+    encode_p.add_argument("--out-dir", dest="out_dir", type=Path, default=None,
+                           help="папка вывода (создаётся при необходимости); файл кладётся внутрь "
+                                "как <ориг-имя>.Encoded.<ext>. Взаимоисключающе с -o/--out")
     encode_p.add_argument("--from", dest="frm", type=int, default=0, help="первая сцена")
     encode_p.add_argument("--to", dest="to", type=int, default=None, help="последняя (искл.)")
     encode_p.add_argument("--workdir", type=Path, default=None, help="папка чанков")
@@ -178,6 +187,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="итоговый .mkv (энкод-семантика; см. enpipe encode -o); если указан "
                              "путь к СУЩЕСТВУЮЩЕЙ директории, файл кладётся внутрь неё как "
                              "<ориг-имя>.Encoded.<ext>")
+    run_p.add_argument("--out-dir", dest="out_dir", type=Path, default=None,
+                        help="папка вывода (создаётся при необходимости); файл кладётся внутрь "
+                             "как <ориг-имя>.Encoded.<ext>. Взаимоисключающе с -o/--out")
     run_p.add_argument("--scenes", type=Path, default=None,
                         help="путь для <video>.scenes (по умолчанию рядом с видео)")
     # --- detect-опции (D-06) --- #

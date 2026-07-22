@@ -69,6 +69,25 @@ def resolve_output_path(video: Path, out: Optional[Path]) -> Path:
     return out
 
 
+def _ensure_out_dir(args) -> Optional[Path]:
+    """Создаёт `args.out_dir` (`mkdir -p`, идемпотентно) и возвращает его как
+    базу для `resolve_output_path`; если `out_dir` не задан — возвращает
+    `args.out` без изменений (байт-идентичность `-o`/дефолта сохраняется).
+    `getattr` — защитное чтение: собранные вручную тестовые Namespace могут
+    не иметь этого поля. Один `except OSError` покрывает и `PermissionError`
+    (readonly/чужой uid на /data-монтировании — см. .planning/debug/), и
+    `FileExistsError` (путь уже существует как ФАЙЛ, не директория) — в обоих
+    случаях падаем через die() на главном потоке, а не голым трейсбеком."""
+    out_dir = getattr(args, "out_dir", None)
+    if out_dir is None:
+        return args.out
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as ex:
+        die(f"не удалось создать папку вывода {out_dir}: {ex}")
+    return out_dir
+
+
 def probe_fps(src: Path) -> float:
     cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
            "-show_entries", "stream=avg_frame_rate,r_frame_rate",
@@ -89,6 +108,9 @@ def run_encode(args) -> None:
         if not shutil.which(tool):
             die(f"не найден {tool}")
 
+    if args.out is not None and getattr(args, "out_dir", None) is not None:
+        die("-o/--out и --out-dir взаимоисключающи: задайте только один")
+
     # --- батч-ветка: args.video — директория (QUICK-260709-89t) --- #
     if args.video.is_dir():
         # Батч пробрасывает out/workdir/csv в КАЖДОЕ видео папки — если они
@@ -101,11 +123,13 @@ def run_encode(args) -> None:
             die("scenes нельзя с папкой: <video>.scenes берётся рядом с каждым файлом")
         if args.out is not None and not args.out.is_dir():
             die("в батче -o должен быть папкой или опущен, иначе все выходы "
-                "схлопнутся в один файл")
+                "схлопнутся в один файл (для несуществующей папки используйте --out-dir)")
         if args.workdir is not None:
             die("--workdir нельзя с папкой: единый workdir смешает чанки разных источников")
         if args.csv is not None:
             die("--csv нельзя с папкой: единый csv перезапишется")
+
+        out_base = _ensure_out_dir(args)
 
         videos = iter_input_videos(args.video, getattr(args, "recursive", False))
         if not videos:
@@ -118,7 +142,7 @@ def run_encode(args) -> None:
             scenes_path = Path(str(v) + ".scenes")
             if not scenes_path.exists():
                 return "нет .scenes"
-            if resolve_output_path(v, args.out).exists():
+            if resolve_output_path(v, out_base).exists():
                 return "уже готов"
             return None
 
@@ -131,7 +155,8 @@ def run_encode(args) -> None:
     if not args.video.is_file():
         die(f"нет файла: {args.video}")
 
-    out = resolve_output_path(args.video, args.out)
+    out_base = _ensure_out_dir(args)
+    out = resolve_output_path(args.video, out_base)
     workdir = args.workdir or out.with_name(out.stem + ".chunks")
     workdir.mkdir(parents=True, exist_ok=True)
 
