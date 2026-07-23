@@ -8,7 +8,8 @@
 #
 # Тег можно закрепить на конкретной еженедельной сборке ради воспроизводимости
 # (пример: intel/dlstreamer:2026.2.0-YYYYMMDD-weekly-ubuntu24) вместо :latest.
-FROM intel/dlstreamer:latest
+FROM docker.io/intel/dlstreamer:latest
+USER root
 ENV IS_SANDBOX=1
 ENV HTTPS_PROXY="http://10.224.30.233:20171"
 ENV HTTP_PROXY="http://10.224.30.233:20171"
@@ -121,6 +122,45 @@ RUN set -eux; \
     tar -xzf /tmp/dovi.tgz -C "$tmpd"; \
     install -m0755 "$(find "$tmpd" -type f -name dovi_tool | head -1)" /usr/local/bin/dovi_tool; \
     rm -rf "$tmpd" /tmp/dovi.tgz
+
+# --- FFmpeg 8.1 (BtbN static GPL) — OPT-IN, side-by-side, НЕ заменяет системный ffmpeg ---
+# Это ОТДЕЛЬНАЯ, параллельная сборка FFmpeg 8.1: ставится в /opt/ffmpeg-8.1 и
+# выставляется на PATH как ffmpeg-8.1/ffprobe-8.1. Системный ffmpeg 6.1.1 из
+# dlstreamer-базы НЕ трогается (никаких /usr/local/bin/ffmpeg-симлинков) — весь
+# проверенный медиа-стек остаётся как есть, 8.1 доступен строго по явному вызову.
+#
+# ЗАЧЕМ это важно:
+#  1) ffmpeg `av1_qsv` (и `hevc_qsv`) — путь энкода, ИММУННЫЙ к порче кадров:
+#     конкурентный qsvencc при 10-bit + B-кадрах алиасит reference-surface'ы
+#     между процессами (пересечение пулов поверхностей), что даёт рассинхрон
+#     счётчика кадров — см. `.planning/debug/scene-chunk-frame-mismatch.md`.
+#     У ffmpeg покомпонентные пулы поверхностей на процесс, поэтому этот класс
+#     порчи ему не грозит. Это опорная причина держать 8.1 наготове.
+#  2) 8.1 дополнительно приносит bitstream-фильтр `dovi_rpu` для проброса Dolby
+#     Vision RPU, которого системный ffmpeg 6.1.1 НЕ умеет.
+#
+# КОМПРОМИСС ПО ПИНУ (осознанно принят, вариант «a»):
+# BtbN публикует ПОДВИЖНЫЙ rolling-тег `latest` — ИМЯ ассета стабильно
+# (ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz), но его СОДЕРЖИМОЕ меняется ежедневно
+# (сейчас резолвится в n8.1.2). Значит, сборки НЕ детерминированы. Мы сознательно
+# принимаем это ради единообразия с тем, как qsvencc/dovi_tool выше уже тянут
+# "последний GitHub-релиз". SHA256-верификация НЕ добавляется намеренно: у
+# подвижного тега нет стабильной опубликованной контрольной суммы, к которой можно
+# было бы привязаться (фиксируем это явно, а не умалчиваем). Ассет — public,
+# тянется по HTTPS с GitHub, ставится в изолированный /opt-путь (не затеняет
+# системный ffmpeg).
+RUN set -eux; \
+    curl -fsSL -o /tmp/ffmpeg-8.1.tar.xz \
+      https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz; \
+    tmpd="$(mktemp -d)"; \
+    tar -xJf /tmp/ffmpeg-8.1.tar.xz -C "$tmpd"; \
+    mkdir -p /opt/ffmpeg-8.1/bin; \
+    install -m0755 "$(find "$tmpd" -type f -name ffmpeg | head -1)" /opt/ffmpeg-8.1/bin/ffmpeg; \
+    install -m0755 "$(find "$tmpd" -type f -name ffprobe | head -1)" /opt/ffmpeg-8.1/bin/ffprobe; \
+    ln -sf /opt/ffmpeg-8.1/bin/ffmpeg /usr/local/bin/ffmpeg-8.1; \
+    ln -sf /opt/ffmpeg-8.1/bin/ffprobe /usr/local/bin/ffprobe-8.1; \
+    /usr/local/bin/ffmpeg-8.1 -hide_banner -version | head -1; \
+    rm -rf "$tmpd" /tmp/ffmpeg-8.1.tar.xz
 
 # --- Фикс сборки под podman/buildah ---
 # Devcontainer-фичи (node) запускают apt-get; apt роняет привилегии на непривилегированного
