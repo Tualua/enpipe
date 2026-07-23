@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: ffmpeg backend
-status: executing
-stopped_at: Completed 06-02-PLAN.md (COR-01 harness + hardware-gated test + stress-matrix script authored)
-last_updated: "2026-07-23T06:07:57.568Z"
+status: ready_to_plan
+stopped_at: Phase 06 complete (3/3) — ready to discuss Phase 7
+last_updated: 2026-07-23T08:34:16.502Z
 last_activity: 2026-07-23 -- Phase 06 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 14
   percent: 0
 ---
 
@@ -21,20 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 06 — concurrency-immunity-spike-image-rebuild-gate
+**Current focus:** Phase 7 — backend seam refactor (zero behavior change)
 
 ## Current Position
 
-Phase: 06 (concurrency-immunity-spike-image-rebuild-gate) — EXECUTING
-Plan: 2 of 3
-Status: Executing Phase 06
-Last activity: 2026-07-23 -- Phase 06 execution started
+Phase: 7
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-23
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 11
+- Total plans completed: 17
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -47,6 +47,7 @@ Last activity: 2026-07-23 -- Phase 06 execution started
 | 3 | 3 | - | - |
 | 4 | 2 | - | - |
 | 5 | 1 | - | - |
+| 06 | 3 | - | - |
 
 **Recent Trend:**
 
