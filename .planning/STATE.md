@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Single-command pipeline entry point
-status: milestone_complete
-stopped_at: Milestone complete (Phase 5 was final phase)
-last_updated: 2026-07-09T12:12:03.000Z
-last_activity: 2026-07-09 -- Completed quick task 260709-hq2 (GHCR build-and-publish воркфлоу + опциональный BuildKit github_token secret)
+status: Awaiting next milestone
+stopped_at: Completed quick task 260722-4oz (skip .metrics.csv creation when --no-metrics)
+last_updated: "2026-07-23T02:37:27.158Z"
+last_activity: 2026-07-23 — Milestone v1.1 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-09)
+See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Milestone complete
+**Current focus:** v1.1 shipped & archived — planning next milestone (leading candidate: encode-correctness hardening for concurrent-`qsvencc` frame corruption)
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-07-23 - Completed quick task 260723-36w: opt-in FFmpeg 8.1 (BtbN static GPL) слой в devcontainer (хост пересобирает)
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-23 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -137,6 +137,16 @@ None yet.
 
 ## Deferred Items
 
+Items acknowledged and deferred at the v1.1 milestone close on 2026-07-23 (pre-close artifact audit — 5 open items):
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| debug | scene-chunk-frame-mismatch — single corrupt frames (VMAF≈0) in scene-chunk encode; **silent output corruption**, strikes at core value | root_cause_found (concurrent-qsvencc cross-process aliasing) | v1.1 close 2026-07-23 |
+| debug | qsvenc-upstream-issue — iHD/media-driver cross-process 10-bit reference-surface aliasing (upstream bug report draft) | unknown/draft | v1.1 close 2026-07-23 |
+| debug | cannot-write-data-mounts — devcontainer `/data` bind-mount EACCES (rootless Podman userns mapping) | fix-applied-pending-rebuild | v1.1 close 2026-07-23 |
+| uat_gap | Phase 03 — 03-HUMAN-UAT.md | partial (0 pending scenarios) | v1.1 close 2026-07-23 |
+| verification_gap | Phase 03 — 03-VERIFICATION.md | human_needed | v1.1 close 2026-07-23 |
+
 Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
@@ -152,3 +162,7 @@ Last session: 2026-07-22T03:25:00.000Z
 Stopped at: Completed quick task 260722-4oz (skip .metrics.csv creation when --no-metrics)
 Resume file: None
 </content>
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
