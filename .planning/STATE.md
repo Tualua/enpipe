@@ -4,7 +4,7 @@ milestone: v1.2
 milestone_name: ffmpeg backend
 status: planning
 stopped_at: Phase 6 context gathered
-last_updated: "2026-07-23T05:05:23.857Z"
+last_updated: "2026-07-23T05:46:48.204Z"
 last_activity: 2026-07-23 — v1.2 roadmap created
 progress:
   total_phases: 5
