@@ -313,26 +313,52 @@ def sweep_chunk(ref_obu: Path, test_obu: Path, sweep_log: Path) -> int:
 _FALLBACK_MARKERS: Tuple[str, ...] = ("falling back", "Failed to initialize QSV", "MFX_ERR")
 
 
-def assert_triad(verbose_log: str) -> List[str]:
+def output_is_10bit(obu: Path) -> bool:
+    """True if the encoded `.obu` is genuinely 10-bit (pix_fmt like
+    yuv420p10le). The corruption-triad's P010 leg CANNOT be read from the
+    `-v verbose` ENCODE log: under QSV every stage reports opaque 'video
+    memory surface' / 'format qsv' and the concrete pixel format never
+    appears (confirmed against a real Arc-hardware ffmpeg-8.1 capture). The
+    ground truth is the encoded output's pixel format, so probe it directly
+    (system ffprobe, matching count_frames' probe convention)."""
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=pix_fmt",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(obu),
+        ],
+        capture_output=True, text=True,
+    )
+    return "p10" in (proc.stdout or "").strip().lower()
+
+
+def assert_triad(verbose_log: str, output_obu: Path) -> List[str]:
     """Returns a list of MISSING/violated corruption-triad legs (empty list
-    = triad intact) from a `-v verbose` init log of a run whose PSNR sweep
-    came back clean. A missing leg -- or a hit silent-fallback marker, even
-    with every positive leg present -- means the "clean" result came from a
-    weaker pipeline than production (e.g. a silent SW-decode fallback), not
-    from genuine immunity."""
+    = triad intact) for a run whose PSNR sweep came back clean. A missing
+    leg -- or a hit silent-fallback marker, even with every positive leg
+    present -- means the "clean" result came from a weaker pipeline than
+    production (e.g. a silent SW-decode fallback), not from genuine
+    immunity.
+
+    Two of the three legs (HW-decode, B-pyramid) plus the fallback markers
+    are read from the `-v verbose` encode log; the P010/10-bit leg is probed
+    from the ENCODED OUTPUT (`output_obu`) because QSV never prints the
+    pixel format in `-v verbose` -- see output_is_10bit."""
     missing: List[str] = []
-    if not re.search(r"\byuv420p10le\b", verbose_log):
-        missing.append("p010/10-bit (no yuv420p10le in log)")
+    # P010/10-bit leg: ground truth is the encoded output, NOT the log.
+    if not output_is_10bit(output_obu):
+        missing.append("p010/10-bit (output pix_fmt is not 10-bit)")
     if not re.search(r"profile:\s*av1\s+main", verbose_log, re.I):
         missing.append("Main profile not confirmed")
     if not re.search(r"GopRefDist:\s*6", verbose_log):
         missing.append("GopRefDist:6 not confirmed")
     if not re.search(r"BRefType:\s*pyramid", verbose_log, re.I):
         missing.append("BRefType:pyramid not confirmed")
-    # HW-decode leg: UNVERIFIED regex -- confirm against a real -v verbose
-    # capture on real hardware before relying on this candidate.
+    # HW-decode leg: regex CONFIRMED against a real Arc-hardware ffmpeg-8.1
+    # `-v verbose` capture -- the decoder init logs `[h264_qsv @ 0x...]`
+    # (RESEARCH Open Q1, locked). A forced-SW decode has no such line.
     if not re.search(r"\[h264_qsv\b", verbose_log):
-        missing.append("HW h264_qsv decoder init not confirmed [UNVERIFIED regex]")
+        missing.append("HW h264_qsv decoder init not confirmed")
     for marker in _FALLBACK_MARKERS:
         if marker in verbose_log:
             missing.append(f"silent-fallback marker present: {marker!r}")

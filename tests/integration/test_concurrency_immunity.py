@@ -60,6 +60,7 @@ def test_ffmpeg_av1qsv_immune_at_production_jobs(tmp_path: Path) -> None:
     failed: List[harness.SessionOutcome] = []
     total_corrupt = 0
     triad_log: Optional[str] = None
+    triad_obu: Optional[Path] = None
 
     for iteration in range(IMMUNITY_ITERS):
         outcomes = harness.run_concurrent("ffmpeg", JOBS, tmp_path, iteration, refs)
@@ -76,7 +77,7 @@ def test_ffmpeg_av1qsv_immune_at_production_jobs(tmp_path: Path) -> None:
             total_corrupt += outcome.corrupt_frames or 0
             if triad_log is None:
                 scene = next(s for s in harness.HANDOFF_SCENES if s.scene == outcome.scene)
-                _out, verbose_path, _sweep = harness.session_paths(
+                triad_obu, verbose_path, _sweep = harness.session_paths(
                     tmp_path, iteration, job_idx, scene
                 )
                 triad_log = verbose_path.read_text()
@@ -93,7 +94,8 @@ def test_ffmpeg_av1qsv_immune_at_production_jobs(tmp_path: Path) -> None:
         f"{IMMUNITY_ITERS} iterations at JOBS={JOBS} -- immunity claim falsified"
     )
     assert triad_log is not None, "no clean session captured to assert the corruption triad against"
-    missing = harness.assert_triad(triad_log)
+    assert triad_obu is not None
+    missing = harness.assert_triad(triad_log, triad_obu)
     assert missing == [], f"corruption triad not intact on a 'clean' run: {missing}"
 
 

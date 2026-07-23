@@ -155,12 +155,12 @@ def main() -> int:  # noqa: C901 -- linear evidence-gathering script, not worth 
                                 scene = next(
                                     s for s in harness.HANDOFF_SCENES if s.scene == outcome.scene
                                 )
-                                _out, verbose_path, _sweep = harness.session_paths(
+                                out_obu, verbose_path, _sweep = harness.session_paths(
                                     iter_workdir, iteration, job_idx, scene
                                 )
                                 if verbose_path.is_file():
                                     triad_by_jobs[jobs] = harness.assert_triad(
-                                        verbose_path.read_text()
+                                        verbose_path.read_text(), out_obu
                                     )
                                     dest = (
                                         evidence_dir
