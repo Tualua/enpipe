@@ -155,6 +155,18 @@ Phases with standard patterns (skip research-phase):
 - Hardware av1_qsv DV/HDR10+ side-data survival — inferred from software-encoder docs only; must be POC-validated (Phase 5).
 - `first>0` frame-indexed `trim` accuracy — logically derived; needs real-media hardware parity gate (Phase 3).
 
+## Update — DV/HDR10+ decision (post-research, user-directed)
+
+A follow-up investigation (`.planning/research/DV-RPU-AV1.md`) overturned the earlier "DV cannot be injected into fresh AV1" conclusion:
+
+- **The AV1 DV-RPU injection mechanism is `libdovi`** — verified from the installed `qsvencc` binary's symbols (it statically bundles libdovi 3.1.2 and writes one ITU-T T.35 metadata OBU per frame; its `--dolby-vision-rpu` even accepts an *external* RPU file). Injection is a **no-re-encode mux operation**, not an encode-coupled one.
+- **qsvencc cannot do inject-only** — probed live: `-c/--codec` offers no `copy` for video and every reader decodes, so feeding it ffmpeg's `.obu` would re-encode AV1→AV1 (quality loss + reintroduces the concurrency corruption). Rejected.
+- **`dovi_tool` PR #389 (`sven-pke:feat/av1-bitstream`) already implements AV1 `inject-rpu`** — writes RPU per temporal unit (after `OBU_TEMPORAL_DELIMITER`) into a raw `.obu`, no transcode; a user reports it "works pretty well" (June 2026). **BUT it is UNMERGED** (maintainer flagged a crate restructure) and its **B-pyramid display-order alignment is unverified**.
+
+**Decision (user): SPIKE, then decide.** v1.2's final (POC-gated) phase builds `dovi_tool` from PR #389 and validates `extract-rpu` (HEVC source) + `inject-rpu` over ffmpeg's `.obu` on a **real DV fixture** (RPU-count == frame-count, correct per-frame display-order alignment). If it validates → DV/HDR10+ ride the corruption-free ffmpeg default byte-preserving. If it fails/is unbuildable → DV/HDR10+ **route to the retained qsvencc backend run `--avsw`** (0/60 clean). Either way DV/HDR10+ are **never silently downgraded** — that is the non-negotiable invariant the requirement carries. The unmerged branch is deliberately spike-gated, not adopted as a blind production dependency.
+
+**Correction carried forward:** `hdr10plus_tool` CLI is *also* HEVC-only, so HDR10+ shares DV's path (both via the same libdovi/dovi_tool AV1 route or the qsvencc fallback) — it is NOT the independent out-of-band escape the earlier STACK/FEATURES notes implied.
+
 ---
 *Research completed: 2026-07-23*
 *Ready for roadmap: yes*
