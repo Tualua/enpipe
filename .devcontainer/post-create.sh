@@ -60,19 +60,34 @@ vainfo 2>/dev/null | grep -iE 'Driver version|VAProfileAV1|VAProfileHEVCMain10' 
 echo "  ffmpeg QSV-энкодеры:"
 ffmpeg -hide_banner -encoders 2>/dev/null | grep -iE 'av1_qsv|hevc_qsv' | sed 's/^/    /' \
     || echo "    QSV-энкодеров нет"
-# ffmpeg-8.1 — opt-in параллельная сборка (BtbN static), не заменяет системный
-# ffmpeg. Информационно, НИКОГДА не роняет скрипт под set -euo pipefail:
-# каждая под-команда прикрыта `|| echo ...` / `2>/dev/null`.
+# ENV-01: ffmpeg-8.1 — opt-in параллельная сборка (BtbN static), не заменяет
+# системный ffmpeg. Это load-bearing предпосылка для COR-01 (ffmpeg av1_qsv —
+# иммунный к межпроцессной порче кадров путь энкода), поэтому проверка ниже
+# ТРЕКАЕТ pass/fail через ENV01_OK, а не просто печатает grep — сломанная
+# пересборка не должна молча выглядеть как успех. Тем не менее сам скрипт
+# остаётся best-effort под set -euo pipefail: ни одна ОШИБКА здесь не делает
+# mid-script `exit 1` (это было бы стилистическим выбросом на фоне остальных
+# проверок файла) — вместо этого итог печатается одной сводной строкой в
+# конце скрипта.
 echo "  ffmpeg-8.1 (opt-in, BtbN static):"
+ENV01_OK=1
 if command -v ffmpeg-8.1 >/dev/null 2>&1; then
     ffmpeg-8.1 -hide_banner -version 2>/dev/null | head -1 | sed 's/^/    /' \
         || echo "    версию получить не удалось"
-    ffmpeg-8.1 -hide_banner -encoders 2>/dev/null | grep -iE 'av1_qsv|hevc_qsv' | sed 's/^/    /' \
-        || echo "    QSV-энкодеров нет"
-    ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null | grep -i 'dovi_rpu' | sed 's/^/    /' \
-        || echo "    dovi_rpu BSF нет"
+    if ! ffmpeg-8.1 -hide_banner -encoders 2>/dev/null | grep -qi 'av1_qsv'; then
+        echo "    ОШИБКА: av1_qsv кодер не найден"; ENV01_OK=0
+    fi
+    if ! ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null | grep -qi 'av1_metadata'; then
+        echo "    ОШИБКА: av1_metadata BSF не найден"; ENV01_OK=0
+    fi
+    if ! ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null | grep -qi 'dovi_rpu'; then
+        echo "    ОШИБКА: dovi_rpu BSF не найден"; ENV01_OK=0
+    fi
+    if ! command -v ffprobe-8.1 >/dev/null 2>&1; then
+        echo "    ОШИБКА: ffprobe-8.1 не найден на PATH (нужен для PSNR-свипа COR-01)"; ENV01_OK=0
+    fi
 else
-    echo "    не установлен (пересобери образ)"
+    echo "    ОШИБКА: ffmpeg-8.1 не найден на PATH (пересобери образ)"; ENV01_OK=0
 fi
 printf "  qsvencc:   "; command -v qsvencc >/dev/null && qsvencc --version 2>/dev/null | head -1 || echo "НЕТ"
 # dovi_tool: пока нигде в пайплайне не вызывается — держим ради Phase-4 DV RPU
@@ -102,5 +117,13 @@ for d in /data/media /data/downloads; do
     printf "    %-16s " "$d"
     [ -d "$d" ] && echo "смонтирована ($(ls -1 "$d" 2>/dev/null | wc -l) элементов)" || echo "НЕ смонтирована"
 done
+
+# ENV-01 сводка: единая pass/fail строка по флагу ENV01_OK, накопленному в
+# блоке ffmpeg-8.1 выше. Не роняет скрипт — только сигнализирует состояние.
+if [ "${ENV01_OK:-0}" -eq 1 ]; then
+    echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): OK"
+else
+    echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): ПРОВАЛЕН — см. ОШИБКА выше"
+fi
 
 echo "== post-create завершён =="
