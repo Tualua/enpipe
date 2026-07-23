@@ -71,26 +71,28 @@ Explicitly excluded for v1.2.
 
 ## Traceability
 
-Populated during roadmap creation.
+Phase numbering continues from v1.1 (which ended at Phase 5); v1.2 phases are 6–10.
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| ENV-01  | Phase _ | Pending |
-| BK-01   | Phase _ | Pending |
-| BK-02   | Phase _ | Pending |
-| FF-01   | Phase _ | Pending |
-| FF-02   | Phase _ | Pending |
-| FF-03   | Phase _ | Pending |
-| COR-01  | Phase _ | Pending |
-| HDR-01  | Phase _ | Pending |
-| HDR-02  | Phase _ | Pending |
-| HDR-03  | Phase _ | Pending |
+| Requirement | Phase   | Status  |
+|-------------|---------|---------|
+| ENV-01  | Phase 6  | Pending |
+| COR-01  | Phase 6  | Pending |
+| BK-02   | Phase 7  | Pending |
+| FF-01   | Phase 8  | Pending |
+| FF-02   | Phase 8  | Pending |
+| FF-03   | Phase 8  | Pending |
+| BK-01   | Phase 8  | Pending |
+| HDR-01  | Phase 9  | Pending |
+| HDR-03  | Phase 10 | Pending |
+| HDR-02  | Phase 10 | Pending |
 
 **Coverage (v1.2, active):**
 - v1.2 requirements: 10 total
-- Mapped to phases: 0 (roadmap not yet created)
-- Unmapped: 10 ⚠️
+- Mapped to phases: 10 ✅
+- Unmapped: 0
+
+Phase map: P6 = ENV-01, COR-01 (gate) · P7 = BK-02 (seam) · P8 = FF-01, FF-02, FF-03, BK-01 (SDR + default flip) · P9 = HDR-01 (HDR10 static) · P10 = HDR-03, HDR-02 (DV/HDR10+ decision). BK-01's `--backend` scaffold is stubbed in P7 but the requirement (ffmpeg default) is realized in P8, so it maps to P8.
 
 ---
 *Requirements defined: 2026-07-23*
-*Last updated: 2026-07-23 after v1.2 requirements definition*
+*Last updated: 2026-07-23 after v1.2 roadmap creation (phases 6–10, 100% coverage)*

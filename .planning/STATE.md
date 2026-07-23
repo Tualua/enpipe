@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: ffmpeg backend
 status: planning
-last_updated: "2026-07-23T03:03:25.929Z"
+last_updated: "2026-07-23T03:30:00.000Z"
 last_activity: 2026-07-23
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** v1.2 ffmpeg backend — dual-backend migration (ffmpeg `av1_qsv` default, corruption-free; `qsvencc` opt-in). Defining requirements.
+**Current focus:** v1.2 ffmpeg backend — dual-backend migration (ffmpeg `av1_qsv` default, corruption-free; `qsvencc` opt-in). Roadmap created: Phases 6–10 (risk-first). Next: plan Phase 6.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 6 — Concurrency-Immunity Spike + Image Rebuild (GATE) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-23 — Milestone v1.2 started
+Status: Roadmap created (Phases 6–10, 10/10 requirements mapped); ready to plan Phase 6
+Last activity: 2026-07-23 — v1.2 roadmap created
 
 ## Performance Metrics
 
@@ -79,6 +79,13 @@ Recent decisions affecting current work:
 - Roadmap (v1.1): Phase numbering continues from v1.0 (starts at Phase 5, not reset to 1)
 - Roadmap (v1.1): All 4 RUN-* requirements collapsed into a single Phase 5 — coarse granularity + this is a thin sequential wrapper over already-verified v1.0 stages, not a multi-capability milestone; no natural sub-boundary to split on
 - Roadmap (v1.1): Phase 5 depends only on Phase 4 (needs `run_detect`/`run_encode` + the unified CLI dispatcher to exist and be hardware-verified before wrapping them)
+- Roadmap (v1.2): Phase numbering continues from v1.1 (starts at Phase 6, not reset to 1); v1.0/v1.1 groupings preserved in ROADMAP.md, v1.2 appended
+- Roadmap (v1.2): Risk-first 5-phase shape from research SUMMARY adopted under coarse granularity — Phase 6 (ENV-01+COR-01) is a GATE proving ffmpeg av1_qsv immunity at production+stress JOBS with per-frame content verification BEFORE any backend code; if it fails the migration premise is invalid
+- Roadmap (v1.2): Refactor-before-feature — Phase 7 (BK-02) lands the `backends/` seam validated byte-identical vs the legacy oracle (qsvencc-only) before Phase 8 adds ffmpeg encode code
+- Roadmap (v1.2): SDR→HDR→DV ordering — Phase 8 (FF-01/02/03 + BK-01 default flip) carries the load-bearing invariants; Phase 9 (HDR-01) is solved-but-relocated (encoder→mkvmerge tags); Phase 10 (HDR-03+HDR-02) is the POC-gated highest-risk DV/HDR10+ decision, deferred last so it cannot block core value
+- Roadmap (v1.2): BK-01 maps to Phase 8 (requirement = ffmpeg default realized), though its `--backend` flag scaffold is stubbed in Phase 7
+- Roadmap (v1.2): v1.2 correctness basis is per-frame CONTENT parity (PSNR/VMAF) + quality/size band, NOT byte-identity to qsvencc (ICQ-23 ≠ av1_qsv "23"); `legacy/` stays the frozen parity oracle throughout
+- Roadmap (v1.2): Phases 6 (concurrency methodology) and 10 (DV/HDR10+) flagged for deeper per-phase research at plan time; Phases 7/8/9 are standard patterns
 - [Phase 01-01]: Confirmed scenedetect exact pin ==0.7 matches installed/working version (PEP 440 0.7.0); no other 0.7.x exists on PyPI
 - [Phase 01-01]: Ran uv lock immediately after writing pyproject.toml deps (fail-fast) before scaffolding source files, per plan instruction
 - [Phase 01-02]: jobs=1 used on both sides of the D-14 detection parity check (oracle CLI and migrated detect_scenes) for a deterministic comparison, isolating mechanical-migration correctness from the separately-verified parallel-jobs circular-import path
@@ -157,8 +164,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-22T03:25:00.000Z
-Stopped at: Completed quick task 260722-4oz (skip .metrics.csv creation when --no-metrics)
+Last session: 2026-07-23T03:30:00.000Z
+Stopped at: v1.2 roadmap created (ROADMAP.md Phases 6–10 appended; REQUIREMENTS.md traceability filled 10/10)
 Resume file: None
 </content>
 
