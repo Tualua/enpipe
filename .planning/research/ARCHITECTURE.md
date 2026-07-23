@@ -1,343 +1,282 @@
 # Architecture Research
 
-**Domain:** Packaging an existing two-script subprocess-orchestration media pipeline (Python) into a testable, installable package — no runtime-behavior change
-**Researched:** 2026-07-08
-**Confidence:** HIGH (grounded directly in `legacy/scene_detection.py` and `legacy/encode_scenes.py` source, `.planning/codebase/ARCHITECTURE.md`, and current `packaging.python.org` guidance)
+**Domain:** Dual encode-backend integration into an existing scene-chunk AV1 transcode pipeline (`enpipe` v1.2)
+**Researched:** 2026-07-23
+**Confidence:** HIGH (existing code read directly; ffmpeg `-f obu` / `av1_qsv` / `dovi_rpu` verified against ffmpeg docs + patchwork, MEDIUM on exact HDR-signaling flags)
 
-## Scope Boundary (read first)
+## Executive Summary
 
-This research covers **structural packaging** only: how to move `legacy/*.py` into an installable package with module boundaries and testing seams, **without** changing what the code does. It explicitly does **not** design, sketch, or recommend the in-process streaming/queue orchestrator described in `PIPELINE_DESIGN.md` — that is out of scope for this milestone per `PROJECT.md` and its own "do not build on current hardware" verdict. Where this document proposes a "unified entry point," that means a single **CLI dispatcher** (`enpipe detect …` / `enpipe encode …`) that calls the same two independent pipelines connected by the same `<video>.scenes` intermediate file — not a fused runtime. This distinction is load-bearing; do not let "unified entry point" work drift into orchestrator work.
+The clean seam is **not** "add a `backend=` branch inside `chunk_command`." It is to demote the current qsvencc-specific `chunk_command` + `detect_hdr` + `parse_metrics` into **one backend among two**, behind a tiny frozen-dataclass `Backend` value object that bundles three pure callables (`build_command`, `build_hdr_args`, `parse_metrics`) plus two data fields (`name`, `output_suffix`). `pipeline.py` resolves the backend **once** at the top of `run_encode` from a CLI flag / env var, then threads the resolved `Backend` object through the existing task-building loop. Everything downstream of command construction — `count_frames` verify, high-water-mark ordered append, `JOBS` `ThreadPoolExecutor`, byte-concat into `movie.obu`, `mkvmerge` mux — is **backend-agnostic and stays untouched**.
+
+The one piece of shared correctness logic that must **not** be duplicated per backend is the keyframe seek/trim arithmetic (`compute_chunk_seek_trim`), which the corruption handoff explicitly **exonerated** as bit-correct. Today it returns qsvencc-shaped strings (`seek="01:16:14.167"`, `trim="0:339"`). ffmpeg needs the same math in **numeric** form (keyframe time + frame offsets) for frame-accurate `-ss`/trim. The fix is to expose the numbers the function already computes internally, and let each backend format them — sharing the proven math, not re-deriving it.
 
 ## Standard Architecture
 
-### System Overview (target, after restructuring)
+### System Overview (v1.2 target — new/changed shaded with `*`)
 
 ```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                      console_script: `enpipe` (cli/app.py)                 │
-│                        argparse subcommands, dispatch only                 │
-├───────────────────────────────┬─────────────────────────────────────────────┤
-│  `enpipe detect`  (cli/detect.py)   │  `enpipe encode` (cli/encode.py)         │
-│  thin argparse wrapper              │  thin argparse wrapper                    │
-└───────────────┬─────────────────────┴───────────────────┬─────────────────────┘
-                │                                          │
-                ▼                                          ▼
-┌───────────────────────────────┐        ┌────────────────────────────────────────┐
-│   enpipe.detection (package)   │        │   enpipe.encoding (package)             │
-│   config / probe / stream /    │        │   scenes_io / keyframes / hdr / chunk / │
-│   detect / parallel            │        │   audio / metrics / pipeline            │
-└───────────────┬────────────────┘        └───────┬───────────────────┬────────────┘
-                │ writes                            │ reads            │ uses
-                ▼                                    ▼                  ▼
-        `<video>.scenes` (unchanged text format, still the ONLY coupling)
-                                                                          ▼
-                                                              ┌───────────────────┐
-                                                              │  enpipe.mkv.ebml   │
-                                                              │  (isolated, tested)│
-                                                              └───────────────────┘
-
-        Both `enpipe.detection` and `enpipe.encoding` depend on:
-┌───────────────────────────────────────────────────────────────────────────┐
-│                          enpipe.shared (library layer)                     │
-│   proc.py (subprocess seam)  |  ffprobe.py (probe helpers)  | logging.py   │
-└───────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│  CLI  (cli/main.py)                                                    │
+│   enpipe encode / run   --backend ffmpeg|qsvencc   [ENPIPE_BACKEND] *  │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                 │ args.backend
+┌───────────────────────────────▼───────────────────────────────────────┐
+│  Orchestration  (encoding/pipeline.py)                                 │
+│   run_encode:  backend = get_backend(args.backend)  *                  │
+│   ┌─────────────┐  ┌──────────────────┐  ┌──────────────────────────┐  │
+│   │ keyframe    │  │ per-chunk task   │  │ high-water-mark append   │  │
+│   │ table       │─▶│ build (loop)     │─▶│ + count_frames verify    │  │
+│   │ (unchanged) │  │ backend.build_*  │* │ + JOBS ThreadPool        │  │
+│   └─────────────┘  └────────┬─────────┘  │ (ALL UNCHANGED)          │  │
+│                             │            └──────────────────────────┘  │
+├─────────────────────────────┼──────────────────────────────────────────┤
+│  Backend seam  (encoding/backends/) *                                  │
+│   get_backend(name) -> Backend(frozen dataclass) *                     │
+│   ┌────────────────────────┐        ┌────────────────────────────┐     │
+│   │ backends/qsvencc.py *  │        │ backends/ffmpeg.py *       │     │
+│   │  build_command  (argv) │        │  build_command  (argv)     │     │
+│   │  build_hdr_args        │        │  build_hdr_args (dovi_rpu, │     │
+│   │  parse_metrics         │        │   master-display, dhdr10)  │     │
+│   │  output_suffix=".obu"  │        │  parse_metrics = no-op     │     │
+│   └────────────────────────┘        │  output_suffix=".obu"      │     │
+│        (moved from chunk.py/hdr.py) └────────────────────────────┘     │
+├────────────────────────────────────────────────────────────────────────┤
+│  Shared pure logic  (UNCHANGED, exonerated)                            │
+│   keyframes.compute_chunk_seek_trim  +  *_frames() numeric variant *   │
+│   count_frames · contiguous_run · scenes_io · mkv.ebml                 │
+├────────────────────────────────────────────────────────────────────────┤
+│  Subprocess seam  shared.proc  (UNCHANGED — single choke point)        │
+│   qsvencc | ffmpeg | ffprobe | mkvmerge                                 │
+└────────────────────────────────────────────────────────────────────────┘
 ```
-
-This mirrors the existing runtime architecture exactly (`.planning/codebase/ARCHITECTURE.md`): two independent batch stages connected only by the `.scenes` file, each internally a producer-pool + ordered-consumer. The only new things are (1) a package boundary and shared library layer, (2) a CLI dispatcher on top, (3) a subprocess seam for testing. No queue, no fused process, no change to what `detect_scenes` / `main()` in the encoder compute.
 
 ### Component Responsibilities
 
-| Component | Responsibility | Notes |
-|-----------|----------------|-------|
-| `cli/app.py` | `enpipe` console_script entry point; argparse subparsers `detect`/`encode` that dispatch to `cli/detect.py:run()` / `cli/encode.py:run()` | Pure dispatch, no logic |
-| `cli/detect.py` | Reproduces `legacy/scene_detection.py`'s exact argparse surface; calls `detection.detect.detect_scenes`; writes `.scenes` file | Behavior-identical to today's `__main__` block |
-| `cli/encode.py` | Reproduces `legacy/encode_scenes.py`'s exact argparse surface + env var precedence (`ICQ`, `QPMAX`, `GOP_LEN`, `DV_PROFILE`, `JOBS`, `FLAC_LEVEL`, `AUDIO_COPY`); calls `encoding.pipeline.run_encode` | Behavior-identical to today's `main()` |
-| `detection.config` | `DetectionConfig`, `SourceInfo`, `Scene` frozen dataclasses | Pure data, zero I/O |
-| `detection.stream` | `QsvPipeStream` (VideoStream adapter over an ffmpeg subprocess pipe) | Subprocess boundary — see Testability Seams |
-| `detection.detect` | `detect_scenes`, `_detect_relative`, `_build_scenes` | Sequential path |
-| `detection.parallel` | `detect_scenes_parallel`, `find_boundary`, `keyframes_in_window`, `_boundary_worker`, `_segment_worker` | Segmented parallel path |
-| `encoding.scenes_io` | `read_scenes` — parses the `<video>.scenes` text format | Shared wire format; must stay byte-compatible with the detector's writer |
-| `mkv.ebml` | Isolated hand-rolled EBML var-int reader + Cues-index parser (`_ebml_num`, `_eid`, `_esz`, `keyframe_table_cues`) | See dedicated section below — highest-priority isolation target |
-| `encoding.keyframes` | `keyframe_table` (dispatches to `mkv.ebml` or ffprobe fallback), `keyframe_table_ffprobe`, `kf_before`, `fmt_seek`, new `compute_chunk_seek_trim` | Correctness-critical seek/trim math — see dedicated section |
-| `encoding.hdr` | `detect_hdr` | ffprobe-based HDR10/HDR10+/DV flag derivation |
-| `encoding.chunk` | `chunk_command`, `encode_chunk`, `parse_metrics`, `count_frames` | Per-chunk qsvencc invocation + verification |
-| `encoding.audio` | `encode_audio` | Background-thread audio encode/copy |
-| `encoding.metrics` | `write_metrics_csv` | Pure-ish CSV writer given rows |
-| `encoding.pipeline` | `run_encode(args)` — the orchestration currently in `main()`: task building, `ThreadPoolExecutor` chunk phase, high-water append, frame-count verification, mux, cleanup | Kept sequential/threaded exactly as today; only extraction target is pulling pure sub-steps out (see Testability Seams) |
-| `shared.proc` | `run(cmd, **kw)` / `popen(cmd, **kw)` — the only place `subprocess.run`/`Popen` are called | The dependency-injection seam for all subprocess-invoking code |
-| `shared.ffprobe` | Candidate future home for deduplicated ffprobe-JSON parsing (currently duplicated as `probe_source` vs `probe_fps`) | **Do this last** — see Migration Order, step 6 |
-| `shared.logging` | `log()`/`step()` context-manager helpers, currently only in `encode_scenes.py` | Reused by both CLIs for consistent output |
+| Component | Responsibility | v1.2 change |
+|-----------|----------------|-------------|
+| `backends/__init__.py` (`Backend`, `get_backend`, registry) | Frozen-dataclass value object bundling the per-encoder pure callables; name→Backend lookup | **NEW** |
+| `backends/qsvencc.py` | `build_command` (today's `chunk_command`), `build_hdr_args` (today's `detect_hdr`), `parse_metrics` | **NEW file, moved logic** |
+| `backends/ffmpeg.py` | `build_command` (`av1_qsv` + `-f obu`), `build_hdr_args` (dovi_rpu BSF / master-display / dhdr10), `parse_metrics` no-op | **NEW** |
+| `keyframes.compute_chunk_seek_trim` | Exonerated seek/trim math; add a numeric-offset sibling both backends consume | **MODIFIED (additive)** |
+| `pipeline.run_encode` | Resolve backend once; pass `Backend` into task loop + `encode_chunk` | **MODIFIED (small)** |
+| `pipeline.encode_chunk` | Run cmd → `count_frames` → metrics; use `backend.parse_metrics` + backend name in error text | **MODIFIED (small)** |
+| `pipeline` append/verify/JOBS/mux | Ordered concat, frame-count guard, threading, mkvmerge | **UNCHANGED** |
+| `chunk.py` / `hdr.py` | Current qsvencc logic | **Becomes re-export shims OR is deleted after backend move** |
 
 ## Recommended Project Structure
 
 ```
-enpipe/
-├── pyproject.toml            # [project] metadata, [project.scripts] enpipe=..., deps + dev deps
-├── src/
-│   └── enpipe/
-│       ├── __init__.py               # version only; no logic
-│       ├── cli/
-│       │   ├── __init__.py
-│       │   ├── app.py                # console_script entry: `enpipe {detect,encode}`
-│       │   ├── detect.py             # argparse surface, mirrors legacy scene_detection.py __main__
-│       │   └── encode.py             # argparse surface, mirrors legacy encode_scenes.py __main__/args
-│       ├── detection/
-│       │   ├── __init__.py
-│       │   ├── config.py             # DetectionConfig, SourceInfo, Scene
-│       │   ├── stream.py             # QsvPipeStream
-│       │   ├── detect.py             # detect_scenes, _detect_relative, _build_scenes, _min_scene_len
-│       │   └── parallel.py           # detect_scenes_parallel, find_boundary, keyframes_in_window, workers
-│       ├── encoding/
-│       │   ├── __init__.py
-│       │   ├── scenes_io.py          # read_scenes (the <video>.scenes format parser)
-│       │   ├── keyframes.py          # keyframe_table, keyframe_table_ffprobe, kf_before, fmt_seek,
-│       │   │                          #   compute_chunk_seek_trim (new pure extraction)
-│       │   ├── hdr.py                # detect_hdr
-│       │   ├── chunk.py              # chunk_command, encode_chunk, parse_metrics, count_frames
-│       │   ├── audio.py              # encode_audio
-│       │   ├── metrics.py            # write_metrics_csv
-│       │   └── pipeline.py           # run_encode(args): orchestration, high-water append, mux, cleanup
-│       ├── mkv/
-│       │   ├── __init__.py
-│       │   └── ebml.py               # _ebml_num/_eid/_esz + keyframe_table_cues, I/O split from parsing
-│       └── shared/
-│           ├── __init__.py
-│           ├── proc.py               # run(), popen() — the sole subprocess seam
-│           ├── ffprobe.py            # (post-migration) deduplicated probe helpers
-│           └── logging.py            # log(), step()
-├── tests/
-│   ├── unit/
-│   │   ├── test_ebml.py              # mkv/ebml.py against a small corpus of Cues byte fixtures — no real files
-│   │   ├── test_keyframes.py         # kf_before, fmt_seek, compute_chunk_seek_trim — pure, no mocking
-│   │   ├── test_scenes_io.py         # read_scenes round-trip against known-good log text
-│   │   ├── test_chunk_command.py     # chunk_command argv construction (pure)
-│   │   ├── test_hdr.py               # detect_hdr flag derivation, shared.proc.run mocked
-│   │   ├── test_probe.py             # probe_source/probe_fps, shared.proc.run mocked with canned ffprobe JSON
-│   │   ├── test_stream.py            # QsvPipeStream read/reset/seek against a fake Popen (no real ffmpeg)
-│   │   └── test_high_water.py        # pure sequencing helper extracted from flush_appends
-│   ├── integration/
-│   │   ├── test_detect_parallel_matches_sequential.py  # mandatory regression test (PROJECT.md Active scope)
-│   │   └── test_end_to_end.py        # real media, real qsvencc — requires devcontainer/hardware, marked slow
-│   └── fixtures/
-│       └── mkv_headers/              # small synthetic/real mkv Cues byte blobs for the EBML parser
-└── legacy/                            # left in place until parity is verified per file (see Migration Order)
+src/enpipe/encoding/
+├── backends/                 # NEW: the encode-backend seam
+│   ├── __init__.py           # Backend dataclass, REGISTRY, get_backend(name)
+│   ├── qsvencc.py            # build_command / build_hdr_args / parse_metrics (from chunk.py+hdr.py)
+│   └── ffmpeg.py             # av1_qsv + -f obu; dovi_rpu/master-display/dhdr10; no-op metrics
+├── chunk.py                  # SHRINKS: keep count_frames + encode_chunk (backend-agnostic);
+│                             #   chunk_command re-exports backends.qsvencc.build_command (compat)
+├── hdr.py                    # Becomes thin re-export of backends.qsvencc.build_hdr_args (compat)
+├── keyframes.py              # +compute_chunk_seek_trim_frames() numeric variant (additive)
+├── pipeline.py               # resolve backend once; thread it through (small diff)
+├── audio.py metrics.py scenes_io.py   # UNCHANGED
+
+tests/
+├── unit/encoding/
+│   ├── backends/
+│   │   ├── test_qsvencc_command.py   # argv assertions (moved from test_chunk.py)
+│   │   └── test_ffmpeg_command.py    # NEW: -f obu, global_quality, -ss/trim, dovi_rpu argv
+│   └── test_backend_registry.py      # get_backend() dispatch, default = ffmpeg
+├── subprocess/encoding/
+│   ├── test_hdr.py                   # split: qsvencc flags + ffmpeg args (fp-mocked)
+│   └── test_ffmpeg_hdr.py            # NEW
+└── integration/
+    └── test_concurrent_corruption.py # NEW hardware-gated: per-frame content verify under JOBS
 ```
 
 ### Structure Rationale
 
-- **`src/` layout, not flat:** Prevents accidental imports of the working-tree copy instead of the installed package during tests (standard `packaging.python.org` guidance — see Sources), and forces `pip install -e .` to be the actual dev workflow from day one, matching the "proper installable module structure" requirement in `PROJECT.md`.
-- **`detection/` and `encoding/` stay separate packages, coupled only by `encoding/scenes_io.py` reading the same text format `detection` writes:** This is not a stylistic choice — it is the existing, load-bearing architecture (`.planning/codebase/ARCHITECTURE.md`: "there is no direct Python import between the two scripts today"). Preserving the file-based boundary (rather than having `encoding` import `detection` directly) keeps the current two-independent-CLI-invocation workflow valid and keeps this milestone from quietly becoming the fused orchestrator.
-- **`mkv/ebml.py` is its own top-level package, not a submodule of `encoding/`:** `PROJECT.md` names this explicitly as the top tech-debt item ("isolate the hand-rolled EBML/Cues parser behind a tested module boundary"). Giving it a standalone package signals it is a general-purpose Matroska-parsing utility, not encoder-orchestration logic, and lets its test suite (byte-fixture based, no ffmpeg/qsvencc needed) run fast and in isolation.
-- **`shared/proc.py` is the single subprocess choke point:** Every current subprocess call (`subprocess.run` in `scene_detection.py`'s `probe_source`/`keyframes_in_window`, `subprocess.Popen` in `QsvPipeStream`, `subprocess.run` throughout `encode_scenes.py` via its existing local `run()` wrapper) gets routed through one importable module. This is the primary testability lever for this whole codebase — see next section.
-- **`cli/` is intentionally thin:** argparse definitions and env-var reads only, calling into `detection`/`encoding` functions that take plain arguments. This makes the argument-parsing logic testable independently (e.g., "does `--min-scene-len-frames` take priority over `--min-scene-len`" is a pure function of parsed args, testable without subprocesses) and keeps `cli/app.py`'s dispatch role honest — it cannot accidentally grow orchestration logic.
-- **`legacy/` is not deleted as part of this restructuring** — it is the parity oracle. Delete or archive it only after each moved module has a passing behavior-parity check (see Migration Order).
+- **`backends/` as a sub-package, not a param flag:** the two encoders differ in argv shape, HDR-flag vocabulary, **and** metrics semantics (qsvencc emits SSIM/PSNR in stderr; `av1_qsv` does not). A `backend=` branch inside one `chunk_command` would smear three concerns together and break the tight argv-assertion test style. Separate modules keep each `build_command` a **small pure function** that is independently mock-tested — preserving the property the whole test suite relies on.
+- **`Backend` as a frozen dataclass, not a class hierarchy / ABC:** the codebase is deliberately function-oriented with `@dataclass(frozen=True)` value objects (`DetectionConfig`, `Scene`, `SourceInfo`) and has **no** OO service layer. A frozen `Backend` holding function references matches that grain exactly and stays trivially constructible in tests.
+- **Compat shims for `chunk.py`/`hdr.py`:** existing tests import `enpipe.encoding.chunk.chunk_command` and `enpipe.encoding.hdr.detect_hdr`. Re-exporting from the new modules lets Phase 1 land as a **pure, behavior-preserving refactor** (parity-oracle green) before any ffmpeg code exists.
 
 ## Architectural Patterns
 
-### Pattern 1: Subprocess seam via call-through module (not constructor injection)
+### Pattern 1: Backend as a frozen-dataclass function bundle
 
-**What:** Instead of adding a `runner` parameter to every function that shells out (which would touch every call site's signature and risk subtly changing default behavior), route all `subprocess.run`/`subprocess.Popen` calls through two module-level functions in `enpipe.shared.proc`:
+**What:** One value object per encoder, carrying pure callables + data. No inheritance, no runtime polymorphism beyond a dict lookup.
+**When to use:** Selecting between a small, fixed set of interchangeable command builders that share a downstream runner.
+**Trade-offs:** + Matches existing conventions, trivially testable, picklable-enough (thread pool, not process pool). − Slightly more indirection than a bare function; worth it for the metrics/HDR divergence.
 
+**Example:**
 ```python
-# enpipe/shared/proc.py
-import subprocess
-from typing import List
+# backends/__init__.py
+from dataclasses import dataclass
+from typing import Callable, List
+from pathlib import Path
+from . import qsvencc, ffmpeg
 
-def run(cmd: List[str], **kw) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, **kw)
+@dataclass(frozen=True)
+class Backend:
+    name: str
+    build_command: Callable[..., List[str]]     # pure argv builder
+    build_hdr_args: Callable[[Path], List[str]]  # ffprobe-driven HDR/DV flags
+    parse_metrics: Callable[[str], dict]         # stderr -> metrics (ffmpeg: no-op)
+    output_suffix: str                           # ".obu" for both
 
-def popen(cmd: List[str], **kw) -> subprocess.Popen:
-    return subprocess.Popen(cmd, **kw)
+REGISTRY = {
+    "ffmpeg":  Backend("ffmpeg",  ffmpeg.build_command,  ffmpeg.build_hdr_args,  ffmpeg.parse_metrics,  ".obu"),
+    "qsvencc": Backend("qsvencc", qsvencc.build_command, qsvencc.build_hdr_args, qsvencc.parse_metrics, ".obu"),
+}
+DEFAULT = "ffmpeg"   # corruption-free default; qsvencc opt-in
+
+def get_backend(name: str | None) -> Backend:
+    return REGISTRY[name or DEFAULT]   # KeyError -> die() in caller
 ```
 
-Every other module calls `proc.run(...)` / `proc.popen(...)` instead of `subprocess.run(...)` / `subprocess.Popen(...)`. Tests then do `monkeypatch.setattr(enpipe.shared.proc, "run", fake_run)` (or `unittest.mock.patch("enpipe.shared.proc.run")`) to substitute canned `CompletedProcess`/fake process objects, with **zero signature changes** to any existing function — this is the minimal-diff seam that satisfies "preserve current behavior exactly."
+### Pattern 2: Share the exonerated keyframe math; format per-backend
 
-**When to use:** Every function that currently calls `ffprobe`/`ffmpeg`/`qsvencc`/`mkvmerge` — `probe_source`, `keyframes_in_window`, `find_boundary` (indirectly), `probe_fps`, `keyframe_table_ffprobe`, `detect_hdr`, `encode_chunk`, `count_frames`, `encode_audio`, the final `mkvmerge` call in `pipeline.run_encode`, and `QsvPipeStream._start_process`/`finish`.
+**What:** `compute_chunk_seek_trim` already computes `kf_frame`, `kf_time`, `start_off = s - kf_frame`, `end_off = e - 1 - kf_frame`. Expose those numbers; let each backend format them. qsvencc → `--seek fmt_seek(kf_time) --trim "{start_off}:{end_off}"`. ffmpeg → `-ss kf_time` (accurate input seek lands on the keyframe) + frame-accurate trim of `[start_off, end_off]`.
+**When to use:** Any time proven correctness-critical arithmetic must feed two output formats.
+**Trade-offs:** + Zero re-derivation of the load-bearing math (handoff §3 exonerated it — do not touch the algorithm). − Adds one additive numeric-return function; keep the string-returning `compute_chunk_seek_trim` intact so qsvencc argv stays byte-identical to the legacy oracle.
 
-**Trade-offs:** Monkeypatching a module attribute is slightly less explicit than constructor/parameter injection, but this codebase is function-oriented with no service/class layer (per `.planning/codebase/ARCHITECTURE.md`: "no object-oriented service layer"), so a call-through module matches the existing style and requires touching only call sites (`subprocess.run(` → `proc.run(`), not signatures. `encode_scenes.py` already has a local `run()` wrapper doing exactly this at file scope (line 66) — this pattern promotes that existing idiom to a shared, importable, mockable module rather than inventing a new one.
-
-**Example test using the seam:**
+**Example:**
 ```python
-def test_probe_source_parses_ffprobe_json(monkeypatch):
-    fake = subprocess.CompletedProcess(
-        args=[], returncode=0,
-        stdout=json.dumps({
-            "streams": [{"width": 1920, "height": 1080, "avg_frame_rate": "24000/1001"}],
-            "format": {"duration": "120.5"},
-        }).encode(),
-    )
-    monkeypatch.setattr(proc, "run", lambda cmd, **kw: fake)
-    info = probe_source(Path("irrelevant.mkv"), DetectionConfig())
-    assert info.width == 1920 and info.frame_rate == Fraction(24000, 1001)
+# keyframes.py  (ADDITIVE — original stays for the qsvencc byte-identity path)
+def compute_chunk_seek_trim_frames(table, s, e) -> Tuple[float, int, int]:
+    kf_frame, kf_time = kf_before(table, s)
+    return kf_time, s - kf_frame, e - 1 - kf_frame   # (seek_time, start_off, end_off)
 ```
+> ffmpeg frame-accurate trim: `-ss <kf_time>` **before** `-i` (accurate seek decodes from the keyframe so decoded frame 0 == keyframe), then select frames `[start_off, end_off]`. When `start_off == 0` (scene starts on a keyframe — the common case) this is just `-frames:v {end_off+1}`; otherwise a trim/select of the decoded stream. This is the single highest-implementation-risk mapping and gets its own SDR parity gate (Phase 2).
 
-### Pattern 2: Isolate the EBML/Cues parser behind a read/parse split
+### Pattern 3: Keep the runner backend-agnostic; carry the Backend in the task tuple
 
-**What:** `keyframe_table_cues` today mixes file I/O (`src.stat()`, two `src.open("rb")` reads at different offsets) with pure byte-parsing (EBML element walking to find `SeekHead`→`Cues` position, then walking `Cues` body for `CuePoint`/`CueTime`/`CueTrackPositions`). Split it:
+**What:** `encode_chunk` stays module-level (ThreadPool worker) and generic: run `cmd`, `count_frames(out)`, then `backend.parse_metrics(stdout+stderr)`. Backend only influences (a) the argv built in the task loop, (b) the metrics parser, (c) the error label. Pass the `Backend` as a task-tuple field (thread pool → non-picklable callables are fine).
+**When to use:** Parallel workers that must stay uniform while their payload varies.
+**Trade-offs:** + High-water-mark ordering, `JOBS`, drain-then-die, frame-count guard all untouched. − Task tuple grows by one field; `encode_chunk`'s hardcoded `"qsvencc rc=…"` string becomes `f"{backend.name} rc=…"`.
 
+**Example:**
 ```python
-# enpipe/mkv/ebml.py — pure, no file I/O, fully unit-testable with byte fixtures
-def find_cues_position(head: bytes) -> Optional[tuple[int, int, int]]:
-    """Walk EBML header + Segment + SeekHead/Info/Tracks to locate Cues.
-    Returns (cues_pos, timestamp_scale, video_track_number) or None."""
-    ...
-
-def parse_cues_body(cues_bytes: bytes, video_track: int, scale: int,
-                     fps: float) -> Optional[List[Tuple[int, float]]]:
-    """Walk a Cues element body, return sorted (frame, pts_time) keyframe table."""
-    ...
-
-# enpipe/encoding/keyframes.py — the thin I/O shell, same public function name/signature
-def keyframe_table_cues(src: Path, fps: float) -> Optional[List[Tuple[int, float]]]:
-    head = src.open("rb").read(16_000_000)   # unchanged read pattern
-    located = ebml.find_cues_position(head)
-    if located is None:
-        return None
-    cues_pos, scale, vtrack = located
-    cues_bytes = _read_cues_body(src, cues_pos)   # unchanged targeted read
-    return ebml.parse_cues_body(cues_bytes, vtrack, scale, fps)
+# pipeline.run_encode (task loop, minimal diff)
+backend = get_backend(getattr(args, "backend", None))
+hdr_args = backend.build_hdr_args(args.video)          # was detect_hdr(...)
+...
+cmd = backend.build_command(args.video, seek_time, start_off, end_off, cp, hdr_args, metrics_on)
+tasks.append((i, cmd, cp, e - s, backend))             # backend rides along
 ```
-
-**When to use:** This is specifically what `PROJECT.md` calls out ("isolate the hand-rolled EBML/Cues parser behind a tested module boundary") and what `.planning/codebase/ARCHITECTURE.md`'s Anti-Patterns section flags as the top structural risk ("130+ lines of manual byte-offset arithmetic... no unit tests"). The split must preserve the exact fallback contract: any structural anomaly still returns `None` (never raises), so `keyframe_table()`'s caller still falls back to the slow ffprobe scan exactly as today.
-
-**Trade-offs:** This is the one place in this milestone where "pure refactor" (extracting functions without changing logic) is worth doing proactively rather than deferring, because it is currently *impossible* to unit test without real or crafted `.mkv` binary fixtures at the full-file level. After the split, `find_cues_position`/`parse_cues_body` can be tested with a handful of small synthetic byte sequences (a few hundred bytes each, handcrafted EBML) covering: normal Cues, missing SeekHead, Cues past EOF, non-zero-based keyframe table, multiple tracks, corrupt/truncated element sizes — none of which require a real video file.
-
-### Pattern 3: Extract correctness-critical math into pure, dependency-free functions
-
-**What:** Two blocks of correctness-critical arithmetic are currently inlined inside larger I/O-heavy functions and should be pulled out as their own pure, directly-testable functions — with **no logic change**, only extraction:
-
-1. **Seek/trim computation**, currently inline in `encode_scenes.py main()` (lines 581–589):
-   ```python
-   # enpipe/encoding/keyframes.py
-   @dataclass(frozen=True)
-   class ChunkPlan:
-       seek: str
-       trim: str
-       kf_frame: int
-
-   def compute_chunk_seek_trim(scene: Tuple[int, int],
-                                table: List[Tuple[int, float]]) -> ChunkPlan:
-       s, e = scene
-       kf_frame, kf_time = kf_before(table, s)
-       return ChunkPlan(seek=fmt_seek(kf_time), trim=f"{s - kf_frame}:{e - 1 - kf_frame}",
-                         kf_frame=kf_frame)
-   ```
-   This is the exact rule documented in the encoder's module docstring ("K = последний keyframe источника с frame_K ≤ S; qsvencc --seek floor_ms(K) --trim (S−K):(E−1−K)") — currently verifiable only by reading a full `main()` run's log output. After extraction it gets a direct table-driven unit test (e.g., scene starting exactly on a keyframe, scene starting one frame after a keyframe, first scene at frame 0, empty/degenerate table).
-
-2. **High-water-mark flush ordering**, currently a closure over `next_append`/`ready`/an open file handle (`flush_appends`, lines 608–617):
-   ```python
-   # enpipe/encoding/pipeline.py (or a new small module if reused)
-   def contiguous_ready(next_append: int, ready: Dict[int, int]) -> Iterator[int]:
-       """Yield indices to flush, in order, given current high-water mark."""
-       i = next_append
-       while i in ready:
-           yield i
-           i += 1
-   ```
-   The orchestration loop keeps doing the file I/O; the *decision* of which indices are safe to flush becomes a pure function tested with plain dicts (e.g., out-of-order completion `{2, 0, 1, 4}` → flush `[0, 1, 2]`, next_append becomes 3; `PIPELINE_DESIGN.md` already documents this exact pattern is slated for verbatim reuse by any future streaming consumer, so locking it under a unit test now also de-risks that future (out-of-scope) work).
-
-**When to use:** Any time correctness depends on arithmetic/sequencing that is currently only exercised end-to-end through a real qsvencc/mkvmerge run. Per `PROJECT.md`'s Constraints ("Frame-count verification and keyframe-alignment invariants must be preserved through any refactor — silent output corruption is the primary risk"), these are exactly the functions that most need direct, fast, hardware-free tests.
-
-**Trade-offs:** None functionally — these are behavior-preserving extractions (same expressions, moved to a named function and given a return type). The only cost is the extra module/import indirection, which is worth it given these are the two places `.planning/codebase/ARCHITECTURE.md` names explicitly as "correctness-by-construction" invariants.
 
 ## Data Flow
 
-### Existing Flow (preserved unchanged by this restructuring)
+### Per-chunk command construction (the only path that forks by backend)
 
 ```
-enpipe detect <video>              enpipe encode <video> <video>.scenes
-        │                                    │
-        ▼                                    ▼
- detection.detect.detect_scenes    encoding.pipeline.run_encode
-        │                                    │
-        ▼                                    │
-  <video>.scenes  (text file) ───────────────┘
-        (THE ONLY COUPLING — unchanged format, unchanged content)
+scenes[i]=(s,e)
+    │
+    ▼
+compute_chunk_seek_trim_frames(table, s, e)      ── shared, exonerated math
+    │   (kf_time, start_off, end_off)
+    ▼
+backend.build_command(src, kf_time, start_off, end_off, out.obu, hdr_args, metrics)
+    │
+    ├── qsvencc:  qsvencc --avhw --va … --seek HH:MM:SS.mmm --trim s:e -o out.obu
+    └── ffmpeg :  ffmpeg -ss <kf_time> -i src … -c:v av1_qsv -global_quality … \
+                         [-bsf:v dovi_rpu …] -f obu out.obu
+    │
+    ▼  (IDENTICAL from here on — backend-agnostic)
+encode_chunk → count_frames(out.obu) == expect  ─┐
+    │                                            │ per-chunk frame-count guard (UNCHANGED)
+    ▼                                            │
+high-water-mark ordered byte-concat → movie.obu ─┘
+    │
+    ▼
+count_frames(movie.obu) == total_expect          ── final guard (UNCHANGED)
+    │
+    ▼
+mkvmerge -o out.mkv --default-duration movie.obu + audio + subs/chapters (UNCHANGED)
 ```
 
-The restructuring must not add any direct Python import from `enpipe.encoding` to `enpipe.detection` (or vice versa) beyond both depending on `enpipe.shared`. If a future phase needs both stages in one process (the streaming orchestrator), that is a new, explicitly-scoped design — not a side effect of this packaging work.
+### The load-bearing output invariant (must hold for BOTH backends)
 
-### Key Data Flows (unchanged, now module-scoped)
+`movie.obu` is built by **raw byte concatenation** (`shutil.copyfileobj`) of per-chunk `.obu` files, then muxed once by `mkvmerge`. For ffmpeg this requires the **`-f obu` low-overhead OBU muxer** (verified present in ffmpeg; inserts temporal-delimiter OBUs per temporal unit). Each per-chunk encode is independent, so each `.obu` carries its own sequence-header OBU — the same self-contained property qsvencc chunks have today. **This concatenability is the single invariant most likely to bite and MUST be proven empirically** (byte-concat + `count_frames` + mkvmerge + real decode) in the SDR phase before trusting it. Do not assume; the whole `cat`-is-bit-exact design rests on it.
 
-1. **Detection:** `probe_source` → `QsvPipeStream` (ffmpeg subprocess pipe) → `AdaptiveDetector`/`SceneManager` → `List[Scene]` → CLI writes `<video>.scenes`. Same as `.planning/codebase/ARCHITECTURE.md` Data Flow, now split across `detection/{config,stream,detect,parallel}.py`.
-2. **Encoding:** `read_scenes` → `keyframe_table` (Cues fast path via `mkv.ebml`, ffprobe fallback via `encoding.keyframes`) → `detect_hdr` → per-scene `compute_chunk_seek_trim` + `chunk_command` → `ThreadPoolExecutor` `encode_chunk` → high-water `contiguous_ready`-driven append into `movie.obu` → parallel `encode_audio` → `write_metrics_csv` → `mkvmerge` mux. Same as today, now split across `encoding/{scenes_io,keyframes,hdr,chunk,audio,metrics,pipeline}.py`.
+## Concurrency & Correctness Scaling
 
-## Migration / Refactor Order
+This is a local/NAS toolchain — "scale" here means **encode throughput and correctness under parallel `JOBS`**, not user count.
 
-**Guiding rule:** every step below must leave the system runnable and behavior-identical to `legacy/*.py` at that point (verify by diffing `.scenes` output and final `.mkv`/`.metrics.csv` output against the legacy scripts on a real or synthetic sample before proceeding). Do not batch multiple steps into one commit if it can be avoided — the point of the ordering is a small, verifiable diff at each stage.
+| Concern | qsvencc (current) | ffmpeg av1_qsv (v1.2 default) |
+|---------|-------------------|------------------------------|
+| `JOBS=1` | correct, ⅓ throughput | correct |
+| `JOBS=3` (default) | **~33–65% silent single-frame corruption** (handoff §1) | empirically **35/35 clean**, full throughput |
+| Root cause exposure | iHD/i915 cross-process 10-bit reference aliasing (unified OR-combined VA pool) | per-component `AVHWFramesContext`, separate `AllocId` → immune |
+| Frame-count guard catches it? | **No** (count stays correct — silent) | N/A (clean) |
 
-1. **Scaffold only.** Create `pyproject.toml` (recommend `hatchling` or `setuptools` build backend — either is fine per current `packaging.python.org` guidance; pick whichever has less config for a single-package `src/` layout), empty `src/enpipe/` package, `tests/` directory, pin known runtime deps (`scenedetect[opencv-headless]`, `numpy`) plus `pytest`. No code moved. Verify `pip install -e .` and `import enpipe` work. Zero behavior risk — nothing executes yet.
+### Priorities
 
-2. **Move detection first.** Split `legacy/scene_detection.py` into `detection/{config,stream,detect,parallel}.py` as a **mechanical** cut/paste (no logic changes yet). Add `cli/detect.py` reproducing the exact current argparse surface, wired to `detection.detect.detect_scenes`. Verify byte-identical `.scenes` output vs. the legacy script on a sample file. Rationale for going first: it's the smaller of the two scripts, has no dependents, and de-risks the "does the src-layout/console_script wiring even work" question before touching the more complex encoder.
-
-3. **Introduce the `shared.proc` seam, applied to the newly-moved detection module.** Change `subprocess.run(...)`/`subprocess.Popen(...)` call sites in `detection/*` to `proc.run(...)`/`proc.popen(...)` — pure call-site substitution. Write the first unit tests here (`test_probe.py`, `test_stream.py` with a fake Popen) to prove out the seam pattern before replicating it into the larger encoder module.
-
-4. **Move encoding, with the EBML parser split out first as its own sub-step.** Order within this step matters:
-   - 4a. Extract `mkv/ebml.py` (read/parse split as described in Pattern 2) and write its byte-fixture test corpus. This is the single highest-debt item named in `PROJECT.md` — give it dedicated attention rather than folding it into a larger diff.
-   - 4b. Extract `encoding/keyframes.py` (`kf_before`, `fmt_seek`, new `compute_chunk_seek_trim`) and unit test directly (no mocking needed — pure functions).
-   - 4c. Mechanically move `hdr.py`, `chunk.py`, `audio.py`, `metrics.py`, applying the `proc.run` seam substitution as in step 3; the existing qsvencc/ffprobe stderr output formats documented in code comments (e.g. `SSIM YUV: ...`) are ready-made fixtures for `parse_metrics` tests.
-   - 4d. Extract the pure `contiguous_ready` sequencing helper from `flush_appends` (Pattern 3) and unit test it standalone.
-   - 4e. `encoding/pipeline.py` retains the orchestration as `run_encode(args)`, calling the above; `cli/encode.py` reproduces the exact argparse + env var surface.
-   - Verify byte-identical `.mkv`/`.metrics.csv` output vs. `legacy/encode_scenes.py` on the same sample before proceeding.
-
-5. **Add the unified `enpipe` console_script** (`cli/app.py`, `[project.scripts] enpipe = "enpipe.cli.app:main"`) with `detect`/`encode` subcommands dispatching to the already-verified `cli/detect.py`/`cli/encode.py`. This is dispatch-only wiring on top of already-proven code — lowest-risk step, do it after both stages are independently verified, not before.
-
-6. **(Optional/last, may be a follow-up milestone) Dedupe `probe_source` vs `probe_fps`** into `shared/ffprobe.py`. Deliberately last: both functions now have direct test coverage from steps 3/4c, so any subtle behavioral difference between them (error-raise via `SceneDetectionError` vs. `sys.exit` via `die()`; different fallback key order) will be caught by existing tests rather than surfacing as a production regression. If it doesn't fit this milestone's budget, defer explicitly rather than rush it.
-
-7. **Add the mandatory parallel-vs-sequential detection regression test** (named explicitly in `PROJECT.md` Active scope) as an integration test comparing `detect_scenes_parallel` against `detect_scenes` by `(start_frame, end_frame)` pairs on real media. This requires QSV hardware (the devcontainer), so mark it as an integration/hardware-gated test (`pytest.mark.integration` or similar), separate from the fast, hardware-free unit suite built in steps 3–4.
-
-8. **Retire `legacy/`** only after every step above has a passing parity check — either delete it from the working tree or leave it as a frozen historical reference; do not delete it as part of an earlier step, since it is the parity oracle for every other step.
-
-**Explicitly not part of this order:** reconciling the `ThreadPoolExecutor`-vs-`ProcessPoolExecutor` inconsistency in `detection.parallel` (flagged in `.planning/codebase/ARCHITECTURE.md` Architectural Constraints and `PROJECT.md` Active scope). The module-level worker functions (`_boundary_worker`, `_segment_worker`) are already structured pickle-safe for a `ProcessPoolExecutor`, so this is a low-effort follow-up — but swapping executor types changes concurrency/timing behavior (not output correctness, since the algorithm is unchanged and the workers are pure-ish), which is a different kind of change than pure packaging/testability work. Treat it as a separate, explicitly-scoped phase item, not a migration step to bundle in here.
+1. **Correctness first:** ffmpeg default eliminates the silent-corruption class outright — the entire milestone rationale.
+2. **Defense-in-depth (recommended, handoff §7):** a per-frame **content** verification gate (PSNR/VMAF of `movie.obu` vs source) on top of `count_frames`, so a silent single-frame swap physically cannot ship regardless of backend. Slots cleanly at the existing final-`count_frames` checkpoint in `pipeline.py`. Consider as a cross-cutting requirement, not backend-specific.
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Turning "unified entry point" into a fused runtime
+### Anti-Pattern 1: `backend=` branch inside a single `chunk_command`
+**What people do:** Add `if backend == "ffmpeg": …` inside the existing function.
+**Why it's wrong:** Conflates three diverging concerns (argv, HDR-flag vocabulary, metrics stderr parsing); makes `hdr_flags: List[str]` ambiguous (qsvencc `--master-display copy` vs ffmpeg `-bsf:v dovi_rpu`); bloats one function the whole suite tests by tight argv-index assertions.
+**Do this instead:** One `build_command` per backend module behind the `Backend` dataclass.
 
-**What people do:** Reading "package the two scripts... with a unified entry point" (`PROJECT.md` Active scope) as license to start wiring `detect` and `encode` together in-process (queues, threads spanning both stages), because `PIPELINE_DESIGN.md` already sketches exactly that.
-**Why it's wrong:** The milestone context is explicit — "Do NOT design the streaming orchestrator (out of scope)" — and `PIPELINE_DESIGN.md`'s own verdict is not to build it on current hardware. Conflating "one CLI binary with subcommands" with "one fused pipeline process" would silently pull out-of-scope, higher-risk work into a milestone whose whole point is behavior preservation.
-**Do this instead:** `enpipe`'s unified entry point is a **dispatch table only** — `cli/app.py` picks between `cli/detect.py:run()` and `cli/encode.py:run()`, each of which is otherwise unchanged from today's two independent scripts, still connected only by the `.scenes` file on disk.
+### Anti-Pattern 2: Re-deriving seek/trim for ffmpeg
+**What people do:** Write fresh keyframe/offset math for the ffmpeg path.
+**Why it's wrong:** `compute_chunk_seek_trim` is the **exonerated, correctness-critical** core (handoff §3 proved it bit-exact); a parallel derivation is a new corruption surface.
+**Do this instead:** Add the additive numeric-offset accessor (Pattern 2); both backends consume the same math.
 
-### Anti-Pattern 2: Adding a `runner`/`CommandRunner` parameter to every subprocess-calling function
+### Anti-Pattern 3: Touching the legacy oracle or the high-water-mark/verify path
+**What people do:** "Simplify" `flush_appends`, the frame-count guards, or `legacy/`.
+**Why it's wrong:** `legacy/encode_scenes.py` is the frozen byte-parity oracle; the ordered-append + `count_frames` guards are the last line of defense against silent corruption.
+**Do this instead:** Backends only build argv + HDR args + parse metrics. Everything else stays byte-identical; the qsvencc path must still match the legacy oracle after the refactor.
 
-**What people do:** The "textbook" dependency-injection answer is to add an explicit `runner: Callable = subprocess.run` parameter to every function that shells out, so tests pass a fake runner as an argument.
-**Why it's wrong:** This touches the signature of nearly every function in the codebase (`probe_source`, `keyframes_in_window`, `find_boundary`, `probe_fps`, `keyframe_table_ffprobe`, `detect_hdr`, `encode_chunk`, `count_frames`, `encode_audio`, `chunk_command`'s caller, the final mux call) for a milestone whose success criterion is "preserve current behavior exactly" — larger signature surface area means larger risk of an accidental default-value or call-site mismatch during the mechanical move.
-**Do this instead:** Route all calls through the two `shared.proc` functions (Pattern 1) and mock at the module-attribute level (`monkeypatch.setattr` / `unittest.mock.patch`). Zero signature changes; the seam lives at the import boundary instead of the parameter list.
-
-### Anti-Pattern 3: Treating the EBML parser move as a routine "cut into a file" step
-
-**What people do:** Since most of this migration is mechanical (move function, add import), it's tempting to treat `keyframe_table_cues` the same way — cut it into `mkv/ebml.py` verbatim, done.
-**Why it's wrong:** `.planning/codebase/ARCHITECTURE.md`'s own Anti-Patterns section already flags this code as "significant unencapsulated complexity... with no unit tests"; moving it verbatim into a new file changes its *location* but not its *testability*, which is the actual goal `PROJECT.md` names ("isolate... behind a **tested** module boundary" — emphasis on tested, not just moved).
-**Do this instead:** Apply the read/parse split (Pattern 2) so the byte-parsing logic can be unit tested with small synthetic fixtures, independent of real `.mkv` files or the filesystem.
+### Anti-Pattern 4: Letting ffmpeg metrics silently vanish
+**What people do:** Assume `--psnr/--ssim`-style metrics exist on the ffmpeg path.
+**Why it's wrong:** `av1_qsv` does not print SSIM/PSNR to stderr; qsvencc's own metrics also need OpenCL (usually absent on trixie). Metrics would just go blank.
+**Do this instead:** `ffmpeg.parse_metrics` returns the empty dict (size still recorded; `write_metrics_csv` already tolerates `None` fields). If metrics matter, compute them in a separate external ffmpeg/libvmaf post-step — out of scope for v1.2 but the seam allows it.
 
 ## Integration Points
 
-### External Tools (unchanged by this restructuring)
+### External tools (all via `shared.proc`, unchanged seam)
 
-| Tool | Integration Pattern | Notes |
-|------|---------------------|-------|
-| `ffmpeg`/`ffprobe` | `subprocess.run`/`Popen` via `shared.proc`, invoked by `detection.stream`, `detection.parallel`, `encoding.keyframes`, `encoding.hdr`, `encoding.chunk`, `encoding.audio` | No wrapper library (e.g. `ffmpeg-python`) — keep raw `subprocess` + `shared.proc`, matching current style |
-| `qsvencc` (Rigaya QSVEnc) | `subprocess.run` via `shared.proc`, invoked by `encoding.chunk.encode_chunk` | Hard dependency, no software-encode fallback (per `PROJECT.md` Constraints) |
-| `mkvmerge` | `subprocess.run` via `shared.proc`, invoked by `encoding.pipeline.run_encode` final mux step | Return code 1 (warnings) is treated as success, same as today — preserve this check exactly |
+| Tool | Backend usage | Notes |
+|------|---------------|-------|
+| `ffmpeg` (8.1, staged in devcontainer) | ffmpeg backend encode (`av1_qsv`, `-f obu`, `dovi_rpu` BSF); metrics/keyframe probes both backends | 8.1 required for `dovi_rpu` BSF + mature `av1_qsv` |
+| `qsvencc` | qsvencc backend only (opt-in) | retained, preflight `shutil.which` stays |
+| `ffprobe` | HDR/DV detection, keyframe table, `count_frames` | backend-agnostic |
+| `mkvmerge` | final mux of `movie.obu` | backend-agnostic; relies on OBU concat invariant |
 
-### Internal Boundaries
+**Preflight note:** `run_encode`/`run_pipeline` currently hard-require `qsvencc` via `shutil.which`. With ffmpeg as default, requiring `qsvencc` unconditionally is wrong — make the qsvencc check conditional on the selected backend (only `ffmpeg`/`ffprobe`/`mkvmerge` are mandatory for the default path).
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| `enpipe.detection` ↔ `enpipe.encoding` | `<video>.scenes` text file only (no direct import) | This is the existing, deliberate architecture — preserve it; do not add a direct Python call path between the two packages as part of this milestone |
-| `enpipe.encoding.pipeline` ↔ `enpipe.mkv.ebml` | Direct Python import (new — currently inline in the same file) | One-directional; `mkv` package has no knowledge of `encoding` |
-| `cli/*` ↔ `detection`/`encoding` | Direct Python import, thin argparse-to-function-call wiring | `cli/` modules contain no orchestration logic of their own |
-| Any module ↔ `shared.proc` | Direct Python import, called at every subprocess invocation site | The sole testing seam; see Pattern 1 |
+### Internal boundaries
+
+| Boundary | Communication | Consideration |
+|----------|---------------|---------------|
+| CLI ↔ pipeline | `args.backend` (`--backend`, default from `ENPIPE_BACKEND` env, following the `ICQ`/`JOBS` env-tunable convention) | add to `encode` + `run` subparsers; default `"ffmpeg"` |
+| pipeline ↔ backend | `get_backend(name)` → `Backend` object; `build_command` / `build_hdr_args` / `parse_metrics` | resolve once, pass object down |
+| keyframes ↔ backends | numeric `(kf_time, start_off, end_off)` tuple | shared exonerated math |
+| backend ↔ runner | task tuple gains `backend`; `encode_chunk` calls `backend.parse_metrics`, labels errors `backend.name` | thread pool → callables in tuple are fine |
+
+## Suggested Build Order (phases)
+
+Ordered by dependency + risk, SDR→HDR→DV, legacy oracle frozen throughout. Each phase gates on its own test/parity check before the next.
+
+1. **Backend seam refactor (zero behavior change).** Introduce `backends/` package, `Backend` dataclass, registry with **qsvencc as the only + default backend**; move `chunk_command`/`detect_hdr`/`parse_metrics` in, leave `chunk.py`/`hdr.py` as re-export shims; add `compute_chunk_seek_trim_frames`; thread `Backend` through `run_encode`/`encode_chunk`; add `--backend` flag (only `qsvencc` valid yet). **Gate:** existing argv tests + legacy byte-parity oracle stay green. This de-risks everything by proving the seam is behavior-preserving before any ffmpeg code exists.
+2. **ffmpeg SDR backend.** Implement `backends/ffmpeg.py::build_command` (`av1_qsv` preset mapping: `-global_quality`↔ICQ, `-g`↔GOP, `-bf`/B-pyramid, `-tile_cols/-tile_rows`, `p010le`/main-10) + `-f obu` output + frame-accurate `-ss`/trim from the numeric tuple; `parse_metrics` no-op; register `ffmpeg`. **Gate (highest-value):** (a) SDR real-media parity — per-chunk + total `count_frames`, keyframe alignment, byte-concat+mkvmerge decodes clean; (b) **concurrent-corruption regression test** (per-frame content verify under `JOBS`, using the §4 reproducer) proving 0% corruption. Validates the OBU-concat invariant and the seek/trim mapping — the two real risks.
+3. **Flip default to ffmpeg; qsvencc opt-in.** Change `DEFAULT="ffmpeg"`; make the `qsvencc` preflight `which` conditional. **Gate:** CLI dispatch tests; `--backend qsvencc` still works and matches legacy oracle.
+4. **HDR10 static metadata through ffmpeg.** `ffmpeg.build_hdr_args` emits mastering-display / max-cll signaling for `av1_qsv`. **Gate:** HDR10 fixture — transfer/primaries/mastering metadata survive concat+mux.
+5. **HDR10+ (dhdr10) and Dolby Vision RPU (highest risk, last).** `dovi_rpu` BSF passthrough + dhdr10 dynamic metadata. This is the load-bearing risk PROJECT.md names — the whole reason qsvencc was originally chosen. **Gate:** DV/HDR10+ fixture parity vs the qsvencc path (RPU present per-frame, profile correct, survives `cat`). Keep the DV verification distinct from SDR.
 
 ## Sources
 
-- [Writing your pyproject.toml — Python Packaging User Guide](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/) — HIGH confidence, official/current
-- [src layout vs flat layout — Python Packaging User Guide](https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/) — HIGH confidence, official/current; basis for the `src/` layout recommendation
-- [Creating and packaging command-line tools — Python Packaging User Guide](https://packaging.python.org/en/latest/guides/creating-command-line-tools/) — HIGH confidence, official/current; basis for `[project.scripts]` console_script recommendation
-- [pytest-subprocess (PyPI)](https://pypi.org/project/pytest-subprocess/) and [testfixtures MockPopen docs](https://testfixtures.readthedocs.io/en/latest/popen.html) — MEDIUM confidence, community-verified patterns; informed the choice of a simple call-through module (`shared.proc`) over a heavier mocking framework, since the codebase's existing local `run()` wrapper in `encode_scenes.py:66` already demonstrates the same idiom without external dependencies
-- `legacy/scene_detection.py`, `legacy/encode_scenes.py` (this repository) — HIGH confidence, primary source for all function/module boundaries, line references, and behavior descriptions in this document
-- `.planning/codebase/ARCHITECTURE.md`, `.planning/codebase/STRUCTURE.md`, `.planning/PROJECT.md` (this repository) — HIGH confidence, authoritative project context
+- Existing code (HIGH): `src/enpipe/encoding/{chunk,hdr,keyframes,pipeline}.py`, `src/enpipe/cli/main.py`, `tests/unit/encoding/test_chunk.py`, `tests/subprocess/encoding/test_hdr.py`
+- Corruption root-cause + solution space (HIGH): `.planning/debug/HANDOFF-qsvencc-frame-corruption.md` (§1 symptom, §3 exoneration of seek/trim + ffmpeg immunity 35/35, §7 options, §8 code map)
+- Project constraints/conventions (HIGH): `.planning/PROJECT.md`, `CLAUDE.md`
+- ffmpeg OBU muxer `-f obu` (MEDIUM): [FFmpeg Formats Documentation](https://ffmpeg.org/ffmpeg-formats.html)
+- ffmpeg `av1_qsv` encoder options (MEDIUM): [ffmpeg -h encoder=av1_qsv gist](https://gist.github.com/nico-lab/4d61b5ac482fcf18b829448f5f0a2bd6)
+- ffmpeg `dovi_rpu` bitstream filter (MEDIUM): [FFmpeg Bitstream Filters](https://ffmpeg.org/ffmpeg-bitstream-filters.html), [FFmpeg-devel dovi_rpu patch](https://patchwork.ffmpeg.org/project/ffmpeg/patch/20240624172044.101722-9-ffmpeg@haasn.xyz/), [DeepWiki: Dolby Vision and HDR Metadata](https://deepwiki.com/FFmpeg/FFmpeg/5.5-dolby-vision-and-hdr-metadata)
 
 ---
-*Architecture research for: packaging a subprocess-orchestration media pipeline into a testable Python package*
-*Researched: 2026-07-08*
+*Architecture research for: dual encode-backend integration (enpipe v1.2 ffmpeg av1_qsv)*
+*Researched: 2026-07-23*
+</content>
+</invoke>

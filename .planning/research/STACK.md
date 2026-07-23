@@ -1,8 +1,12 @@
 # Stack Research
 
-**Domain:** Packaging, testing, linting, and CI for a subprocess-heavy Python CLI wrapping external media binaries (ffmpeg/qsvencc/mkvmerge) on Intel Arc QSV hardware
-**Researched:** 2026-07-08
-**Confidence:** HIGH (packaging/lint/CI tooling verified against PyPI/official docs) / MEDIUM (subprocess-testing strategy — verified via multiple sources but no single canonical "official" doc)
+**Domain:** ffmpeg `av1_qsv` encode backend for the enpipe scene-chunk AV1 pipeline (v1.2)
+**Researched:** 2026-07-23
+**Confidence:** HIGH (every mapping below was executed against the real BtbN ffmpeg **n8.1.2** binary on this Intel Arc A380 / iHD devcontainer, not inferred)
+
+> **Verification note.** I ran ffmpeg n8.1.2-30-g45f1910444 (BtbN static GPL, downloaded from the exact URL in `.devcontainer/Dockerfile`) directly on `/dev/dri/renderD128` with `LIBVA_DRIVER_NAME=iHD`. Every "verified" row is backed by real encoder verbose output (`GopPicSize/GopRefDist/ICQQuality/BRefType/NumTile*`), a real 10-bit `-f obu` output, and a real two-chunk `cat` frame-count check. The system ffmpeg in the current image is 6.1.1 (dlstreamer base); **the ffmpeg-8.1 layer from the Dockerfile is NOT yet built into the running container** (`/opt/ffmpeg-8.1` absent, `ffmpeg-8.1` not on PATH) — the image must be rebuilt before this backend can run in-place. I verified with a locally-fetched copy of the identical build.
+
+---
 
 ## Recommended Stack
 
@@ -10,130 +14,159 @@
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| `uv` | ≥0.11 (0.11.28 current, 2026-07-07) | Project/dependency manager, venv, lockfile, task runner | Single Rust binary replaces pip + pip-tools + venv + pipx; `uv.lock` is a cross-platform lockfile (one file resolves for the devcontainer's Debian trixie image regardless of who edits it); 10-100x faster installs matter for devcontainer rebuild time; already the closest thing to a 2026 default for new Python projects, and the project's own `.devcontainer` is exactly the kind of pinned, reproducible environment `uv` is built for. Confidence: HIGH. |
-| `uv_build` | pinned via `requires = ["uv_build>=0.11,<0.12"]` | PEP 517 build backend | Declared production-stable as of June 2026 (uv-build 0.11.19). Zero-config, 10-35x faster builds than hatchling/flit/setuptools for a project with no compiled extensions, no dynamic versioning-from-VCS need, and no plan to publish to PyPI (this is a local CLI tool, `pip install -e .` / `uv tool install` from the repo is the only "distribution" needed). Confidence: HIGH. |
-| `pyproject.toml` (PEP 621) | — | Single manifest: metadata, dependencies, entry points, tool config | Standard since PEP 621; consolidates what is currently three untracked things (unpinned `pip install`, no entry point, no lint config) into one version-controlled file. Confidence: HIGH. |
-| `pytest` | ≥9.1 (9.1.1 current, 2026-06-19) | Test framework | De facto standard; fixtures + `tmp_path` + `monkeypatch` are the right primitives for a subprocess-orchestration codebase (temp workdirs, fake binaries on `PATH`, env-var config overrides). `unittest`/`nose` are not competitive choices in 2026. Confidence: HIGH. |
-| `ruff` | ≥0.15 (0.15.20 current, 2026-06-25) | Linter + formatter (replaces flake8/isort/pydocstyle/pyupgrade + black) | One Rust binary, one config block in `pyproject.toml`, no plugin-version-matrix to maintain. This matters specifically here because the codebase has *no* current lint config (`CONCERNS.md` notes a stray `.ruff_cache` gitignore entry with no actual config) — ruff lets one dependency+config replace what would otherwise be 4-5 separate tools. Confidence: HIGH. |
-| `pyright` (via `basedpyright` or plain `pyright`) | latest | Static type checker | For a **new** codebase being packaged from scratch (not one with years of mypy-plugin investment), Pyright is the stronger 2026 default: ~98% typing-spec conformance vs mypy, checks unannotated code by default (useful here — `legacy/*.py` has essentially no type hints yet), and gives immediate editor feedback in VS Code (the project already standardizes on a VS Code devcontainer). mypy remains fine if there's a reason to prefer it, but don't pick it by default. `ty` (Astral's new checker) is NOT recommended yet — still 0.0.x, no stable API, breaking diagnostic changes between versions as of July 2026; revisit at its 1.0 release. Confidence: MEDIUM (comparative claims sourced from third-party 2026 comparison articles, not a single official benchmark). |
-| `pytest-subprocess` | latest (2.x) | Fake/register subprocess calls without touching real ffmpeg/qsvencc/mkvmerge | Purpose-built for exactly this codebase's shape: it hooks `subprocess.Popen` (the base of `run`/`call`/`check_output`, all of which `legacy/*.py` uses), so tests register expected argv patterns and canned stdout/stderr/returncodes without real binaries or GPU access. This is the correct default over hand-rolled `unittest.mock.patch("subprocess.run")` because it exercises the *actual* call surface (positional vs keyword args, `Popen` vs `run`) instead of asserting against a specific call signature that breaks on refactor. Confidence: MEDIUM (no single official doc naming it "the standard"; corroborated by multiple independent sources and its own maturity/adoption). |
-| `hypothesis` | ≥6.150 | Property-based testing for frame/seek arithmetic | Directly targets the exact fragile code flagged in `CONCERNS.md`: `kf_before`, `fmt_seek`, `_sanitize_boundaries`, the millisecond-rounding-to-keyframe math in `encode_scenes.py`. Property tests ("for all frame counts / fps / offsets, `fmt_seek` output is monotonic and never lands before the requested keyframe") catch off-by-one regressions that example-based tests would miss, and specifically address the CONCERNS.md line "An off-by-one here would corrupt every chunk boundary silently." Confidence: HIGH for the tool itself; MEDIUM that it's "standard" (it is widely used but genuinely optional — flag as recommended-not-mandatory). |
+| ffmpeg `av1_qsv` encoder | ffmpeg **n8.1.2** (BtbN static GPL, already staged in Dockerfile) | AV1 HW encode per scene-chunk — the corruption-immune replacement for `qsvencc` under concurrency | Empirically 35/35 clean under 3-way/5-way concurrency (per-component `AVHWFramesContext` pools, no cross-process 10-bit reference aliasing). Same iHD/oneVPL runtime, full GPU speed. |
+| ffmpeg `h264_qsv` / `hevc_qsv` decode + `-hwaccel qsv` | same build | HW decode of the source into QSV video surfaces feeding the encoder | Reproduces the `--avhw --va` decode leg of qsvencc; keeps decode on-GPU. Verified: `h264_qsv` decode → `vpp_qsv` → `av1_qsv` → `-f obu` = 24/24 frames. |
+| `vpp_qsv` filter | same build | Force **P010** (10-bit) surface format between decode and encode (`vpp_qsv=format=p010le`) | This is how `--output-depth 10` is achieved in ffmpeg — the encoder emits AV1 Main 10-bit only when fed p010le surfaces. Verified: output `pix_fmt=yuv420p10le`, `profile=Main`. |
+| `obu` muxer (`-f obu`) | same build | Emit a **raw AV1 low-overhead OBU elementary stream** (`.obu`) so chunks stay byte-concatenable | New/confirmed present in 8.1. Verified: `cat chunk0.obu chunk1.obu` → 48/48 frames decode cleanly. **This preserves the load-bearing raw-.obu + `cat` + mkvmerge invariant.** |
+| `dovi_rpu` bitstream filter | same build | Dolby Vision RPU handling on **hevc AND av1** streams | Present in 8.1 (absent in system 6.1.1). BUT see the DV coverage risk below — it rewrites/strips RPU **already present** in a stream; it does **not inject** an external RPU into freshly-encoded AV1. |
+| `av1_metadata` bitstream filter | same build | Force color signalling (primaries / transfer / matrix / range / chroma position) into the AV1 `color_config` | Needed because `av1_qsv` does not reliably write `color_primaries`/`transfer_characteristics` into the bitstream (verified: matrix survived, primaries+transfer came back `unknown`). Belt-and-suspenders alongside container-level tags. |
 
-### Supporting Libraries
+### Supporting Libraries / Tools
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| `pytest-cov` + `coverage[toml]` | pytest-cov ≥6.x, coverage ≥7.15 | Coverage measurement/reporting in CI | Add once the test suite exists; `[tool.coverage.run]` in `pyproject.toml`, gate CI on a coverage floor once baseline is established (do not gate at 100% — subprocess-heavy code has legitimate hardware-only branches that can't run in CI). |
-| `pytest-mock` | latest | Thin `mocker` fixture wrapper over `unittest.mock` | For mocking non-subprocess collaborators (e.g., `os.environ`, filesystem stat calls) where `pytest-subprocess` doesn't apply — keeps mock lifecycle (`mocker.patch` auto-undo) consistent with the rest of the suite instead of mixing raw `unittest.mock.patch` decorators. |
-| `pytest-xdist` | latest | Parallel test execution | Optional; only worth adding once the suite is large enough that wall-clock matters. Not needed at initial productionization scope. |
-| `syrupy` | latest | Snapshot testing | Useful specifically for the `.scenes` text-log format and any structured (CSV/JSON) replacement of it (`CONCERNS.md`'s "implicit unversioned text-file protocol" pitfall) — snapshot the parsed scene list against a committed fixture so format drift is caught by a diff instead of silently. Optional; only add if the roadmap decides to formalize the inter-script protocol. |
-| `pip-audit` or `uv`'s built-in advisory checks | latest | Dependency vulnerability scanning | Run in CI on `uv.lock`; low-effort, catches known-CVE dependencies in `scenedetect`/`numpy` before they ship. |
-| `pre-commit` | latest | Git hook runner for ruff/pyright on commit | Optional but recommended given there is currently zero enforcement; wires `ruff check --fix`, `ruff format`, and (optionally) `pyright` into a pre-commit hook so CI failures are caught locally first. |
+| Tool | Version | Purpose | When to Use |
+|------|---------|---------|-------------|
+| `mkvmerge` (mkvtoolnix) | already installed | Final mux + **container-level HDR10 static + color signalling** | The pragmatic injection point for HDR10 mastering-display / max-CLL and color tags on the ffmpeg path (`--colour-primaries`, `--colour-transfer-characteristics`, `--colour-matrix-coefficients`, `--max-content-light`, `--max-frame-light`, `--chromaticity-coordinates`, `--white-colour-coordinates`, `--max-luminance`, `--min-luminance`). Already the terminal stage. |
+| `ffprobe` (8.1) | staged build | Read source HDR/color side-data to translate into either `av1_metadata` values or `mkvmerge` flags | Replaces qsvencc's internal `--...  copy` semantics: qsvencc reads metadata itself; on the ffmpeg path enpipe must probe the source and re-assert values. `detect_hdr()` already does the ffprobe side-data read — extend it to emit ffmpeg/mkvmerge values instead of qsvencc flags. |
+| `hdr10plus_tool` (quietvoid) | **NOT installed** | Extract + inject HDR10+ (SMPTE 2094-40) dynamic metadata into AV1 OBUs | Only needed **if** HDR10+ dynamic passthrough must work on the ffmpeg path (see gap below). Would be a new Dockerfile dependency, analogous to `dovi_tool`. |
+| `qsvencc` (Rigaya) | already installed | **Retained opt-in backend** | Keep as the selectable non-default backend AND as the **only** path that currently carries DV RPU / HDR10+ into AV1. Run corruption-safe for those (JOBS=1 or `--avsw`). |
+| `dovi_tool` 2.3.3 | already installed | (vestigial for AV1) | Verified **HEVC-only**: `extract-rpu`/`inject-rpu` operate on HEVC bitstreams; no AV1 injection subcommand. Cannot bridge DV RPU into AV1. Keep for HEVC-source RPU inspection only. |
 
-### Development Tools
+### Development / Test Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `astral-sh/setup-uv` (GitHub Action) | Installs a pinned `uv` version in CI, restores cache | Pin the action to a specific `uv` version (e.g. `version: "0.11.28"`) rather than "latest" — mirrors the exact pinning discipline `CONCERNS.md` flags as missing for `qsvencc`/`dovi_tool`. Use `enable-cache: true` for faster CI runs. |
-| GitHub Actions (`ubuntu-latest` runner) | CI for lint/type-check/unit tests, no GPU needed | Standard hosted runner is sufficient for everything except real `qsvencc` encode tests — see CI Strategy below. |
-| Self-hosted runner (optional, deferred) | GPU-gated integration tests against real Intel Arc hardware | Only needed if/when the project wants push-button integration testing against the actual NAS hardware; label-gate it (`runs-on: [self-hosted, qsv]`) and keep it a separate, manually-triggered or nightly workflow — do not block PR merges on hardware that isn't guaranteed available. Confidence: MEDIUM (pattern is well-established in the GPU/ML CI ecosystem generally; no enpipe-specific precedent to point to). |
+| `ffmpeg -lavfi psnr` (8.1) | Per-frame content verification for the concurrent-correctness regression test | The handoff reproducer already relies on decoding an offset frame and PSNR-vs-reference (<30 dB = corrupt). Reuse for the required v1.2 corruption-free proof. |
+| `intel_gpu_top`, `hyperfine` | GPU-engine utilisation + reproducible throughput benchmarking | Already in the Dockerfile debug layer; use to confirm full-speed parallel `JOBS` on the ffmpeg path. |
 
 ## Installation
 
 ```bash
-# Core: uv itself (one-time, or via devcontainer feature)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# ffmpeg 8.1 is ALREADY specified in .devcontainer/Dockerfile (BtbN static GPL,
+# side-by-side as ffmpeg-8.1 / ffprobe-8.1 in /opt/ffmpeg-8.1). ACTION REQUIRED:
+# rebuild the devcontainer image — the running container predates that layer.
+#   /opt/ffmpeg-8.1/bin/ffmpeg  ->  ffmpeg-8.1
+#   /opt/ffmpeg-8.1/bin/ffprobe ->  ffprobe-8.1
 
-# Project init (creates pyproject.toml + uv.lock)
-uv init --package enpipe
-cd enpipe
+# Optional NEW dependency, ONLY if HDR10+ dynamic passthrough is required on the
+# ffmpeg path (not currently installed):
+#   quietvoid/hdr10plus_tool  (static musl binary from GitHub releases, same
+#   install pattern as dovi_tool)
 
-# Runtime dependencies (pin explicit versions once validated against real media)
-uv add "scenedetect[opencv-headless]==0.7.*" numpy
-
-# Dev dependencies
-uv add --dev pytest pytest-subprocess pytest-mock pytest-cov hypothesis ruff pyright pre-commit
-
-# Sync locked environment (CI + local use this identically)
-uv sync --locked --all-extras --dev
-
-# Run the test suite
-uv run pytest
-
-# Lint / format / type-check
-uv run ruff check .
-uv run ruff format .
-uv run pyright
+# No Python package changes required. Backend selection is a chunk_command
+# dispatch + a new ffmpeg command builder; scenedetect/numpy/uv.lock unchanged.
 ```
+
+---
+
+## THE FLAG MAPPING (qsvencc → ffmpeg av1_qsv)
+
+Every row marked **[verified]** was confirmed from real n8.1.2 encoder verbose output on this GPU.
+
+| qsvencc knob | Meaning | ffmpeg av1_qsv equivalent | Status |
+|---|---|---|---|
+| `--avhw --va -i SRC` | HW VA decode into video surfaces | `-init_hw_device qsv=hw:/dev/dri/renderD128 -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i SRC` (pick decoder by source codec: `h264_qsv`/`hevc_qsv`) | **[verified]** full chain 24/24 frames |
+| `-c av1` | AV1 encode | `-c:v av1_qsv` | **[verified]** |
+| `--icq 23` | Intelligent Constant Quality, q=23 | `-global_quality 23` (with **no** `-b:v`) → auto-selects ICQ | **[verified]** "Using the intelligent constant quality (ICQ) ratecontrol method … ICQQuality: 23" |
+| `--qp-max 100` | Max QP cap under ICQ | **No clean equivalent.** `-qmax` is honoured only in CQP mode, not ICQ. Low impact — a loose cap that rarely binds under ICQ. Omit; document as intentionally dropped. | **[verified-absent]** — see coverage risks |
+| `--output-depth 10` + `--profile main` | 10-bit (P010) Main | `-vf vpp_qsv=format=p010le` (feeds p010le) + `-profile:v main` | **[verified]** output `yuv420p10le`, `profile=Main`, "profile: av1 main; level: 30" |
+| `--gop-len 300` | GOP size | `-g 300` | **[verified]** "GopPicSize: 300" |
+| `--gop-ref-dist 6` | 5 B-frames between references (GopRefDist = bf+1) | `-bf 5` | **[verified]** `-bf 5` → "GopRefDist: 6" |
+| `--b-pyramid` | Pyramid B-reference structure | **No flag needed — automatic.** av1_qsv sets `BRefType: pyramid` by default whenever B-frames are present | **[verified]** "BRefType: pyramid" appeared with no explicit option |
+| `--tile-col 1 --tile-row 1` | 1×1 tiling | `-tile_cols 1 -tile_rows 1` | **[verified]** "NumTileColumns: 1; NumTileRows: 1" |
+| `--tune perceptual` | Perceptual/psy tuning (mfxExtTuneEncodeQuality) | **No equivalent.** av1_qsv exposes no `-tune`; not reachable via `-qsv_params`. Minor quality-character delta only. | **[verified-absent]** |
+| `--scenario-info archive` | mfx `ScenarioInfo = archive` hint | **No equivalent.** `-qsv_params "ScenarioInfo=5"` is **rejected** ("Failed to set parameter: ScenarioInfo", encoder open fails). Minor RC-tuning hint only. | **[verified-rejected]** |
+| `--colorrange/--colormatrix/--colorprim/--transfer/--chromaloc auto` | Copy color signalling from source | Probe source (ffprobe) → set `-color_range/-colorspace/-color_primaries/-color_trc` on output **and** force into bitstream via `-bsf:v av1_metadata=color_primaries=..:transfer_characteristics=..:matrix_coefficients=..:color_range=..:chroma_sample_position=..` **and/or** assert at container level in mkvmerge | **[partial-verified]** matrix landed in bitstream; primaries+transfer came back `unknown` from av1_qsv alone → BSF / container assertion required |
+| `--master-display copy --max-cll copy` (HDR10) | Static HDR10 metadata | **Not emitted by av1_qsv.** Recommended: assert at **container level** via mkvmerge (`--max-content-light`, `--max-frame-light`, `--chromaticity-coordinates`, `--white-colour-coordinates`, `--max-luminance`, `--min-luminance`), probed from source. No ffmpeg BSF inserts MDCV/CLL OBUs in 8.1. | **coverage risk (tractable)** |
+| `--dhdr10-info copy` (HDR10+) | Dynamic SMPTE 2094-40 | **No ffmpeg-native path.** av1_qsv does not insert T.35 HDR10+ OBUs; `av1_metadata` has no such option. Requires external `hdr10plus_tool` (not installed) or keep on qsvencc. | **coverage GAP** |
+| `--dolby-vision-rpu copy --dolby-vision-profile 10.1` (DV) | Carry DV RPU into AV1 | **No ffmpeg-native path.** `dovi_rpu` BSF only rewrites/strips RPU **already in** a stream — it cannot inject from source; `dovi_tool` is HEVC-only. av1_qsv drops DV side-data. | **coverage GAP — the load-bearing risk** |
+| `--seek HH:MM:SS.mmm` | Seek to source keyframe K | `-ss HH:MM:SS.mmm` **before** `-i` (keyframe-accurate input seek) | **[verified]** (chain used `-ss`) |
+| `--trim first:last` (frames from K, inclusive) | Output window `[first, last]` | `trim=start_frame=first:end_frame=last+1,setpts=N/FRAME_RATE/TB` filter (general, handles first>0). When `first==0` (K==scene start), simply `-frames:v (last+1)` | **[verified for first=0]**; `trim` filter is the general form — validate on real media |
+| `-o OUT.obu` | Raw AV1 elementary stream | `-f obu OUT.obu` | **[verified]** cat-concatenation stays frame-valid |
+| `--psnr --ssim` | Encoder-computed metrics | Not on encoder; compute externally with `ffmpeg -lavfi psnr/ssim` (already required for the corruption test; qsvencc's own metrics needed OpenCL anyway) | n/a |
+
+### Concrete per-chunk ffmpeg command (SDR, replicating the qsvencc preset)
+
+```bash
+ffmpeg-8.1 -v error \
+  -init_hw_device qsv=hw:/dev/dri/renderD128 \
+  -hwaccel qsv -hwaccel_output_format qsv \
+  -c:v h264_qsv -ss <seek_HH:MM:SS.mmm> -i <SRC> \
+  -vf "vpp_qsv=format=p010le" -frames:v <E-S> \
+  -c:v av1_qsv -global_quality 23 -g 300 -bf 5 \
+  -tile_cols 1 -tile_rows 1 -profile:v main -preset medium \
+  -f obu <OUT.obu>
+```
+- `-preset medium` (=TargetUsage 4) is added to lock parity with qsvencc's default balanced TU4 (both default to TU4 in testing, but pin it explicitly).
+- For `first>0` chunks, replace `-frames:v <E-S>` with `-vf "vpp_qsv=format=p010le,trim=start_frame=<first>:end_frame=<last+1>,setpts=N/FRAME_RATE/TB"`.
+- Decoder token (`h264_qsv`) must be chosen from the source codec (h264/hevc/…); enpipe already probes the source.
+
+---
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|--------------------------|
-| `uv` | Poetry | If the team already has deep Poetry tooling/CI investment elsewhere and wants stack consistency across repos — Poetry is mature and fine, just slower and now the "legacy modern" choice rather than the 2026 default. |
-| `uv` | PDM | PDM pioneered PEP 621-native workflows but has smaller ecosystem momentum than `uv` in 2026; only pick it if a specific PDM plugin is needed that has no `uv` equivalent. |
-| `uv` | Hatch (the CLI, not hatchling) | If the project needs Hatch's environment-matrix features (multiple named test environments with different dependency sets) beyond what `uv`'s dependency groups + CI matrix already cover — not needed here (single Python 3.12 target, single environment). |
-| `uv_build` | `hatchling` | If the project later needs VCS-based dynamic versioning (`uv-dynamic-versioning` plugin doesn't work with `uv_build`) or custom build-time file generation/hooks. Not a current need. |
-| `pyright` | `mypy` | If a contributor strongly prefers mypy's plugin ecosystem, or if third-party stub quality for `scenedetect`/`numpy` turns out to be meaningfully better under mypy in practice — verify by trial before committing either way; both are reasonable, this is a soft recommendation. |
-| `pytest-subprocess` | `unittest.mock.patch("subprocess.run")` | For a single, isolated call where full argv-pattern registration is overkill — plain `mocker.patch` is fine for a one-off. Don't use it as the *primary* strategy across the suite; it couples tests to exact call signatures and breaks on harmless refactors (e.g., switching `subprocess.run` to `Popen` internally). |
-| GitHub-hosted `ubuntu-latest` for all CI | Self-hosted GPU runner for all CI | Only if the team wants every PR gated on real QSV hardware — not recommended as the default because it makes CI depend on a single physical NAS being online/available, contradicting the goal of fast, reliable PR feedback. |
+|-------------|-------------|-------------------------|
+| ffmpeg `av1_qsv` default | Retain `qsvencc` default at JOBS=1 or `--avsw` | If DV/HDR10+ fidelity must be byte-for-byte with today and the content is DV/HDR10+ — route those to qsvencc (it is the only path that carries that metadata into AV1). |
+| `-f obu` raw stream + `cat` + mkvmerge | `-f ivf` / per-chunk mkv + concat demuxer | Only if the raw-OBU `cat` invariant ever fails on a specific source; not needed — `cat` verified valid. Do NOT switch: it would break the load-bearing byte-concat design. |
+| Container-level HDR10 via mkvmerge | Bitstream MDCV/CLL OBUs | No ffmpeg 8.1 tool inserts AV1 MDCV/CLL OBUs; container-level is the only clean route and is widely player-honoured. |
+| av1_qsv (oneVPL) | `av1_vaapi` (pure VA-API, no oneVPL) | Untested escape hatch noted in the bug handoff; only investigate if av1_qsv ever shows the same aliasing (it does not). Not for v1.2. |
 
-## What NOT to Use
+## What NOT to Use / NOT to Add
 
 | Avoid | Why | Use Instead |
-|-------|-----|--------------|
-| Unpinned `pip install` at container build time (current state) | `CONCERNS.md` already documents this as active risk: `scenedetect`/`numpy` version drift can silently break the `AdaptiveDetector.post_process()` assumption the code depends on. | `uv add` with pinned/range-constrained versions + committed `uv.lock`. |
-| `setup.py` / `setup.cfg` | Legacy packaging format, no longer the recommended entry point for new projects; PEP 621 (`pyproject.toml`) has fully superseded it. | `pyproject.toml` with `uv_build`. |
-| `flake8` + `isort` + `black` + `pyupgrade` as separate tools | Four separate configs/dependencies/versions to keep in sync for what `ruff` does in one binary with one config block — pure maintenance overhead with no upside for a project this size. | `ruff check` + `ruff format`. |
-| `ty` (Astral's type checker) as the primary type checker today | Still 0.0.x versioning, explicitly no stable API yet, breaking diagnostic changes between releases as of July 2026 per Astral's own docs. | `pyright` (or `mypy`) now; revisit `ty` after its 1.0 stable release. |
-| Mocking `qsvencc`/`ffmpeg` calls with hand-rolled `sys.argv`/subprocess monkeypatching sprinkled per-test | Duplicated, inconsistent fake-process logic across test files; easy to miss edge cases (stderr vs stdout, non-zero exit codes) that `pytest-subprocess`'s registration API handles uniformly. | `pytest-subprocess`'s `fp` fixture, centralized in `conftest.py` fixtures per external tool (`fake_ffmpeg`, `fake_qsvencc`, `fake_mkvmerge`). |
-| Gating all CI (including plain lint/unit-test PR checks) on a self-hosted GPU runner | Makes ordinary PR feedback depend on a single NAS's uptime and availability — directly contradicts having fast, reliable CI for the 95% of code that has nothing to do with actual QSV hardware interaction. | Hosted `ubuntu-latest` for lint/type-check/unit tests (with fake binaries); a clearly separate, optionally-gated hardware workflow for real encode validation. |
-| 100%-coverage CI gate from day one | This codebase has legitimate hardware-only code paths (`qsvencc` invocation, `/dev/dri` access, real QSV decode) that cannot execute in CI at all — chasing 100% either forces bad mocking-for-coverage's-sake or blocks merges on unreachable lines. | Track coverage, set a realistic floor (e.g. 70-80%) on the CPU-testable subset, and explicitly mark hardware-only branches with `# pragma: no cover` plus a comment pointing at the manual/self-hosted validation path. |
+|-------|-----|-------------|
+| `dovi_tool inject-rpu` on `.obu` | HEVC-only (verified 2.3.3) — silently inapplicable to AV1 | Keep DV content on the qsvencc backend, or add `hdr10plus_tool`-style AV1 tooling only if DV-on-ffmpeg is truly required |
+| `-qsv_params "ScenarioInfo=…"` / tune hacks | Rejected by av1_qsv (verified) — encoder open fails | Drop `--scenario-info`/`--tune`; accept minor RC-tuning delta |
+| Re-deriving seek/trim keyframe arithmetic | `compute_chunk_seek_trim` / EBML Cues parser are DONE + validated | Reuse `kf_before`/`compute_chunk_seek_trim`; add only a thin translator from `(seek, "first:last")` → ffmpeg `-ss` + frame window |
+| Switching output away from raw `.obu` | Breaks the byte-`cat` + mkvmerge invariant | Keep `-f obu`; it is verified cat-valid |
+| Relying on av1_qsv to emit color/HDR into the bitstream | It drops primaries/transfer and all HDR static/dynamic metadata | Assert via `av1_metadata` BSF (color) + mkvmerge (HDR10 static / color container tags) |
+| `-qmax` to emulate `--qp-max 100` under ICQ | Ignored in ICQ mode | Omit; it is a non-binding cap |
 
-## Stack Patterns by Variant
+## Stack Patterns by Variant (backend routing recommendation)
 
-**Given the existing constraints (Python 3.12, Debian trixie devcontainer, no PyPI publishing goal):**
-- Use `uv_build` (not hatchling) as the build backend — no dynamic versioning or custom build steps are needed for a local CLI tool.
-- Use `uv` as *both* the devcontainer's Python dependency manager (replacing the current bare `pip install` in `post-create.sh`) *and* the CI dependency manager — one tool, one lockfile, one source of truth across dev and CI. This directly fixes the `CONCERNS.md` "no packaging, dependency pinning" finding.
+**If source is SDR or HDR10 (static):**
+- Use ffmpeg `av1_qsv` (new default). Color via `av1_metadata` BSF; HDR10 mastering-display/CLL via mkvmerge container tags probed from source.
+- Full-speed parallel `JOBS` — corruption-immune.
 
-**For subprocess-heavy CLI code with hardware dependencies:**
-- Split tests into two tiers via pytest markers: `@pytest.mark.unit` (pure logic — `fmt_seek`, `kf_before`, EBML parsing, scene-log parsing — no subprocess at all) and `@pytest.mark.subprocess` (uses `pytest-subprocess` to fake ffmpeg/qsvencc/mkvmerge argv/output without touching hardware). Neither tier needs a GPU or the real binaries, so both run identically in CI and locally.
-- Reserve an explicit `@pytest.mark.hardware` tier (skipped by default via `pytest.ini`'s default marker deselection, or `pytest.mark.skipif(not qsv_available(), reason=...)`) for tests that require real `/dev/dri` + `qsvencc` + actual media — these run only on a self-hosted runner or manually on the NAS, never in the default `ubuntu-latest` CI job.
-- For the "mandatory regression test" already required by the project (`detect_scenes_streaming(f) == detect_scenes(f, jobs=1)` and the parallel-vs-sequential detection equivalence check in `PROJECT.md`'s Active requirements): this needs a real (or realistic small synthetic) video fixture. Keep such fixtures tiny (a few seconds, low resolution) and committed via Git LFS or generated on-the-fly with `ffmpeg -f lavfi` synthetic test patterns so the regression test *can* run in plain CI without QSV hardware (software decode is fine for correctness-of-logic checks; only the *encode* step strictly needs QSV).
+**If source is Dolby Vision or HDR10+ (dynamic):**
+- **No clean ffmpeg-only path in 8.1.** Route to the retained `qsvencc` backend (the only path that carries DV RPU / HDR10+ into AV1), run corruption-safe (JOBS=1 or `--avsw`), OR add `hdr10plus_tool`/an AV1-DV-injection tool as new dependencies and treat as a follow-up. This is the decision the roadmap must make explicitly — it is the load-bearing risk called out in PROJECT.md.
 
-**For CI structure specifically:**
-- One workflow, one job matrix entry (single Python 3.12 target — no need for a version matrix since the devcontainer pins exactly one Python/OS combination and that's the only supported target): `uv sync --locked` → `ruff check` → `ruff format --check` → `pyright` → `pytest -m "not hardware"` → coverage report.
-- Install real `ffmpeg`/`ffprobe`/`mkvmerge` via `apt-get` in the CI job (they're software-only, no GPU needed, and Debian/Ubuntu package them) so that any integration test wanting a *real* (non-QSV) ffmpeg/mkvmerge invocation still can run in CI — only `qsvencc` genuinely requires hardware and should be the sole thing gated behind the hardware-only marker.
-- Keep the hardware-gated workflow (if built at all) as a separate `.github/workflows/hardware-integration.yml`, triggered on manual `workflow_dispatch` or a schedule, not on every PR push.
+**If maximum parity/simplicity for v1.2 scope:**
+- Ship ffmpeg default for SDR+HDR10; declare DV/HDR10+ handled by the opt-in qsvencc backend. Preserves today's coverage without over-building.
 
 ## Version Compatibility
 
-| Package A | Compatible With | Notes |
-|-----------|------------------|-------|
-| `uv` ≥0.11 | Python 3.12 (devcontainer's pinned version) | `uv` manages/downloads its own Python interpreters if needed, but should be told to use the devcontainer's existing 3.12 (`uv python pin 3.12`) to avoid a second interpreter install inside the container. |
-| `uv_build` ≥0.11,<0.12 | `uv` ≥0.11 | Pin the build-backend requirement range in `pyproject.toml`'s `[build-system]` to avoid an unrelated `uv_build` major bump silently changing build behavior — same discipline `CONCERNS.md` recommends for `qsvencc`/`dovi_tool` release pinning. |
-| `pytest-subprocess` | `pytest` ≥7 | No known conflicts with pytest 9.x; actively maintained against current pytest releases. |
-| `pyright` | VS Code Pylance | Since the project already standardizes on VS Code devcontainers, Pyright gives free editor integration via Pylance (which embeds Pyright) with zero extra config, reinforcing the recommendation. |
-| `ruff format` | Existing code style | No existing style/formatter config to migrate away from (repo currently has none) — adopting `ruff format` from a blank slate avoids any black-vs-ruff-format reformatting churn debate. |
+| Component | Compatible With | Notes |
+|-----------|-----------------|-------|
+| ffmpeg n8.1.2 BtbN GPL | iHD 26.2.x / oneVPL (vpl-gpu-rt) in dlstreamer base | `av1_qsv` + `h264_qsv`/`hevc_qsv` + `vpp_qsv` all initialise against `iHD` on this A380 (VA-API 1.23) — verified live |
+| `-f obu` output | mkvmerge (mkvtoolnix) | `cat`'d raw-OBU stream muxes as today; mkvmerge is where color/HDR container tags get asserted |
+| `dovi_rpu` BSF | hevc, av1 | Present 8.1 / absent 6.1.1 — but injection-from-source is NOT a capability (rewrite/strip only) |
+| BtbN `latest` rolling tag | — | Non-deterministic (Dockerfile documents this): asset name stable, contents roll daily (currently n8.1.2). No SHA pin. Acceptable per existing project stance, but note the encoder-flag surface could shift on rebuild. |
+
+## Integration Points (existing code)
+
+- `src/enpipe/encoding/chunk.py::chunk_command` — add backend dispatch; new pure `ffmpeg_chunk_command()` builder alongside the qsvencc one (keep it a pure function, no subprocess, per project convention).
+- `src/enpipe/encoding/hdr.py::detect_hdr` — currently emits qsvencc flags; add a variant emitting ffmpeg (`av1_metadata`) + mkvmerge color/HDR values from the same ffprobe side-data reads.
+- `src/enpipe/encoding/pipeline.py:183` (`hdr_flags = detect_hdr(...)`), `:206–208` (chunk cmd build), `:320` (mkvmerge mux — inject container HDR/color tags here for the ffmpeg path).
+- `src/enpipe/encoding/pipeline.py:41` (`JOBS`) — ffmpeg path restores safe parallelism; qsvencc path should carry a safety default (JOBS=1) when used for DV/HDR10+.
+- `chunk.py::count_frames` (ffprobe packet count) invariant — unchanged; works on `-f obu` output (verified 48/48).
+- Preflight `shutil.which` loop (`pipeline.py:107`) — add `ffmpeg-8.1`/`ffprobe-8.1` (and gate on the image rebuild).
+
+## Open Questions / Flags for the Roadmap
+
+1. **DV RPU on the ffmpeg path = unsolved with in-container tooling.** `dovi_rpu` BSF cannot inject; `dovi_tool` is HEVC-only. Decision needed: (a) keep DV on qsvencc (recommended, zero new deps), or (b) invest in AV1 DV injection tooling. This is the "whole reason qsvencc was chosen" risk — do not let the roadmap assume `dovi_rpu` BSF closes it.
+2. **HDR10+ dynamic** similarly has no in-container ffmpeg path; needs `hdr10plus_tool` or stays on qsvencc.
+3. **Color primaries/transfer** are dropped by av1_qsv into the bitstream — confirm the `av1_metadata` BSF + mkvmerge container-tag combo satisfies the HDR10 validation fixtures (Phase-4 TEST-04 territory).
+4. **`first>0` seek/trim** (keyframe before scene start) only tested logically here (first=0 verified live); the `trim`-filter frame-accuracy must pass the existing hardware parity gate on real media.
+5. **Image rebuild is a prerequisite** — ffmpeg-8.1 is specified but not present in the running container.
 
 ## Sources
 
-- [uv Projects Guide](https://docs.astral.sh/uv/guides/projects/) — project/lockfile workflow, HIGH confidence
-- [uv Build Backend docs](https://docs.astral.sh/uv/concepts/build-backend/) — `uv_build` stability and config, HIGH confidence
-- PyPI `uv` project page — version 0.11.28, released 2026-07-07, HIGH confidence (fetched directly)
-- PyPI `ruff` project page — version 0.15.20, released 2026-06-25, HIGH confidence (fetched directly)
-- PyPI `pytest` project page — version 9.1.1, released 2026-06-19, HIGH confidence (fetched directly)
-- [astral-sh/setup-uv GitHub Action](https://github.com/astral-sh/setup-uv) — CI integration pattern, MEDIUM confidence (community docs + official repo)
-- [Using uv in GitHub Actions](https://docs.astral.sh/uv/guides/integration/github/) — official CI guide, HIGH confidence
-- [pytest-subprocess docs](https://pytest-subprocess.readthedocs.io/) — subprocess faking API, HIGH confidence (official docs)
-- [Simon Willison's pytest-subprocess TIL](https://til.simonwillison.net/pytest/pytest-subprocess) — real-world usage pattern, MEDIUM confidence
-- [pyright vs mypy comparison, microsoft/pyright](https://github.com/microsoft/pyright/blob/main/docs/mypy-comparison.md) — official but vendor-authored, MEDIUM confidence (cross-checked against third-party 2026 comparison articles)
-- [Astral `ty` GitHub releases](https://github.com/astral-sh/ty/releases) — confirms 0.0.x/beta status as of 2026-07-01, HIGH confidence
-- [pytest.mark.skipif docs](https://docs.pytest.org/en/stable/how-to/skipping.html) — official pytest docs, HIGH confidence
-- [devcontainers/ci GitHub Action](https://github.com/devcontainers/ci) — optional devcontainer-in-CI pattern, MEDIUM confidence
-- Coverage.py docs (coverage.readthedocs.io) — version 7.15.0, MEDIUM confidence (search-result derived, not directly fetched)
-- General GPU/self-hosted-runner CI pattern articles (devactivity.com, packagemain.tech, betatim.github.io) — MEDIUM/LOW confidence, corroborating pattern across multiple independent sources but no single authoritative source for "the" standard GPU CI pattern
+- **Real ffmpeg n8.1.2-30-g45f1910444 (BtbN static GPL)** executed on this Intel Arc A380 / iHD (VA-API 1.23) — HIGH: encoder verbose (ICQ/GopPicSize/GopRefDist/BRefType/NumTile*/profile/level), 10-bit `-f obu` output, two-chunk `cat` frame-count, `qsv_params ScenarioInfo` rejection, HW-decode→vpp→encode chain.
+- `ffmpeg -h encoder=av1_qsv` / `-h bsf=dovi_rpu` / `-h bsf=av1_metadata` / `-h muxer=obu` (8.1) — HIGH: option surface, `dovi_rpu` supported codecs = "hevc av1", obu muxer presence.
+- `dovi_tool 2.3.3 --help` — HIGH: extract-rpu/inject-rpu are HEVC-only, no AV1 injection.
+- `.devcontainer/Dockerfile` (ffmpeg-8.1 BtbN layer), `.planning/debug/HANDOFF-qsvencc-frame-corruption.md` (ffmpeg immune 35/35; trigger triad), `src/enpipe/encoding/{chunk,hdr,keyframes,pipeline}.py` — HIGH: current command + integration points.
 
 ---
-*Stack research for: Python CLI packaging/testing/CI for subprocess-heavy media transcode tool*
-*Researched: 2026-07-08*
+*Stack research for: ffmpeg av1_qsv backend (enpipe v1.2)*
+*Researched: 2026-07-23*

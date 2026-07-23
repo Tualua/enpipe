@@ -1,300 +1,298 @@
 # Pitfalls Research
 
-**Domain:** Productionizing a subprocess-orchestration, GPU-coupled, correctness-critical media transcode pipeline (scene-aware AV1 via Intel Arc QSV, never validated on real media)
-**Researched:** 2026-07-08
-**Confidence:** MEDIUM-HIGH (domain patterns and Python/subprocess-testing pitfalls are well-established and cross-verified via community sources; QSVEnc/ffmpeg-specific version-break history and Dolby Vision RPU concatenation behavior are corroborated by upstream issue trackers but not exhaustively verified against this exact codebase's current toolchain versions — treat version-specific claims as MEDIUM confidence pending the mandatory real-media validation pass)
+**Domain:** Adding an ffmpeg `av1_qsv` scene-chunk AV1 encode backend to the `enpipe` pipeline (milestone v1.2), as the new corruption-free default alongside opt-in `qsvencc`.
+**Researched:** 2026-07-23
+**Confidence:** HIGH on the qsvencc corruption root cause + enpipe internals (read from `.planning/debug/*` and `src/enpipe/encoding/*`); MEDIUM–HIGH on ffmpeg `av1_qsv`/`dovi_rpu`/OBU behavior (verified against ffmpeg docs + intel/media-driver + cartwheel-ffmpeg issue trackers; HW behavior must be re-proven on this Arc A380).
+
+> **Overriding principle for this milestone.** The project's non-negotiable core value is a *correct, bit-exact* scene-aware AV1 re-encode. The whole reason for v1.2 is that `qsvencc` under concurrency *silently* swaps single frames while `count_frames` still passes. Therefore every pitfall below is graded by one question: **can it reintroduce silent output corruption, or silently drop HDR/DV metadata, while all existing invariants (per-chunk + total frame count, keyframe alignment) still pass?** Those are the ones that must become *explicit verification requirements* (per-frame content checks, DV-RPU survival checks) — not left to `count_frames`.
+
+---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Refactoring "cleans up" the seek/trim arithmetic and silently shifts frames
+### Pitfall 1: Assuming ffmpeg `av1_qsv` is corruption-free without re-proving it on THIS hardware/JOBS
 
 **What goes wrong:**
-A maintainer touches `kf_before`, `fmt_seek`, or the trim-relative-to-keyframe computation (`legacy/encode_scenes.py:303-326, 581-589`) — e.g. "simplifying" the millisecond-floor rounding, changing a comparison operator, or fixing what looks like an off-by-one — and the change lands a chunk boundary one or a few frames away from the true keyframe. The encode still succeeds, `qsvencc` still exits 0, and `count_frames` still matches the *expected* total (because the guard only checks aggregate frame count, not per-chunk content correctness), so the corrupted output ships with no error at all.
+The migration is justified by "ffmpeg `av1_qsv` was 35/35 clean under 3-way/5-way concurrency." That was a *targeted contrast experiment* on three hotspot scenes (923/928/1129, off299) — not a full-pipeline, all-scenes proof, and not at the JOBS levels or scene mix a real run uses. Shipping on the strength of that datapoint, then discovering ffmpeg has its *own* concurrency failure window at higher JOBS or on a different source, reintroduces exactly the silent corruption v1.2 exists to kill.
 
 **Why it happens:**
-The correctness of this code is "correct by construction" — it depends on `fmt_seek`'s deliberate floor-to-millisecond rounding landing exactly on a keyframe as `qsvencc --seek` expects. This kind of arithmetic looks like ordinary rounding/formatting code to someone who doesn't know the invariant, so it reads as safe to touch. There is currently zero test coverage on this logic (`CONCERNS.md` confirms no synthetic-video fixture tests exist), so nothing stops a "readability" refactor from being merged.
+The debug docs read as a definitive "ffmpeg is immune" verdict. But the confirmed root cause is a **kernel-level (drm/i915) cross-process 10-bit reference-surface aliasing** bug that ffmpeg merely *dodges* via per-component `AVHWFramesContext` pools with separate `AllocId` — it is not architecturally impossible for ffmpeg to hit a related window under different surface pressure (more concurrent sessions, deeper reorder, mixed decode/VPP load). The immunity is empirical and environment-specific, and the same host kernel (`6.19.14-200.fc43`) that corrupts qsvencc is still in play.
 
 **How to avoid:**
-- Before any refactor of seek/trim/keyframe-table code, add unit tests with a synthetic keyframe table (list of `(frame, pts_time)` tuples) and assert `kf_before`/`fmt_seek`/`trim` outputs for known edge cases (frame exactly on a keyframe, frame between keyframes, first/last keyframe, fractional-second PTS).
-- Add a per-chunk *content* check, not just a frame-count check: compute a perceptual hash or SSIM sample at the chunk's first/last frame against the source at the same PTS, and fail loudly if it deviates beyond a threshold (the existing SSIM/PSNR metrics are already computed at `chunk_command`/`legacy/encode_scenes.py:354-370` but are not asserted against a pass/fail threshold — wire them into the guard).
-- Treat this arithmetic as a "no drive-by edits" zone: any change requires the golden-sample regression run (Pitfall 2) before merge, not just unit tests.
+Make the **concurrent per-frame-content regression the acceptance gate**, run FIRST as a spike before building the full backend, and run it at the *actual production JOBS* (default 3, plus a stress level like 5–8):
+- Reuse the handed-off reproducer (`.planning/debug/HANDOFF...md` §4): isolated single-session reference for a scene → N iterations of concurrent chunk encodes → extract the hotspot frame by offset → PSNR vs reference; `<30 dB` = corrupt.
+- Gate on **PSNR = inf / bit-identical** at the hotspot AND a full-file per-frame VMAF/PSNR sweep (the same method that originally found frames 39121/61365/73734/110079/110992/136249), not just `count_frames`.
+- Verify the ffmpeg command actually uses the corruption *triad* (HW `h264_qsv`/`av1_qsv` decode into VA video memory + `p010le`/10-bit + `GopRefDist:6` B-pyramid). If any leg silently degrades (e.g. ffmpeg falls back to SW decode), the "clean" result proves nothing — it just broke a triad leg the way `--avsw` does for qsvencc.
 
 **Warning signs:**
-- A PR touches `fmt_seek`, `kf_before`, `trim` computation, or the `-ss`/`-copyts`/`select` ffmpeg construction in `QsvPipeStream` without a corresponding change to (or new) fixture tests.
-- Frame-count guard passes but SSIM/PSNR metrics for the changed chunks silently drop without anyone reviewing the CSV.
-- Chunk boundaries land near — but not exactly on — cut points in visual spot-checks.
+- The regression harness reports 0 corrupt but the ffmpeg param-dump / `ffprobe` shows 8-bit output or SW decode — you proved a *different, weaker* pipeline is clean.
+- Corruption rate is 0 at JOBS=3 but never tested at higher JOBS.
+- Only the three known hotspot scenes are checked, not a full-file sweep on a fresh source.
 
 **Phase to address:**
-Test harness / regression-fixture phase, *before* any refactor phase touches this code. The roadmap should sequence "build the safety net" strictly ahead of "refactor/package the pipeline."
+**Phase 1 (spike / correctness proof) — must be the gating first phase.** If ffmpeg is not provably clean under real JOBS on this host, the entire migration premise is invalid and the milestone should pivot to `--avsw` or `--jobs 1`.
 
 ---
 
-### Pitfall 2: Mocking `subprocess` so thoroughly that the real bug is never exercised
+### Pitfall 2: Silent HDR10 static-metadata loss — av1_qsv has NO way to embed mastering-display / max-CLL
 
 **What goes wrong:**
-A test suite is added (a good instinct, since there are zero tests today) but every `subprocess.run`/`Popen` call to `ffmpeg`/`ffprobe`/`qsvencc`/`mkvmerge` is mocked to return canned "success" output. The tests go green, coverage numbers look great, and every future refactor passes CI — but none of it has ever exercised a real QSV decode, a real keyframe seek, or a real EBML byte stream. The actual bug classes this pipeline is exposed to (ffmpeg's `-ss`/`-copyts`/`select` frame-drop interaction, `qsvencc` CLI flag behavior, malformed Cues structures) live entirely in the mocked-out boundary, so the test suite provides false confidence while catching only pure-Python logic errors.
+`qsvencc` embeds HDR10 static metadata via `--master-display copy --max-cll copy` (see `hdr.py::detect_hdr`). The **ffmpeg `av1_qsv` encoder has no equivalent** — there is no `-av1qsv_params`, no AVOption, and no side-data passthrough that writes `METADATA_TYPE_HDR_MDCV` / `METADATA_TYPE_HDR_CLL` OBUs into the stream. The encoder happily produces a valid 10-bit Main-profile AV1 with correct `color_primaries`/`transfer`/`matrix` but **zero mastering-display and max-CLL metadata**. It muxes fine, plays fine on SDR, and looks plausible — but HDR10 tone-mapping targets are gone. This is a silent HDR downgrade that passes every frame-count check.
 
 **Why it happens:**
-Mocking subprocess calls is the standard advice for "fast, hermetic unit tests," and it is correct advice *for orchestration logic* (argument construction, error-path branching, retry logic). The mistake is treating mocked-subprocess tests as sufficient for a pipeline whose entire value proposition is "this specific external binary, called this specific way, on this specific hardware, produces bit-exact output." A green mocked-subprocess suite is necessary but nowhere near sufficient here — it is easy to declare victory once "tests exist" without distinguishing which layer they actually validate.
+This is a documented, long-standing gap in `av1_qsv` (intel/media-driver #1592, cartwheel-ffmpeg #221, intel/libvpl #87). Developers assume "10-bit + correct transfer = HDR done" and never diff the output's static metadata against the source.
 
 **How to avoid:**
-- Split the test suite into two explicit tiers with different CI gating:
-  1. **Unit tests (mocked subprocess)** — validate command construction (`chunk_command`, ffmpeg arg lists), parsing logic (`_SCENE_RE`, ffprobe JSON parsing, EBML varint decoding), and control flow (drain-then-die, high-water-mark ordering) against canned/malformed fixture data. These run everywhere, fast, no GPU.
-  2. **Golden-sample integration tests (real subprocess, real hardware)** — run the actual pipeline against a small library of committed (or externally-fetched, checksum-pinned) real media samples covering: SDR, HDR10, HDR10+, Dolby Vision (profile 5 and profile 8.1 if both are supported), VFR source, a source with an unusual Cues structure, and a source below `min_scene_len`. Assert frame counts, DV RPU presence/profile in the muxed output, and either byte-identical output or SSIM ≥ threshold against a previously-captured "known good" reference (regenerate the reference deliberately, never silently).
-- Never let "unit tests pass" gate a release/tag; only the golden-sample suite (tier 2) should gate anything claiming production-readiness.
-- Explicitly name the mandatory regression test the design doc and CONCERNS.md already call out: `detect_scenes_parallel(f, jobs=N) == detect_scenes(f, jobs=1)` by `(start_frame, end_frame)` pairs, run against real footage, not synthetic frames — synthetic/mocked frames won't exercise the actual `AdaptiveDetector`/QSV-decode timing sensitivity.
+- **Do not rely on the encoder** for HDR10 static metadata. Plan a **post-encode metadata-OBU injection** step: for AV1, MDCV/CLL live in Metadata OBUs; re-attach them after `av1_qsv` (via a bitstream filter that injects the metadata OBUs, and/or via `mkvmerge`/container-level `--colour-*` + mastering-display signaling on the final mux).
+- Make **static-metadata survival an explicit verification requirement**: after mux, `ffprobe -show_frames -show_entries frame=side_data_list` on the output must show `Mastering display metadata` and `Content light level metadata` matching the source values. Add this to the HDR fixture test — parity with the qsvencc path, not merely "is HDR-ish."
+- Preserve container-level signaling in the `mkvmerge` step (`pipeline.py` mux) as a belt-and-suspenders, since some players read mastering-display from Matroska even if the bitstream lacks the OBU.
 
 **Warning signs:**
-- Test suite has high "coverage %" but no test ever invokes a real binary.
-- CI runs green on every PR but the team still manually re-validates on the NAS before trusting a release — a sign the automated suite isn't actually load-bearing.
-- No test fixture directory containing real (or realistic) media samples.
+- Output plays but HDR looks flat / wrong peak brightness vs the qsvencc encode.
+- `ffprobe` on the av1_qsv output shows `color_transfer=smpte2084` but no `Mastering display metadata` side data.
+- The HDR test only asserts transfer characteristics, never the actual MDCV/CLL values.
 
 **Phase to address:**
-Test harness phase — design the two-tier structure explicitly from the start, not as an afterthought after a mocked-only suite already exists (retrofitting golden-sample tests onto a codebase that "already has tests" is a much harder sell to reviewers).
+**Phase 2 (HDR/DV metadata passthrough).** This is the load-bearing risk of the whole milestone — the reason qsvencc was chosen. Feasibility of MDCV/CLL re-injection should be de-risked EARLY (a spike alongside Phase 1), because if it cannot be made bit-faithful, HDR10 sources may need to stay on the qsvencc/`--avsw` backend.
 
 ---
 
-### Pitfall 3: CI that can't access the GPU gives false confidence ("green CI" ≠ "works on the NAS")
+### Pitfall 3: Silent Dolby Vision RPU loss or misalignment through the ffmpeg path
 
 **What goes wrong:**
-CI is added (GitHub Actions or similar), runs the mocked unit-test tier, maybe even lint/type-checks, and turns green. The team starts trusting the green checkmark as "the pipeline is fine," while every code path that actually touches `-hwaccel qsv`, `vpp_qsv`, `qsvencc --avhw`, or the `/dev/dri` device is either skipped entirely or silently falls back to `--no-qsv` software decode — a path the code itself documents as "for debugging outside the NAS," not a production-equivalent path. A driver or oneVPL update, or a QSV-specific behavior difference, ships completely unvalidated because CI structurally cannot see it.
+`qsvencc` does per-frame DV RPU passthrough natively (`--dolby-vision-rpu copy --dolby-vision-profile 10.1`). The ffmpeg `av1_qsv` encoder does **not** carry RPU through the HW encode — the RPU is per-frame side data that the hardware encoder drops. Getting DV through ffmpeg requires an explicit pipeline: extract the RPU stream from the source (dovi_tool / `dovi_rpu` BSF), then re-attach it to the encoded AV1 as T.35 Metadata OBUs. Failure modes, all of which **still mux and still pass `count_frames`**:
+- RPU silently dropped entirely → output is plain HDR10 (or SDR) with no DV layer.
+- RPU **misaligned to frames**: `av1_qsv` reorders output via B-pyramid (`GopRefDist:6`); if RPU is re-attached in decode/display order but the OBU stream is in a different order, per-frame RPU lands on the wrong frame → DV drives wrong tone-mapping per frame.
+- **Per-chunk RPU boundary breakage**: enpipe encodes independent scene chunks and byte-concatenates them. RPU must be sliced per chunk on the same `[S, E)` frame interval as the video, or chunk boundaries desync the RPU from the picture.
+- **Profile mismatch**: source profile 7 (dual-layer) vs 8.1 vs the AV1 DV profile 10.x; wrong `--dolby-vision-profile`/conversion yields an RPU a player rejects or ignores.
 
 **Why it happens:**
-GPU runners (Intel Arc specifically) are not available on standard free CI tiers; even self-hosted GPU runners are operationally expensive to maintain. Teams default to "make CI pass with what's available" rather than "make CI honestly report what it did and did not validate," and over time the distinction between "CI passed" and "hardware path validated" erodes in team memory.
+DV RPU is invisible to normal QC — it needs a DV-aware probe. The `dovi_rpu` BSF is new (ffmpeg mid-2024, present in 8.1) and its AV1 T.35 wrapping path is far less battle-tested than the HEVC path. Reorder/alignment bugs are precisely the class that survives frame-count checks.
 
 **How to avoid:**
-- Make the CPU-fallback (`--no-qsv`) test tier and the GPU-required tier *visibly separate* in CI output/status checks — e.g. two distinctly named check runs, "ci / cpu-fallback (mocked+logic)" and "ci / gpu-required (NOT RUN IN CI)" — so a reviewer never mistakes one for the other.
-- If a self-hosted runner with `/dev/dri` access (the NAS itself, or an equivalent Arc-equipped machine) can be wired up as a GitHub Actions self-hosted runner, gate release tags on that runner's golden-sample suite specifically — but do not present it as "standard CI" that runs on every PR from forks (self-hosted runners on public repos are a known security risk for arbitrary PR code execution; restrict to trusted branches/maintainer-triggered runs).
-- If no GPU runner is feasible, make this limitation explicit and permanent in the repo (README/CI config comments): "This CI validates orchestration logic only. QSV hardware paths require manual/NAS validation before every tagged release" — and add a release checklist step that isn't automatable away.
-- Never let a `--no-qsv` software-decode CI pass stand in for hardware validation in release notes or PR descriptions.
+- Treat DV RPU as a **first-class per-chunk artifact**: extract source RPU once, slice per scene `[S, E)` exactly as video seek/trim, re-attach after encode, and verify count.
+- Make **RPU survival + alignment an explicit verification requirement**, not a `count_frames` afterthought:
+  - RPU frame count on the final `movie.obu` must equal the video frame count (total-expect).
+  - Spot-check RPU L1 metadata per frame against source at scene boundaries and at least one reordered (B) frame inside a chunk, to catch order swaps.
+  - Confirm profile/level via `dovi_tool info` on the output.
+- Keep the qsvencc backend as the DV fallback if ffmpeg RPU parity can't be proven on real DV fixtures.
 
 **Warning signs:**
-- CI is green but the `--no-qsv` fallback path is being exercised for anything other than pure-logic tests — check by grepping CI logs for whether `qsvencc`/`-hwaccel qsv` was actually invoked.
-- No documented manual validation step before tagging a release.
-- Team references "CI passed" as sufficient justification for merging a change to QSV-touching code.
+- Output has no `DOVI configuration record` / DV side data in `ffprobe`.
+- `dovi_tool info` shows RPU count ≠ frame count, or profile ≠ expected.
+- DV plays but tone-mapping "pops" on individual frames (misalignment through B-reorder).
+- The DV test is fixture-gated and got skipped in CI (it already is HDR10+/DV fixture-gated in v1.0) — a skipped test is not a passing test.
 
 **Phase to address:**
-CI/test-harness phase for the split design; release-process phase (or a lightweight "release checklist" doc) for making the manual NAS-validation gate explicit and durable.
+**Phase 2 (HDR/DV metadata passthrough).** Highest-risk sub-item; needs a real DV fixture (the current suite only fixture-gates DV). If no DV fixture exists on hardware, that gap itself is a risk to flag.
 
 ---
 
-### Pitfall 4: Pinning (or failing to pin) the qsvencc/ffmpeg/dovi_tool toolchain breaks the pipeline underneath you
+### Pitfall 4: Seek/trim off-by-one — ffmpeg input-vs-output seek breaks the exact-frame-interval contract
 
 **What goes wrong:**
-Two opposite failure modes, both real:
-1. **Unpinned (current state):** `.devcontainer/Dockerfile` resolves `qsvencc` and `dovi_tool` via GitHub's `.../releases/latest` API at every image build, and Python deps (`scenedetect`, `numpy`) install unpinned via `pip`. A container rebuild months apart silently pulls a different version mix than was ever validated. `qsvencc` (Rigaya's QSVEnc) has a real history of CLI surface changes across releases (new/renamed flags, changed defaults for rate-control or HDR/DV options); an upstream release picked up by a routine rebuild can rename or remove a flag the pipeline depends on (`--dolby-vision-rpu copy`, HDR/DV flag names), causing either a hard failure (loud, at least, and easy to catch) or — worse — a flag that's silently ignored/reinterpreted (quiet, and exactly the kind of thing that ships broken).
-2. **Pinned but stale:** once pinned, the team forgets to deliberately re-validate and bump — a security fix or a QSV/AV1 encoder-quality improvement sits unused indefinitely because nobody owns the "review and bump" cadence.
+enpipe's contract (`keyframes.py::compute_chunk_seek_trim`) is exact and load-bearing: `K = last keyframe ≤ S`, then qsvencc `--seek floor_ms(K) --trim (S-K):(E-1-K)` emits exactly frames `[S, E)`. qsvencc's `--seek`+`--trim` counts frames deterministically from the keyframe. Naively porting this to ffmpeg gets it subtly wrong because ffmpeg seeking is timestamp-based, not frame-index-based:
+- `-ss <time> -i` (input seek) lands on the nearest keyframe *at or before* the timestamp and **resets frame numbering / PTS to that seek point** — the frame-index arithmetic `(S-K):(E-1-K)` no longer maps cleanly.
+- `-ss` *after* `-i` (output seek) is frame-accurate but decodes from file start (catastrophically slow at 1382 chunks).
+- Timestamp rounding: enpipe deliberately `floor`s seek time to ms (`fmt_seek`) so seek lands *on* the keyframe. ffmpeg's seek-to-nearest may land one keyframe early/late if the source keyframe PTS doesn't match `floor_ms(K)`, shifting the whole trim window by a frame or a GOP.
+- Using `-t <duration>` or `-to` instead of an exact **frame count** introduces VFR/rounding drift; the source is CFR here but the pattern is fragile.
+
+The result: a chunk that is off by one frame at head or tail. On concatenation the total `count_frames` may *still equal* total-expect (one chunk long, an adjacent one short), so the guard passes while a scene boundary is misplaced by a frame — a silent temporal corruption.
 
 **Why it happens:**
-"Latest" feels safer during initial setup (least effort, "always get bug fixes"), but for a correctness-critical pipeline it trades a known-good baseline for an unbounded, unreviewed moving target. The `scenedetect` docstring already flags this risk explicitly: the code was "verified against PySceneDetect 0.7" and depends on `AdaptiveDetector.post_process()` returning `[]` — an assumption a minor version bump could break silently.
+"`-ss`/`-t` = trim" is the universal ffmpeg mental model, but it's timestamp-semantics, whereas enpipe's invariant is frame-index-exact relative to a specific keyframe. The existing `compute_chunk_seek_trim` is *proven correct for qsvencc's counting model* and was explicitly eliminated as a corruption source — porting must preserve frame-exactness, not re-derive it in timestamp space.
 
 **How to avoid:**
-- Pin every layer of the toolchain to an exact, tested version: `qsvencc` and `dovi_tool` to specific GitHub release tags (not `latest`) with checksum verification if the release provides one; Python deps via `pyproject.toml` + a lockfile (`uv.lock`/`poetry.lock`/`pip-compile` output); document the exact validated version set in one place (e.g. a `VERSIONS.md` or comments at the pin site) so "what did we last actually test against" is never a mystery.
-- Treat every dependency bump as a deliberate, reviewed change that re-runs the full golden-sample suite (Pitfall 2) before merging — never bump as a side effect of an unrelated PR or automatic Dependabot merge.
-- Read the changelog/release notes for `qsvencc` between the pinned version and any candidate bump, specifically scanning for HDR/DV/rate-control flag changes, before upgrading.
-- For `scenedetect`, pin to the exact tested minor version (`scenedetect==0.7.*` or narrower) and treat any `post_process()` behavior assumption as something the mandatory regression test (Pitfall 2) must re-verify on every bump, not just on first write.
+- Reproduce **frame-exact** semantics: use fast input seek to the keyframe (`-ss <keyframe_time> -i`), then select the exact frame window by *frame index* (e.g. `trim=start_frame=(S-K):end_frame=(E-K)` filter, or `-frames:v (E-S)` after discarding `(S-K)` frames), and set `-vsync 0`/`-fps_mode passthrough` so no frames are dropped/duplicated. Do **not** rely on `-t`/`-to` durations.
+- Anchor on the same keyframe table enpipe already computes — do not let ffmpeg pick the keyframe. Verify ffmpeg's realized seek point equals `K` (log the first output PTS).
+- Add a **per-chunk exactness assertion beyond count**: for a sample of chunks, decode the first and last frame and PSNR-match them against the source frames `S` and `E-1`. This catches head/tail off-by-one that `count_frames` misses (a single-frame shift with correct count).
+- Keep `compute_chunk_seek_trim` as the single source of `(S, E, K)`; the backend adapter converts that to ffmpeg args — do not fork the arithmetic per backend.
 
 **Warning signs:**
-- Dockerfile or install script references `latest`, `main`, or an unpinned package spec for any tool in the critical path.
-- No single file/doc records "these are the exact versions this pipeline was last validated against."
-- A rebuild produces a different `qsvencc --version` output than the last recorded validation, with no corresponding re-test.
+- A chunk has correct frame count but its first/last frame PSNR-mismatches source `S`/`E-1`.
+- Concatenated total is correct but a per-chunk sweep shows one chunk `+1` and a neighbor `-1`.
+- ffmpeg logs a first output PTS that differs from `floor_ms(K)`.
 
 **Phase to address:**
-Packaging/dependency-pinning phase (explicitly already an Active requirement in PROJECT.md) — this should land early, before or alongside the test-harness phase, since golden-sample tests are only meaningful against a known, pinned toolchain version.
+**Phase 1 (av1_qsv backend: seek/trim + preset parity).** This is core correctness and must have per-chunk head/tail content verification in its acceptance criteria.
 
 ---
 
-### Pitfall 5: The ThreadPoolExecutor-vs-ProcessPoolExecutor GIL trap silently halves (or worse) parallel detection throughput
+### Pitfall 5: GOP / closed-GOP mismatch so chunk boundaries no longer land on keyframes
 
 **What goes wrong:**
-`detect_scenes_parallel` uses `ThreadPoolExecutor` for both the boundary-finding pass and the segment-detection pass (`legacy/scene_detection.py:596, 614`), but the comment directly above it states parallelism was designed to use `ProcessPoolExecutor` specifically to get around the GIL, because PySceneDetect's CPU-bound `AdaptiveDetector.process_frame` "serializes in threads, not in processes." If that claim is correct, `jobs>1` today delivers little to no real multi-core detector throughput — the reported `jobs=4` speedup (218s vs 400s at `jobs=1`, per `PIPELINE_DESIGN.md`) would then be coming entirely from ffmpeg/GPU-decode I/O overlap (which does release the GIL during subprocess I/O) rather than true parallel frame-scoring, meaning the code is accidentally "fine" for the wrong reason — and any future change that removes that I/O-bound overlap (e.g. a faster decode path, or a CPU-only fallback with no GPU-decode subprocess boundary to release the GIL around) would silently erase the speedup with no code change at all in the parallel-detection logic itself.
+enpipe's whole byte-concatenation scheme rests on "each chunk starts with a clean random-access point (keyframe) so raw `.obu` chunks `cat` bit-exactly." qsvencc is driven with `--gop-len 300 --gop-ref-dist 6 --b-pyramid` and *forces the encoded chunk to open on an IDR/key-frame at its first output frame*. If the ffmpeg `av1_qsv` mapping doesn't force a **closed GOP with a keyframe on the first output frame of every chunk** — e.g. relies on `-g` alone without forcing an IДR at frame 0, allows open-GOP B-frames referencing across the chunk start, or lets the encoder choose its own GOP structure — then chunk boundaries stop being independently-decodable random-access points. Concatenation then yields a stream with dangling inter-frame references: silent visual corruption at every scene boundary, or a stream mkvmerge accepts but players glitch on.
 
 **Why it happens:**
-This is a classic Python concurrency trap: `ThreadPoolExecutor` is easier to write (no pickling constraints, shared memory, simpler debugging) and *looks* like it's working because wall-clock time does improve — but the improvement's actual source (GIL-releasing I/O wait vs. true CPU parallelism) is invisible from the outside without profiling. A developer who copies the comment's stated intent into the implementation, or vice versa, produces exactly this drift, and nothing fails loudly — it's a performance regression hiding as an unverified assumption, not a crash.
+Different encoders express "closed GOP / force keyframe" differently. av1_qsv GOP control (`-g`, `-bf`, `-idr_interval`, low-delay/pyramid options, `-forced_idr`) does not map 1:1 to qsvencc's `--gop-len/--gop-ref-dist/--b-pyramid`, and closed-GOP behavior may differ by default. Because each chunk is encoded from its own seek point, the *first* frame is naturally an I-frame — but "I-frame" ≠ "IDR/keyframe/random-access point with a repeated sequence header," and open-GOP can still reach backward.
 
 **How to avoid:**
-- Before deciding whether to fix the comment or fix the code, *measure* which is true: profile `AdaptiveDetector.process_frame` under `ThreadPoolExecutor` with `jobs=1` vs `jobs=4` and check actual CPU utilization across cores during the detection window (e.g. `py-spy dump`/`py-spy top` attached to the running process, or simple wall-clock-vs-CPU-time comparison). If total CPU-seconds scale with `jobs` and wall-clock CPU utilization exceeds ~100% × number of cores actually used concurrently, threads are achieving real parallelism (likely because the GPU-decode ffmpeg subprocess dominates and releases the GIL while Python waits on the pipe) and the comment is stale. If CPU utilization caps near a single core regardless of `jobs`, the comment is right and threads are serializing.
-- `Path`/`DetectionConfig` are already picklable (frozen dataclasses per CONCERNS.md), so switching to `ProcessPoolExecutor` is low-risk if the measurement shows it's needed — do this switch as a deliberate, measured decision, not a guess in either direction.
-- Whichever way it resolves, correct the stale comment/code mismatch so the next maintainer isn't misled, and capture the measurement methodology as a comment so future PySceneDetect/detector-swap changes can be re-verified quickly.
-- Wire this measurement into the mandatory regression test's scope: the regression test should assert not just output equivalence (`jobs=N == jobs=1` by frame ranges) but can optionally log wall-clock/CPU-time ratios so a future regression in *parallelism*, not just correctness, is visible in CI history even without a GPU.
+- Force **closed GOP + keyframe (IDR/KEY_FRAME) as the first output frame of every chunk**, and ensure a **sequence header OBU is emitted at every chunk start** (see Pitfall 6). Confirm the *encoder's* first output frame `frame_type` is KEY/INTRA and `show_frame` semantics are clean.
+- Verify via `ffprobe -show_frames` on each chunk that frame 0 is a keyframe (`key_frame=1`) and that no frame references across the chunk boundary (closed GOP).
+- Match the reorder depth to qsvencc's (`GopRefDist:6` / B-pyramid) so quality/rate-control is comparable (Pitfall 7), but never at the cost of an open GOP across chunk starts.
+- Add a **concatenation-decodability check**: fully decode the assembled `movie.obu` (not just `count_packets`) and per-frame content-verify a window around several chunk boundaries against source.
 
 **Warning signs:**
-- `jobs>1` detection wall-clock time doesn't meaningfully improve after a decode-path change (e.g. switching decode backends, or running with `--no-qsv`).
-- CPU utilization during detection never exceeds roughly one core's worth regardless of `jobs` setting.
-- Comment and implementation continue to disagree (a code-review smell independent of the performance question — someone should never merge a PR that leaves a load-bearing comment contradicting the code it describes).
+- First frame of a chunk has `key_frame=0` in `ffprobe`.
+- Decoding the concatenated `movie.obu` throws OBU/reference errors or shows a glitch at scene boundaries while `count_frames` still passes.
+- av1_qsv chosen GOP length differs from 300 and shifts internal keyframes (fine internally, but the *chunk-start* keyframe is the invariant that matters).
 
 **Phase to address:**
-Tech-debt-reduction phase (explicitly called out in PROJECT.md's Active scope: "reconcile the GIL/ThreadPool-vs-ProcessPool inconsistency"). Do the profiling/measurement *before* committing to a fix direction, and pair it with the real-media validation phase so the measurement is taken against real footage, not synthetic timing.
+**Phase 1 (av1_qsv backend: preset parity + raw OBU output).** Keyframe-alignment is a stated load-bearing invariant; its verification (frame-0-is-keyframe per chunk + boundary content check) must be an explicit acceptance criterion.
 
 ---
 
-### Pitfall 6: The hand-rolled EBML/Cues parser returns wrong-but-parseable data instead of failing
+### Pitfall 6: Raw `.obu` output differences that break byte-concatenation or mkvmerge
 
 **What goes wrong:**
-`keyframe_table_cues` (`legacy/encode_scenes.py:130-262`) hand-parses Matroska's binary EBML structure (variable-length integers, SeekHead/Info/Tracks/Cues element walking) and wraps the *entire* parse in a single broad `except (IndexError, OSError, ValueError): return None`. This is safe for the case where the parser hits genuinely malformed/unexpected structure — it correctly falls back to the slow-but-correct `keyframe_table_ffprobe` path. The dangerous case is different: a subtly wrong parse that doesn't raise any of those three exception types at all — e.g. an off-by-one in variable-length integer decoding, or a SeekHead/Cues element boundary miscalculated for an MKV with an unusual structure (segments split across multiple SeekHeads, unusual lacing, or a Cues index generated by a muxer other than `mkvmerge`) — silently returns a keyframe table that is *structurally valid* (right shape, plausible-looking frame/PTS pairs) but *numerically wrong*. Downstream, `kf_before`'s binary search will happily return a wrong-but-in-range keyframe, and the encoder will seek to the wrong point with no error anywhere in the chain — the exact "silent output corruption" the project's own correctness constraint calls out as the primary risk.
+The pipeline (`pipeline.py::flush_appends`) byte-concatenates chunk `.obu` files with `shutil.copyfileobj` and muxes the result with `mkvmerge --default-duration ... movie.obu`. This works because qsvencc emits a **raw low-overhead OBU stream** with a self-contained structure (sequence header + temporal-delimiter framing) that survives naive `cat`. ffmpeg's raw AV1 output has several footguns that break this:
+- Wrong output format: writing an **IVF** or **Annex-B**-framed stream, or a full Matroska, instead of the low-overhead OBU stream (`-f obu`) — the bytes won't `cat` into a valid single stream and mkvmerge chokes or mis-frames.
+- **Sequence header only in extradata / global header**: if av1_qsv puts the sequence header in extradata (global header) and *not* at each chunk's first keyframe, then chunk 2..N begin without a sequence header OBU — the concatenated stream is undecodable after chunk 0, silently, until a player hits the second chunk. Must ensure sequence header is **repeated at each chunk start** (the `-f obu` low-overhead muxer + no global-header flag, or an explicit repeat-headers option).
+- **Temporal-delimiter (TD) OBU** insertion differences: the OBU muxer inserts a TD per temporal unit; if enpipe's concatenation ends up with missing or doubled TDs at chunk seams (e.g. one backend emits leading TD, the other doesn't), the stream frames incorrectly.
+- **Extradata duplication**: `dump_extradata`/global-header interplay can prepend extradata that's already present, or omit it, changing byte layout so `count_frames` (packet count) or mkvmerge timing drifts.
+
+All of these can produce a file that *muxes without error* and *counts correct frames* but is subtly malformed.
 
 **Why it happens:**
-Broad exception handling around "fast path that falls back to a slow-but-correct path" is a reasonable defensive pattern *for exceptions* — but it creates a blind spot for non-exceptional wrong answers, and 130+ lines of manual byte-offset arithmetic with no accompanying test corpus is exactly the kind of code where a subtle bug is likely and where "it ran without crashing" gets mistaken for "it's correct." The parser has never been exercised against real MKV files at all (per the module's own admission that nothing in this codebase has run against real media), so even the exception-handling path is unverified, let alone the silent-wrong-answer path.
+ffmpeg has multiple AV1 raw encapsulations (raw OBU / IVF / Annex-B) and the sequence-header placement depends on global-header flags and muxer choice. qsvencc's single opinionated output masks this complexity; the port surfaces it.
 
 **How to avoid:**
-- Isolate the parser into its own module with an explicit, minimal public contract (bytes in, `Optional[List[Tuple[int, float]]]` out) so it can be tested in complete isolation from the rest of the encode pipeline.
-- Build a test corpus of real MKV Cues structures: at minimum, output from `mkvmerge` (the muxer this pipeline itself uses downstream, so self-consistency matters most), plus 2-3 other real-world MKVs from different sources/muxers (HandBrake, ffmpeg `-c copy` remux) to catch structural variance. Include at least one deliberately malformed/truncated sample to exercise the fallback path.
-- For every test sample, assert the EBML-parsed keyframe table is *identical* to `keyframe_table_ffprobe`'s output on the same file — this is the strongest test available (the slow path is trusted/ffprobe-backed, so use it as ground truth for the fast path in tests) and should run as a standard part of the golden-sample suite, not just at parser-authoring time.
-- Narrow the except clause where feasible (e.g. distinguish "ran out of bytes mid-element" from "computed a garbage-but-in-range offset") and log the specific exception/reason at debug level whenever the fast path is skipped, so silent-fallback and genuinely-no-Cues cases are distinguishable in the field — this alone won't catch wrong-but-parseable output, but it will surface *frequency* of fallback, which is a useful canary if it changes unexpectedly after a code change.
-- Consider adding a cheap sanity check even without full ffprobe cross-validation in production: e.g. assert the parsed keyframe list is monotonically increasing in both frame number and PTS, and that the last keyframe's PTS is within a plausible margin of the container's reported duration — catches a class of "garbage but shaped like an answer" bugs cheaply at runtime.
+- Output the **low-overhead OBU stream** (`-f obu`) per chunk, with sequence header + TD repeated at each chunk start (do **not** set `AV_CODEC_FLAG_GLOBAL_HEADER` for the raw path). Diff a byte-dump (`ffprobe -show_packets`/an OBU parser) of an ffmpeg chunk vs a qsvencc chunk to confirm equivalent OBU framing.
+- Validate the **assembled** stream, not just chunks: fully decode `movie.obu` end-to-end and per-frame content-verify, plus confirm mkvmerge produces the same frame count and duration as the qsvencc path.
+- Test concatenation at a **backend boundary is impossible** (a run uses one backend) but test that an all-ffmpeg `movie.obu` decodes identically to an all-qsvencc one for an SDR fixture.
 
 **Warning signs:**
-- Any change to `keyframe_table_cues` merges without a corresponding new/updated test in the EBML test corpus.
-- The fast-vs-ffprobe cross-validation test is skipped or marked slow/optional and routinely not run.
-- Field reports of chunk boundaries that are "close but not exact" without an accompanying exception/log entry (a sign of the silent-wrong-answer case, not the safe-fallback case).
+- `movie.obu` decodes only up to the first chunk's frames, then errors — sequence header missing on later chunks.
+- mkvmerge warns about "no frames" or wrong duration; playback stutters at chunk seams.
+- ffmpeg chunk `.obu` is dramatically smaller/larger in header bytes than the qsvencc equivalent.
 
 **Phase to address:**
-Tech-debt-reduction phase (isolate EBML parser behind a tested module boundary — already an Active PROJECT.md item) — sequence this *before* or alongside the real-media validation phase, since the cross-validation test against `keyframe_table_ffprobe` is itself a form of golden-sample testing that needs real MKV fixtures to be meaningful.
+**Phase 1 (av1_qsv backend: raw OBU output).** Add "assembled `movie.obu` fully decodes + per-frame matches source" to acceptance, above the existing packet-count guard.
 
 ---
 
-### Pitfall 7: Dolby Vision RPU / frame-count mismatches surviving chunk concatenation and final mux
+### Pitfall 7: Divergent rate-control / quality making the two backends incomparable (dual-backend trap)
 
 **What goes wrong:**
-The pipeline's DV handling passes `--dolby-vision-rpu copy` per chunk to `qsvencc` and relies on the concatenated `.obu` chunks preserving per-frame RPU metadata bit-exactly through a raw `cat`-equivalent (`shutil.copyfileobj`). This is a real, documented failure class in the broader DV tooling ecosystem: the RPU stream can end up with a different frame count than the video elementary stream it's paired with, which causes visible glitches or metadata desync when chunks are concatenated or re-muxed; and DV profile conversion/handling varies significantly by encoder and tool version (e.g. profile 8.1 conversions are known to drop the FEL — full enhancement layer — in some toolchains, and Dolby Vision metadata is well known to be silently dropped during container muxing unless the muxing tool explicitly understands and re-attaches it). Because this pipeline's correctness guard (`count_frames`) only checks the *video* frame count of the final output, not RPU frame-count parity or DV profile fidelity, a chunk-boundary RPU desync could produce a final `.mkv` that passes every existing guard, plays back looking almost correct, and only reveals itself as visible tone-mapping/brightness glitches at former chunk boundaries on a DV-capable display — something no amount of frame-count checking or SSIM-on-SDR-proxy will catch.
+`--icq 23`/ICQ on qsvencc and av1_qsv's quality knobs (`-global_quality`/`-q`, ICQ vs CQP vs whatever av1_qsv exposes) are **not the same scale**. If the ffmpeg backend is mapped to a superficially-similar quality value, the two backends produce visibly different bitrate/size/quality for the "same" settings. Consequences specific to enpipe:
+- The metrics CSV (`write_metrics_csv`) and any parity/regression comparison become meaningless across backends — you can't tell a quality regression from a backend difference.
+- Users switching backends see file size swing 20–30% unexpectedly.
+- The frozen `legacy/` single-pass oracle no longer parity-checks the ffmpeg path (it was a qsvencc oracle), so v1.2 loses its byte-identity safety net and must define a *new* acceptance basis (per-frame content correctness + a quality band, not byte-identity).
+
+Additional dual-backend footguns:
+- **Backend selection ambiguity**: env var vs CLI flag precedence, default drift (is ffmpeg really the default everywhere, including batch mode and `enpipe run`?), and a footgun where a user *thinks* they're on ffmpeg but a fallback silently used qsvencc (reintroducing corruption).
+- **Test-matrix blowup**: SDR/HDR10/HDR10+/DV × 2 backends × concurrency = large; naively doubling every hardware test is slow and CI already names-out the hardware tier.
 
 **Why it happens:**
-DV RPU handling sits at the intersection of three independently fragile things — the encoder's RPU pass-through correctness, the container muxer's DV-awareness, and this pipeline's own chunk-splice logic — and the project has never validated any of it against real DV source material. The existing guards were built around the *easier* invariant (frame count) because it's cheap to check with `ffprobe`/`count_frames`; RPU-level correctness requires DV-aware tooling (e.g. `dovi_tool`, which is installed in the devcontainer per CONCERNS.md but currently unused by any script) to actually verify.
+Encoder quality parameters rarely translate across implementations; teams assume "ICQ 23 is ICQ 23." And byte-identity-to-legacy was the v1.0/v1.1 safety net — it silently stops applying once the encoder changes, but nobody re-defines "correct."
 
 **How to avoid:**
-- Add `dovi_tool` (already present in the devcontainer but unused — a strong signal it was intended for exactly this) to the verification chain: after encoding, extract the RPU from both the per-chunk outputs and the final muxed output, and assert RPU frame count matches video frame count, and that RPU frame count at each chunk boundary is continuous (no gaps/duplicates) across the splice point.
-- Include at least one real Dolby Vision (and, if feasible, HDR10+) source in the golden-sample fixture library (Pitfall 2) specifically to exercise this path — SDR/HDR10-only test samples give zero coverage of the RPU splice logic.
-- Do not treat "frame count matches" as sufficient for DV correctness in the acceptance criteria for the real-media validation milestone; make "RPU frame count matches, profile is correct in the final mux" an explicit, separately-checked pass/fail item.
-- If `qsvencc`/muxer version pinning (Pitfall 4) is in scope, treat any DV-adjacent flag or version change as requiring a DV-specific re-validation pass, not just the generic golden-sample suite.
+- Define the v1.2 correctness basis explicitly: **per-frame content parity to source** (not byte-identity to legacy) + a **quality/size band** the ffmpeg backend must stay within vs the qsvencc reference on a fixture. Don't chase byte-identity between backends — it's unattainable.
+- Calibrate av1_qsv quality to land in a comparable SSIM/PSNR + size band as qsvencc ICQ 23 on a reference clip; document the mapping (it will not be "23").
+- Make backend selection **explicit and logged** (log which backend + full command per run, as `chunk_command` output is already logged), with **no silent cross-backend fallback** — if the chosen backend's tool is missing, `die()`, don't switch.
+- Keep the test matrix tiered: fast hardware-free tests validate command-building for both backends; the expensive hardware/concurrency proof runs on the **default (ffmpeg)** path, with qsvencc's path getting the cheaper existing coverage (it's opt-in and already characterized).
 
 **Warning signs:**
-- No DV source material exists anywhere in the test/fixture set.
-- `dovi_tool` remains installed but unreferenced by any script or test.
-- Verification logic only ever checks `count_frames` (video frame count) and never inspects RPU-specific data.
+- Same "quality setting," very different output size between backends.
+- Metrics CSV totals jump when switching backends and nobody can say if it's a regression.
+- A run log doesn't state which backend ran, or shows a fallback.
 
 **Phase to address:**
-Real-media validation phase — this is precisely the kind of defect class that "run it against real media" is meant to surface, but only if DV source material and RPU-aware checks are deliberately included in that phase's test plan rather than left to incidental discovery.
-
----
-
-### Pitfall 8: Packaging/module refactor changes CLI behavior or breaks the implicit `.scenes` file protocol
-
-**What goes wrong:**
-The two legacy scripts are coupled only by a free-text `.scenes` log with no schema, no version marker, and a single regex (`_SCENE_RE = re.compile(r"frames \[\s*(\d+),\s*(\d+)\)")`) extracting just the frame range — everything else on each line is cosmetic. When these are packaged into a proper module structure with a shared library layer (an explicit Active PROJECT.md goal), it's easy to "clean up" the log format, argparse flag names, environment-variable knobs (`ICQ`, `QPMAX`, `GOP_LEN`, `DV_PROFILE`, `JOBS`, `FLAC_LEVEL`, `AUDIO_COPY`), or default values along the way — and because the regex match fails silently (empty match → skipped line, not an error, per CONCERNS.md), a reformatted log line doesn't raise an error; it just quietly produces zero scenes, or a truncated scene list, and the encoder proceeds with whatever partial data it got.
-
-**Why it happens:**
-Packaging work naturally touches CLI surfaces and file formats, and "while I'm in here" cleanups (renaming flags, restructuring the log format now that there's a proper package to put a real serializer in) feel low-risk because they're not touching the "real" algorithm code — but any consumer of the old `.scenes` files (existing on-disk artifacts from prior runs, or external scripts/cron jobs invoking the old CLI flag names) breaks silently, and the regex's fail-silent behavior means a malformed log doesn't even produce a clear error at the boundary.
-
-**How to avoid:**
-- If replacing the free-text `.scenes` format with a structured one (CSV/JSON Lines, as CONCERNS.md recommends), add an explicit schema version field from day one and make the reader **fail loudly** (raise, not skip) on an empty/zero-scene result or an unrecognized version — never let "read zero scenes" be silently indistinguishable from "the input just happens to have one giant scene."
-- Add the round-trip test CONCERNS.md already recommends: `read_scenes(write_scenes(scenes)) == scenes`, and keep a compatibility shim (or at least a clear migration error message) for old-format `.scenes` files already sitting on disk from prior runs, so packaging doesn't strand existing artifacts.
-- Treat CLI flag/env-var renames as breaking changes requiring a changelog entry and (if any external automation depends on this pipeline, e.g. cron/systemd units) a deprecation window or compatibility alias, not a silent rename.
-- Package structure should preserve the existing two-stage separation (detect → structured intermediate → encode) as an internal API contract even if it's no longer two standalone scripts — write a unit test asserting the shared library's detect-output type is accepted unchanged by the encode-input parser, so a future internal refactor can't silently desync the two sides of the interface the way the current free-text format already nearly allows.
-
-**Warning signs:**
-- A packaging PR changes the `.scenes` format or CLI flags without a corresponding version bump or migration note.
-- `read_scenes`-equivalent code path can return an empty list without raising.
-- No round-trip test exists between the write side and read side of the intermediate format.
-
-**Phase to address:**
-Packaging phase — should be scoped explicitly to *preserve* documented external behavior (or version/deprecate it deliberately) as an entrance criterion, not just "make it a real package."
+**Phase 3 (backend selection + dual-backend testing).** Selection plumbing, the new correctness/quality-band definition, and matrix tiering all live here.
 
 ---
 
 ## Technical Debt Patterns
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|-----------------|------------------|
-| Mocked-subprocess-only test suite ("we have tests now") | Fast CI, easy to write, looks like progress | False confidence; real bugs (ffmpeg/qsvencc behavior, EBML parsing) ship undetected | Only as tier 1 of a two-tier suite; never as the sole test strategy |
-| Unpinned `latest` toolchain fetch in Dockerfile | Always get newest bug fixes without maintenance | Silent, unreviewed, unreproducible breakage on rebuild | Never for a correctness-critical pipeline; acceptable only for genuinely non-critical dev tooling |
-| Broad `except Exception`/tuple-of-exceptions around hand-rolled binary parsing | Simple, never crashes the whole run | Masks silent wrong-but-parseable output as "safe fallback" | Only if paired with a cross-validation test against a trusted slow path (as this codebase already structurally allows via ffprobe fallback) |
-| Frame-count-only correctness guard (no content/RPU verification) | Cheap, fast, easy to reason about | Misses chunk-boundary corruption, DV RPU desync, wrong-keyframe seeks that preserve total count | Acceptable as a first-line guard, never as the only guard for DV/HDR content |
-| `sys.exit`-on-failure with no cleanup (`die()`) | Simple, fail-fast, easy to read | Orphaned multi-GB chunk directories on every failed run; no atomic "all or nothing" output | Acceptable short-term if paired with an operational cleanup script; not acceptable to leave unaddressed in a "productionized" release |
-| Free-text intermediate file format with a lenient regex parser | Fast to write, human-readable for debugging | Silent-empty-match failures; no schema evolution path | Acceptable for a one-off script; not acceptable once packaged as a supported internal interface |
+|----------|-------------------|----------------|-----------------|
+| Ship ffmpeg backend, defer HDR10 MDCV/CLL re-injection ("10-bit is close enough") | Faster to a working SDR/parallel default | **Silent HDR downgrade** on every HDR10 source — the core-value violation, undetectable without a metadata diff | Only if HDR sources are explicitly routed to qsvencc/`--avsw` in the meantime AND the gap is loudly logged/documented |
+| Reuse `count_frames` (packet count) as the only correctness gate for the new backend | Zero new test infra | Misses single-frame swaps, head/tail off-by-one, DV/HDR loss — the entire class v1.2 targets | Never — the milestone exists *because* count-only checks were insufficient |
+| Map ICQ→av1_qsv quality by "same number" | No calibration work | Incomparable outputs, meaningless metrics, surprise size swings | Never — always calibrate to a band |
+| Let av1_qsv choose GOP/keyframe placement (only pass `-g`) | Simpler command | Chunk-start may not be a clean random-access point → concat corruption | Never for the chunk-boundary frame; internal GOP is fine |
+| Test only the 3 known hotspot scenes for concurrency | Fast to run | Proves nothing about full runs / other sources / higher JOBS | Only as a *smoke* check, never as the acceptance gate |
+| Keep DV path fixture-gated and let CI skip it | Green CI | DV parity never actually verified; regressions ship silently | Only if a real DV fixture runs in the hardware tier before milestone close |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
-|-------------|-----------------|-------------------|
-| `qsvencc` (Rigaya QSVEnc) | Assuming CLI flags/defaults are stable across releases; pulling `latest` in CI/build | Pin to a specific release tag; diff changelog before any bump, especially HDR/DV/rate-control flags |
-| `ffmpeg`/`ffprobe` QSV decode path | Assuming `-ss`/`-copyts`/`select` frame-drop behavior is stable across ffmpeg versions | Pin ffmpeg version too (not just qsvencc); re-run the frame-alignment regression test on any ffmpeg upgrade |
-| `mkvmerge` final mux | Assuming DV/HDR10+ metadata survives muxing by default | Explicitly verify (via `dovi_tool`/`mkvinfo`) that RPU and HDR side data are present and correct in the final `.mkv`, not just that mux exit code was 0 |
-| PySceneDetect `AdaptiveDetector` | Assuming `post_process()` always returns `[]` (a documented but unverified assumption this codebase depends on) across scenedetect versions | Pin the exact validated `scenedetect` version; re-run the streaming/parallel-vs-sequential regression test on any version bump |
-| `dovi_tool` | Installed but never invoked — an unused integration that was presumably intended for RPU verification | Wire it into the DV verification path (Pitfall 7) rather than leaving it as dead weight in the devcontainer |
-| Intel `/dev/dri` + iHD driver | Assuming a driver/oneVPL update won't change `vpp_qsv`/`nv12` behavior | Treat any host driver update as requiring a full golden-sample re-run before trusting production output, same as a toolchain version bump |
+|-------------|----------------|------------------|
+| ffmpeg `av1_qsv` HDR10 static metadata | Assume encoder embeds MDCV/CLL from source side data | It does NOT (intel/media-driver #1592). Inject metadata OBUs post-encode and/or signal at mkvmerge; verify with `ffprobe` side-data diff |
+| ffmpeg `dovi_rpu` BSF (AV1 / T.35) | Assume RPU flows through the HW encoder like qsvencc | Encoder drops it. Extract RPU, slice per chunk `[S,E)`, re-attach as T.35 OBUs, verify RPU-count == frame-count + alignment through B-reorder |
+| ffmpeg raw AV1 output | Use IVF/Annex-B/Matroska, or global-header sequence header | Use `-f obu` low-overhead; repeat sequence header + TD at each chunk start so byte-`cat` stays decodable |
+| ffmpeg seek/trim | Use `-ss`/`-t` timestamp trim | Anchor to enpipe's keyframe `K`; select exact **frame window** by index (`trim`/`-frames:v`, `-vsync 0`); verify first output PTS == `floor_ms(K)` |
+| ffmpeg QSV decode into VA memory | Let ffmpeg silently fall back to SW decode | If it does, the corruption triad is broken and the "clean" concurrency result is invalid — assert HW decode + p010 + GopRefDist6 in a param dump |
+| mkvmerge final mux | Assume container carries HDR/DV if bitstream lost it | Container signaling helps HDR10 but not DV RPU; don't rely on it to paper over bitstream metadata loss |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|-----------------|
-| `ThreadPoolExecutor` for CPU-bound `AdaptiveDetector.process_frame` under the GIL | `jobs>1` detection speedup doesn't scale with core count; CPU utilization caps near one core | Profile before trusting; switch to `ProcessPoolExecutor` if measurement confirms serialization (dataclasses already picklable) | Breaks silently if the GPU-decode I/O overlap that's currently masking the GIL serialization ever shrinks (e.g. faster decode, different hardware) |
-| Building the streaming producer/consumer pipeline on current spinning-disk hardware | Wall-clock time flat or *worse* than sequential `detect jobs=4 → encode jobs=4` | Don't build it — `PIPELINE_DESIGN.md`'s own Amdahl analysis says realistic gain is -5% to ~0% on this hardware | Only reconsider if source storage moves to SSD/NVMe or ZFS ARC reliably holds the full file in RAM |
-| `detect_scenes_parallel`'s per-boundary-mark ffprobe + ~44s decode-window probes | Diminishing/negative returns as `jobs` increases beyond ~4 | Don't scale `jobs` past the empirically-tested range without re-benchmarking; this overhead is a correctness-necessary tradeoff, not a bug to "optimize away" carelessly | Unbenchmarked above `jobs=4`; treat higher values as unvalidated |
+|------|----------|------------|----------------|
+| Higher JOBS to "restore full speed" without re-testing corruption | Fast, but maybe a fresh concurrency window opens in ffmpeg | Re-run the per-frame concurrency proof at each JOBS level you intend to ship | Unknown JOBS threshold on this i915 kernel — must be measured, not assumed |
+| Full per-frame VMAF/PSNR verification of every run in production | Correct but doubles wall-time (full decode) | Make deep content-verify a *test/CI* gate on fixtures; production keeps count + spot-checks | When applied to every real 170k-frame encode |
+| Output seek (`-ss` after `-i`) to get frame accuracy | Correct but decodes from file start per chunk | Fast input seek to keyframe + frame-index trim | Catastrophic at 1382 chunks/file |
+| DV RPU extract/attach per chunk re-reading whole source each time | I/O storm on spinning-disk ZFS | Extract source RPU once, slice in memory per chunk | At high chunk counts on the ZFS pool |
 
 ## Security Mistakes
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Wiring a self-hosted GPU CI runner (to solve Pitfall 3) to run on arbitrary/fork PRs | Arbitrary code execution on hardware with host device access (`/dev/dri`) from untrusted PRs | Restrict self-hosted-runner-triggered CI to maintainer-approved branches/manual dispatch only, never `pull_request` from forks |
-| Pulling `qsvencc`/`dovi_tool` binaries via `curl -fsSL` from `.../releases/latest` with no checksum verification | Supply-chain risk: a compromised or unexpectedly-changed release artifact is fetched and executed with no integrity check | Pin to a specific release tag and verify a checksum/signature if the upstream project provides one |
-| None of the current subprocess invocations use `shell=True` | (Positive pattern already in place) | Preserve this pattern through any refactor — do not introduce `shell=True` or string-interpolated commands when packaging |
+Not a meaningful axis for this local/NAS CLI transcoder (no network, auth, or untrusted input surface beyond media files). The relevant analog is **data integrity**, covered above: the "attack" is silent bitstream corruption from the driver, and the "defense" is per-frame content verification. One robustness note: parsing untrusted `.obu`/RPU byte streams should fail loudly (`die()` on the main thread), never silently truncate — consistent with enpipe's existing collect-then-die pattern.
 
-## UX Pitfalls (CLI/operator experience)
+## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
-|---------|-------------|-------------------|
-| `die()` calls `sys.exit` with no cleanup, leaving tens of GB of orphaned chunk data on failure (large 4K DV sources per `PIPELINE_DESIGN.md`) | Operator must manually find and delete `workdir` after every failed run; repeated failures silently fill the NAS | Wrap the encode/splice/mux sequence in try/finally (or a context manager) that removes `workdir` unless `--keep` was passed, mirroring the existing success-path cleanup |
-| No structured logging/log levels — only timestamped print statements to stdout | Hard to distinguish "informational" from "this masked a real problem" (e.g. EBML fallback triggering) in long unattended runs | Add log levels (even a minimal INFO/DEBUG/WARNING split) so silent-fallback events (Pitfall 6) are visible at DEBUG without cluttering normal output |
-| Regex-based `.scenes` parsing fails silently on format drift, producing a misleadingly quiet "0 scenes" or truncated run rather than an error | Operator doesn't discover the run was invalid until reviewing output, possibly after a long encode | Fail loudly (raise) on empty/inconsistent parse results instead of silently proceeding |
+|---------|-------------|-----------------|
+| Silent backend fallback (chosen tool missing → other backend runs) | User believes they got corruption-free ffmpeg, actually got qsvencc | Hard `die()` if selected backend unavailable; never auto-switch |
+| Not logging which backend + full command ran | Can't diagnose a bad output after the fact | Log backend name + resolved command per run (extend existing command logging) |
+| Changing the default to ffmpeg without a migration note | Existing scripts/size expectations break silently | Document the default flip + expected size/quality delta in release notes; keep `qsvencc` one flag away |
+| HDR downgrade with no warning | User ships flat HDR unknowingly | If HDR source + backend can't carry metadata, warn loudly or route to qsvencc |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **"We added tests":** Verify the suite actually invokes real `ffmpeg`/`qsvencc`/`mkvmerge` against real media at least once (golden-sample tier), not exclusively mocked subprocess calls.
-- [ ] **"CI is green":** Verify what CI actually exercised — check whether the GPU/QSV hardware path ran at all, or whether everything silently fell back to `--no-qsv`/mocks.
-- [ ] **"Dependencies are pinned":** Verify *every* layer is pinned (Python deps via lockfile, `qsvencc`/`dovi_tool` via release tag, `ffmpeg` version), not just the Python side while the Dockerfile still fetches `latest` binaries.
-- [ ] **"DV/HDR metadata is preserved":** Verify with an actual DV/HDR10+ source and RPU-aware tooling (`dovi_tool`), not just by confirming `count_frames` matches — frame count matching says nothing about RPU/profile fidelity.
-- [ ] **"The pipeline has been validated against real media":** Verify the validation set actually covers HDR10, HDR10+, Dolby Vision, VFR, and at least one MKV with an unusual Cues structure — not just one "happy path" SDR file.
-- [ ] **"Packaging is done":** Verify old on-disk `.scenes` artifacts and any external automation (cron/systemd) referencing old CLI flags still work, or have an explicit migration path.
-- [ ] **"Cleanup on error works":** Verify by deliberately triggering a mid-encode failure (e.g. a doctored chunk that fails `count_frames`) and confirming `workdir` is actually removed, not just assuming the try/finally is correct by inspection.
+- [ ] **av1_qsv encode:** Often missing — closed-GOP keyframe as the *first* frame of every chunk. Verify `ffprobe -show_frames` frame 0 `key_frame=1` per chunk AND no cross-boundary references.
+- [ ] **Raw OBU output:** Often missing — sequence header repeated at each chunk start. Verify `movie.obu` fully **decodes end-to-end** (not just `count_packets`), and per-frame matches source around chunk seams.
+- [ ] **Seek/trim parity:** Often missing — head/tail frame exactness. Verify first/last decoded frame of a chunk PSNR-matches source `S`/`E-1`, not just that the count is right.
+- [ ] **HDR10:** Often missing — MDCV + max-CLL in the output. Verify `ffprobe` side-data shows `Mastering display metadata` + `Content light level` matching source values (parity with qsvencc output).
+- [ ] **HDR10+:** Often missing — 2094-40 dynamic metadata OBUs. Verify presence + per-frame count on the assembled stream.
+- [ ] **Dolby Vision:** Often missing — RPU present, count == frames, correct profile, aligned through B-reorder. Verify with `dovi_tool info` + boundary/reordered-frame L1 spot-check.
+- [ ] **Concurrency immunity:** Often missing — proof at *real* JOBS on *this* host with a *full-file* per-frame sweep, with HW-decode + p010 + GopRefDist6 confirmed. A single-hotspot 0/N is not proof.
+- [ ] **Backend selection:** Often missing — no silent fallback; default is ffmpeg *everywhere* (single, batch, `enpipe run`); command logged.
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
-|---------|-----------------|-----------------|
-| Frame-shift bug shipped from a seek/trim refactor (Pitfall 1) | MEDIUM | Bisect via the golden-sample suite once it exists to find the offending commit; add the specific missed case as a permanent fixture test; consider whether any already-produced output needs re-encoding |
-| Mocked-only test suite gives false confidence, real bug ships (Pitfall 2) | MEDIUM-HIGH | Retrofit golden-sample tier immediately; audit recent merges that only had mocked-test coverage for the same bug class; do not treat "tests exist" as closing this gap until tier 2 exists |
-| Toolchain drift breaks the pipeline after an unpinned rebuild (Pitfall 4) | LOW-MEDIUM | Pin to the last known-good version immediately (recoverable from CI/build logs or container image history if available); backfill the pin; add the version-diff-review step going forward |
-| EBML parser silently returns wrong keyframe table (Pitfall 6) | HIGH | Requires re-deriving which historical outputs were affected (hard without stored per-run metadata); add the ffprobe cross-validation test retroactively; consider re-encoding any output produced while the bug was live |
-| DV RPU desync at chunk boundaries ships to a real encode (Pitfall 7) | HIGH | Re-encode affected files; this is the costliest class of bug to detect after the fact since it may only be visible on DV-capable playback hardware, not in any automated metric currently in place |
-| Packaging changes strand old `.scenes` artifacts or break external automation (Pitfall 8) | LOW | Add a compatibility shim/migration script for the old format; document the breaking change explicitly |
+|---------|---------------|----------------|
+| ffmpeg NOT immune at production JOBS | HIGH | Pivot backend default to `--avsw` qsvencc or `--jobs 1`; keep ffmpeg opt-in; re-scope milestone |
+| HDR10 MDCV/CLL infeasible through ffmpeg | MEDIUM | Route HDR10 sources to qsvencc/`--avsw`; ship ffmpeg for SDR; document limitation |
+| DV RPU won't align through av1_qsv B-reorder | MEDIUM–HIGH | Route DV sources to qsvencc backend; ship ffmpeg for non-DV; flag as known gap |
+| Seek/trim off-by-one found late | MEDIUM | Adapter converts single `compute_chunk_seek_trim` output; fix is localized; re-run per-chunk head/tail content check |
+| Concat/OBU malformation | LOW–MEDIUM | Switch to `-f obu` low-overhead + repeat headers; re-verify full decode of `movie.obu` |
+| Backends incomparable | LOW | Define per-frame-parity + quality-band basis; calibrate av1_qsv quality; document mapping |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
-|---------|-------------------|----------------|
-| Refactoring silently breaks bit-exactness (seek/trim arithmetic) | Test-harness / fixture phase, before any refactor phase | Unit tests on `kf_before`/`fmt_seek`/trim edge cases + per-chunk content check wired into the frame-count guard |
-| Mocking subprocess too thoroughly / no golden-sample validation | Test-harness phase (design two-tier suite from the start) | Golden-sample suite exists, covers SDR/HDR10/HDR10+/DV/VFR, and gates release tags — not just PR merges |
-| CI without GPU access gives false confidence | CI phase, paired with a documented manual/self-hosted-runner NAS validation gate | CI status checks visibly distinguish "logic-only" from "hardware-validated"; release checklist requires the latter |
-| Unpinned/drifting qsvencc/ffmpeg/dovi_tool/scenedetect toolchain | Packaging & dependency-pinning phase, early (before/alongside test-harness) | Every tool/library pinned to an exact version; `VERSIONS.md` (or equivalent) records last-validated set; bumps re-run golden-sample suite |
-| ThreadPool-vs-ProcessPool GIL trap in parallel detection | Tech-debt-reduction phase, paired with real-media validation | Profiling measurement taken against real footage; comment/implementation reconciled; regression test covers `jobs=N == jobs=1` equivalence |
-| EBML parser returns wrong-but-parseable data | Tech-debt-reduction phase (isolate EBML module), before/alongside real-media validation | Cross-validation test: `keyframe_table_cues` output == `keyframe_table_ffprobe` output on a real MKV fixture corpus, including at least one `mkvmerge`-produced sample |
-| DV RPU / frame-count mismatch across chunk splice and mux | Real-media validation phase, with DV source material deliberately included | `dovi_tool`-based RPU frame-count and profile check, separate from and in addition to `count_frames` |
-| Packaging breaks the `.scenes` protocol or CLI surface silently | Packaging phase, with explicit backward-compatibility/versioning as an entrance criterion | Round-trip test on the intermediate format; loud failure (not silent skip) on empty/malformed parse; migration path for old artifacts |
-| No cleanup on fatal error (orphaned multi-GB `workdir`) | Packaging / hardening phase | Deliberate failure-injection test confirms `workdir` is removed on error unless `--keep` |
+|---------|------------------|--------------|
+| 1. Unproven immunity on this HW/JOBS | **Phase 1 (spike, gating first)** | Full-file per-frame PSNR/VMAF sweep + hotspot reproducer at JOBS 3 and 5–8, HW-decode+p010+GopRefDist6 asserted; 0 corrupt |
+| 4. Seek/trim off-by-one | Phase 1 (backend core) | Per-chunk first/last frame PSNR-match to source `S`/`E-1`; first output PTS == `floor_ms(K)` |
+| 5. GOP / keyframe misalignment | Phase 1 (preset parity) | Per-chunk frame 0 `key_frame=1`, closed GOP; boundary content-verify on assembled stream |
+| 6. Raw `.obu` concat breakage | Phase 1 (OBU output) | `movie.obu` fully decodes end-to-end + per-frame matches source; mkvmerge frame-count/duration parity |
+| 2. HDR10 static-metadata loss | Phase 2 (HDR/DV) | `ffprobe` side-data diff: MDCV + max-CLL present and equal to source |
+| 3. DV RPU loss/misalignment | Phase 2 (HDR/DV) | `dovi_tool info`: RPU count == frames, correct profile, boundary + reordered-frame alignment spot-check |
+| HDR10+ dynamic-metadata loss | Phase 2 (HDR/DV) | 2094-40 OBU presence + per-frame count on assembled stream |
+| 7. Divergent RC / incomparable backends | Phase 3 (dual-backend) | av1_qsv quality lands in SSIM/PSNR+size band vs qsvencc reference; mapping documented |
+| Backend-selection footguns / silent fallback | Phase 3 (dual-backend) | Default = ffmpeg in all entry points; `die()` on missing tool; backend + command logged |
 
 ## Sources
 
-- `.planning/codebase/CONCERNS.md` — primary source for this repository's specific known debt, fragile areas, and dependency risks (internal analysis, HIGH confidence — direct code citations).
-- `.planning/codebase/ARCHITECTURE.md` — load-bearing invariants and component boundaries (internal analysis, HIGH confidence).
-- `.planning/PROJECT.md` — productionization scope and constraints (internal, HIGH confidence).
-- [FFmpeg Test Automation: Turning Guesswork into Facts](https://hoop.dev/blog/ffmpeg-test-automation-turning-guesswork-into-facts) — golden-master testing pattern for ffmpeg pipelines (MEDIUM confidence, community source).
-- [Mocking subprocess with pytest-subprocess — Simon Willison's TILs](https://til.simonwillison.net/pytest/pytest-subprocess) and [testfixtures: Testing subprocesses](https://testfixtures.readthedocs.io/en/latest/popen.html) — subprocess-mocking tooling and its limits (MEDIUM confidence).
-- [Extracting/injecting rpu clarification — quietvoid/dovi_tool Discussion #78](https://github.com/quietvoid/dovi_tool/discussions/78) — RPU frame-count-vs-video-stream mismatch as a known DV tooling failure mode (MEDIUM confidence, upstream maintainer discussion).
-- [AV1 (NVEncc) with Dolby Vision RPU = wrong Container Metadata Profile — staxrip/staxrip#1586](https://github.com/staxrip/staxrip/issues/1586) and [Encoding into a container loses Dolby Vision metadata — rigaya/NVEnc#663](https://github.com/rigaya/NVEnc/issues/663) — DV metadata loss during muxing/encoding is a recurring, documented issue across Rigaya's *Enc tool family (of which QSVEnc is a sibling project) (MEDIUM confidence).
-- [Dolby Vision x265 Encoding, DV Profile Advantages/Caveats? — makemkv forum](https://forum.makemkv.com/forum/viewtopic.php?t=26514) — profile 8.1 conversion dropping FEL data (MEDIUM confidence, community source, cross-referenced against Dolby's own profile documentation pattern).
-- [QSVEnc Version History — VideoHelp](https://www.videohelp.com/software/QSVEnc/version-history) — confirms QSVEnc has an active release cadence with CLI-surface-affecting changes over time (MEDIUM confidence; specific current-version flag stability not independently re-verified for this exact pinned version).
-- General Python concurrency knowledge (GIL behavior under `ThreadPoolExecutor` vs `ProcessPoolExecutor` for CPU-bound work; I/O-bound subprocess calls releasing the GIL during `Popen`/pipe reads) — HIGH confidence, well-established CPython behavior, not dependent on a specific library version.
+- `.planning/debug/scene-chunk-frame-mismatch.md` — full root-cause chain: qsvencc concurrent 10-bit reference-surface aliasing, kernel drm/i915 localization, ffmpeg av1_qsv 35/35 clean contrast, negative-result patch log. (HIGH — primary, this project)
+- `.planning/debug/HANDOFF-qsvencc-frame-corruption.md` — reproducer recipe, corruption triad, solution space (avsw / jobs=1 / ffmpeg migration), defense-in-depth per-frame verification recommendation. (HIGH — primary)
+- `src/enpipe/encoding/{chunk,keyframes,hdr,pipeline}.py` — current qsvencc command, seek/trim arithmetic, HDR/DV flag detection, byte-concat + mux + count_frames guards. (HIGH — read directly)
+- [intel/media-driver #1592 — HDR10 mastering-display metadata for av1_qsv](https://github.com/intel/media-driver/issues/1592) and [intel/cartwheel-ffmpeg #221](https://github.com/intel/cartwheel-ffmpeg/issues/221), [intel/libvpl #87](https://github.com/intel/libvpl/issues/87) — confirms av1_qsv has NO HDR10 static-metadata passthrough. (MEDIUM–HIGH — official issue trackers)
+- [FFmpeg dovi_rpu BSF docs](https://ffmpeg.org/ffmpeg-bitstream-filters.html) + [DeepWiki: Dolby Vision and HDR Metadata](https://deepwiki.com/FFmpeg/FFmpeg/5.5-dolby-vision-and-hdr-metadata) + [dovi_rpu BSF patch (T.35 for AV1)](https://patchwork.ffmpeg.org/project/ffmpeg/patch/20240624172044.101722-9-ffmpeg@haasn.xyz/) — RPU stripping/compression, HEVC NAL vs AV1 T.35 wrapping; BSF added mid-2024 (present in ffmpeg 8.1). (MEDIUM — official docs + patchwork)
+- [FFmpeg Formats/BSF docs — AV1 low-overhead OBU muxer, temporal-delimiter + dump_extradata](https://ffmpeg.org/ffmpeg-formats.html) and [av1_metadata / extract_extradata AV1 support](https://ffmpeg.org/ffmpeg-bitstream-filters.html) — OBU framing, sequence-header/global-header handling for raw output. (MEDIUM — official docs)
+- [FFmpeg -ss input vs output seeking](https://dev.to/javidjamae/ffmpeg-ss-t-and-to-flags-input-vs-output-seeking-2b3p) + [FFmpeg codecs docs](https://ffmpeg.org/ffmpeg-codecs.html) — input-seek keyframe-snap vs output-seek frame accuracy tradeoff. (MEDIUM — verified against official docs)
+- [HDR10+ AV1 Metadata Handling Specification (AOM)](https://aomediacodec.github.io/av1-hdr10plus/) — METADATA_TYPE_ITUT_T35 OBU carriage of HDR10+/DV in AV1. (HIGH — spec)
 
 ---
-*Pitfalls research for: subprocess-orchestration, GPU-coupled, correctness-critical media transcode pipeline productionization*
-*Researched: 2026-07-08*
+*Pitfalls research for: adding ffmpeg av1_qsv scene-chunk backend to enpipe (v1.2)*
+*Researched: 2026-07-23*
