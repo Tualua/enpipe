@@ -67,7 +67,11 @@ Add an ffmpeg `av1_qsv` encode backend (empirically immune to the concurrent-enc
   2. The qsvencc backend produces byte-identical pre-mux `movie.obu` to the pre-refactor output on real Arc hardware (legacy-oracle parity preserved, zero behavior change).
   3. A `--backend` flag/env scaffold threads a resolved backend object through `run_encode`/`encode_chunk`, with only `qsvencc` accepted as valid until Phase 8 lands ffmpeg.
   4. The exonerated keyframe seek/trim math is exposed as a shared numeric sibling for backends to format, without re-deriving it or disturbing the qsvencc byte-identity path.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 07-01-PLAN.md — D-09 golden argv fixtures + fast baseline test (capture pre-refactor qsvencc argv truth first)
+- [ ] 07-02-PLAN.md — Backend seam package (base/qsvencc/registry) + shared numeric seek/trim core, additive
+- [ ] 07-03-PLAN.md — Atomic seam swap: thread backend through chunk.py/pipeline.py, remove moved symbols, fix all dangling imports
+- [ ] 07-04-PLAN.md — --backend CLI scaffold + D-09 refactored golden proof + D-10 on-Arc byte-identity checkpoint
 
 ### Phase 8: ffmpeg SDR Backend + Flip Default
 **Goal**: Implement the corruption-free ffmpeg `av1_qsv` backend on the simplest (SDR) path — where all the load-bearing invariants live — flip the default to ffmpeg, and verify OBU byte-concat, frame-exact seek/trim, and keyframe alignment as explicit content-verify gates (not count-only checks).
@@ -112,7 +116,7 @@ Add an ffmpeg `av1_qsv` encode backend (empirically immune to the concurrent-enc
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | v1.0      | 2/2            | Complete    | 2026-07-08 |
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
-| 7. Backend Seam Refactor                              | v1.2      | 0/?            | Not started | -          |
+| 7. Backend Seam Refactor                              | v1.2      | 0/4            | Planned     | -          |
 | 8. ffmpeg SDR Backend + Flip Default                  | v1.2      | 0/?            | Not started | -          |
 | 9. HDR10 Static Metadata Through ffmpeg               | v1.2      | 0/?            | Not started | -          |
 | 10. DV / HDR10+ Decision (POC-gated)                  | v1.2      | 0/?            | Not started | -          |
