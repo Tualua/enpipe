@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Single-command pipeline entry point
-status: Awaiting next milestone
-stopped_at: Completed quick task 260722-4oz (skip .metrics.csv creation when --no-metrics)
-last_updated: "2026-07-23T02:37:27.158Z"
-last_activity: 2026-07-23 — Milestone v1.1 completed and archived
+milestone: v1.2
+milestone_name: ffmpeg backend
+status: planning
+last_updated: "2026-07-23T03:03:25.929Z"
+last_activity: 2026-07-23
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** v1.1 shipped & archived — planning next milestone (leading candidate: encode-correctness hardening for concurrent-`qsvencc` frame corruption)
+**Current focus:** v1.2 ffmpeg backend — dual-backend migration (ffmpeg `av1_qsv` default, corruption-free; `qsvencc` opt-in). Defining requirements.
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-23 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-23 — Milestone v1.2 started
 
 ## Performance Metrics
 

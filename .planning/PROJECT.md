@@ -16,9 +16,18 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 **Open correctness debt (deferred at v1.1 close — see STATE.md Deferred Items):** real-media use surfaced a **silent frame-corruption bug** — concurrent `qsvencc` sessions on the Arc A380 can emit isolated frames whose pixels come from a *different* concurrent encode (root cause: iHD/media-driver cross-process 10-bit reference-surface aliasing; frame counts stay correct, so it is silent). This directly threatens the non-negotiable core value and is the leading candidate to drive the next milestone.
 
-## Next Milestone Goals
+## Current Milestone: v1.2 ffmpeg backend
 
-Not yet scoped. The dominant candidate is **encode-correctness hardening**: eliminate the concurrent-`qsvencc` cross-process frame corruption (e.g. serialize/cap encode concurrency, or an `av1_qsv`-based single-process path) and add a VMAF/per-frame corruption guard so the failure can never again ship silently. Secondary candidates: the deferred v2 observability (OBS-01) and typed-config (CFG-01) items. Run `/gsd:new-milestone` to scope.
+**Goal:** Eliminate the concurrent-encode silent frame corruption by adding an ffmpeg `av1_qsv` encode backend (empirically immune) as the new default, while retaining `qsvencc` as an opt-in selectable backend — restoring full-speed parallel encoding with correct output.
+
+**Target features:**
+- ffmpeg `av1_qsv` encode backend (ffmpeg 8.1), mapping the current qsvencc preset (ICQ/quality, GOP length, `--gop-ref-dist`/B-pyramid, tile config, tune) with equivalent per-chunk seek/trim semantics.
+- HDR10 / HDR10+ / Dolby Vision RPU passthrough through the ffmpeg path — via the ffmpeg 8.1 `dovi_rpu` BSF plus master-display/max-cll/dhdr10 signaling — matching qsvencc's current coverage.
+- Backend selection: ffmpeg `av1_qsv` default, `qsvencc` opt-in behind a flag/env var; both fully supported and tested.
+- Concurrent-encode correctness proof: a regression test with per-frame content verification demonstrating the ffmpeg backend is corruption-free under parallel `JOBS` (using the handed-off reproducer), kept distinct from the qsvencc path.
+- Preserve the correctness invariants (per-chunk + total frame counts, keyframe alignment) across both backends.
+
+**Key context:** Direct sequel to the v1.1 close audit's open debt — qsvencc concurrent-encode frame corruption (root cause: iHD/i915 cross-process 10-bit reference-surface aliasing; ffmpeg `av1_qsv` empirically immune, 35/35 clean). ffmpeg 8.1 is already staged in the devcontainer (quick task 260723-36w) specifically for `av1_qsv` + `dovi_rpu`. Full analysis: `.planning/debug/scene-chunk-frame-mismatch.md` and `HANDOFF-qsvencc-frame-corruption.md`. The DV/HDR10+ passthrough through ffmpeg is the load-bearing risk — the whole reason qsvencc was chosen originally.
 
 ## Requirements
 
@@ -38,9 +47,12 @@ Not yet scoped. The dominant candidate is **encode-correctness hardening**: elim
 
 ### Active
 
-<!-- Next milestone not yet scoped. Leading candidate: encode-correctness hardening (concurrent-qsvencc frame corruption). See Current State / Next Milestone Goals. -->
+<!-- v1.2 ffmpeg backend — dual-backend, ffmpeg av1_qsv default (corruption-free), qsvencc opt-in. Detailed REQ-IDs in REQUIREMENTS.md. -->
 
-- (none — run `/gsd:new-milestone` to define the next milestone's requirements)
+- [ ] ffmpeg `av1_qsv` encode backend (default) reproducing the qsvencc preset + per-chunk seek/trim, corruption-free under parallel `JOBS`
+- [ ] HDR10 / HDR10+ / Dolby Vision RPU passthrough through the ffmpeg path (parity with qsvencc), via ffmpeg 8.1 `dovi_rpu` BSF
+- [ ] Selectable backend (ffmpeg default, qsvencc opt-in) with both paths tested and frame-count/keyframe invariants preserved
+- [ ] Concurrent-encode correctness regression test (per-frame content verification) proving the ffmpeg backend is corruption-free
 
 ### Validated
 
@@ -109,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-23 after v1.1 milestone*
+*Last updated: 2026-07-23 — started milestone v1.2 (ffmpeg backend) after v1.1 complete*
