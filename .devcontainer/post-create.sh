@@ -74,13 +74,21 @@ ENV01_OK=1
 if command -v ffmpeg-8.1 >/dev/null 2>&1; then
     ffmpeg-8.1 -hide_banner -version 2>/dev/null | head -1 | sed 's/^/    /' \
         || echo "    версию получить не удалось"
-    if ! ffmpeg-8.1 -hide_banner -encoders 2>/dev/null | grep -qi 'av1_qsv'; then
+    # Вывод -encoders/-bsfs захватываем СНАЧАЛА в переменную, потом grep по
+    # here-string. Прямое `ffmpeg-8.1 ... | grep -qi` под `set -o pipefail` даёт
+    # ГОНКУ: grep -q закрывает читающий конец пайпа на первом совпадении, ffmpeg
+    # (ещё пишущий остаток -encoders) ловит SIGPIPE→141, pipefail роняет пайплайн,
+    # и `if !` печатает ЛОЖНЫЙ «не найден» на КОРРЕКТНОМ образе. Command
+    # substitution дожидается полного вывода ffmpeg — гонки нет.
+    _env01_enc=$(ffmpeg-8.1 -hide_banner -encoders 2>/dev/null || true)
+    _env01_bsfs=$(ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null || true)
+    if ! grep -qi 'av1_qsv' <<<"$_env01_enc"; then
         echo "    ОШИБКА: av1_qsv кодер не найден"; ENV01_OK=0
     fi
-    if ! ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null | grep -qi 'av1_metadata'; then
+    if ! grep -qi 'av1_metadata' <<<"$_env01_bsfs"; then
         echo "    ОШИБКА: av1_metadata BSF не найден"; ENV01_OK=0
     fi
-    if ! ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null | grep -qi 'dovi_rpu'; then
+    if ! grep -qi 'dovi_rpu' <<<"$_env01_bsfs"; then
         echo "    ОШИБКА: dovi_rpu BSF не найден"; ENV01_OK=0
     fi
     if ! command -v ffprobe-8.1 >/dev/null 2>&1; then
