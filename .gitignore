@@ -224,6 +224,11 @@ scratch/*.obu
 scratch/*.metrics.csv
 scratch/wd_*/
 
+# enpipe gate_stress_matrix.py durable evidence -- copied verbatim into the
+# phase SUMMARY + scene-chunk-frame-mismatch.md, the raw files themselves
+# are not committed
+scratch/gate_stress_matrix_*.log
+
 # enpipe TEST-04 hardware-tier media fixtures (operator-supplied,
 # non-redistributable HDR10+/DV samples -- README.md stays tracked)
 tests/fixtures/media/*
