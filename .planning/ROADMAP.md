@@ -54,7 +54,7 @@ Add an ffmpeg `av1_qsv` encode backend (empirically immune to the concurrent-enc
   4. The same harness reproduces nonzero corruption on the qsvencc path under identical concurrent JOBS (the handed-off reproducer engages), proving the regression test is non-vacuous.
 **Plans**: 3 plans
 - [ ] 06-01-PLAN.md — ENV-01: hard-assert ffmpeg-8.1 + av1_qsv + av1_metadata/dovi_rpu BSFs in post-create.sh, verified on the rebuilt image (SC#1)
-- [ ] 06-02-PLAN.md — COR-01: author the concurrency-immunity harness + committed hardware-gated pytest + one-time stress-matrix script (per-frame PSNR sweep, triad assert, qsvencc control)
+- [x] 06-02-PLAN.md — COR-01: author the concurrency-immunity harness + committed hardware-gated pytest + one-time stress-matrix script (per-frame PSNR sweep, triad assert, qsvencc control)
 - [ ] 06-03-PLAN.md — COR-01/gate proof: lock the HW-decode triad regex, run the pytest + stress matrix on hardware, apply the D-12 tiered verdict, record D-09 evidence (SC#2/#3/#4)
 **Research**: recommended at plan time — concurrency-spike methodology (full-file sweep vs hotspot-only, JOBS thresholds, triad-integrity assertion) per SUMMARY Research Flags.
 
@@ -111,7 +111,7 @@ Add an ffmpeg `av1_qsv` encode backend (empirically immune to the concurrent-enc
 | 3. Concurrency Resolution + Regression Baseline + CI  | v1.0      | 3/3            | Complete    | 2026-07-08 |
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | v1.0      | 2/2            | Complete    | 2026-07-08 |
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
-| 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 0/3            | Not started | -          |
+| 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 1/3 | In Progress|  |
 | 7. Backend Seam Refactor                              | v1.2      | 0/?            | Not started | -          |
 | 8. ffmpeg SDR Backend + Flip Default                  | v1.2      | 0/?            | Not started | -          |
 | 9. HDR10 Static Metadata Through ffmpeg               | v1.2      | 0/?            | Not started | -          |

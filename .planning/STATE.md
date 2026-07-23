@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: ffmpeg backend
-status: planning
-stopped_at: Phase 6 context gathered
-last_updated: "2026-07-23T05:46:48.204Z"
-last_activity: 2026-07-23 — v1.2 roadmap created
+status: executing
+stopped_at: Completed 06-02-PLAN.md (COR-01 harness + hardware-gated test + stress-matrix script authored)
+last_updated: "2026-07-23T06:07:57.568Z"
+last_activity: 2026-07-23 -- Phase 06 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** v1.2 ffmpeg backend — dual-backend migration (ffmpeg `av1_qsv` default, corruption-free; `qsvencc` opt-in). Roadmap created: Phases 6–10 (risk-first). Next: plan Phase 6.
+**Current focus:** Phase 06 — concurrency-immunity-spike-image-rebuild-gate
 
 ## Current Position
 
-Phase: 6 — Concurrency-Immunity Spike + Image Rebuild (GATE) — not started
-Plan: —
-Status: Roadmap created (Phases 6–10, 10/10 requirements mapped); ready to plan Phase 6
-Last activity: 2026-07-23 — v1.2 roadmap created
+Phase: 06 (concurrency-immunity-spike-image-rebuild-gate) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 06
+Last activity: 2026-07-23 -- Phase 06 execution started
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Last activity: 2026-07-23 — v1.2 roadmap created
 | Phase 04 P01 | 12min | 3 tasks | 6 files |
 | Phase 04 P02 | 15min | 4 tasks | 4 files |
 | Phase 05 P01 | 9min | 3 tasks | 3 files |
+| Phase 06 P02 | 25min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase 05]: run_pipeline additive shutil.which preflight before run_detect; run_encode keeps its own preflight unchanged (D-02 zero-behavior-change invariant)
 - [Phase 05]: Detect-jobs and encode-jobs flags resolve the jobs collision; no bare jobs flag on enpipe run (D-03)
 - [Phase 05]: Optional scenes-path override implemented (Claude's discretion, D-04), routing to both detect output and encode scenes
+- [Phase 06-02]: run_concurrent takes an explicit refs: Dict[int, Path] param (not a same-workdir naming convention) so isolated references can be built once and reused across many ephemeral per-iteration stress-matrix workdirs
+- [Phase 06-02]: IMMUNITY_ITERS defaults to 8 (env-tunable) -- survival-probability math (0.35^8..0.65^8 ~= 2e-4..3e-2) justifies a modest, fast-rerun iteration count distinct from the one-time 20-iter stress tier
 
 ### Pending Todos
 
@@ -165,9 +168,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23T04:21:51.517Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-concurrency-immunity-spike-image-rebuild-gate/06-CONTEXT.md
+Last session: 2026-07-23T06:07:57.546Z
+Stopped at: Completed 06-02-PLAN.md (COR-01 harness + hardware-gated test + stress-matrix script authored)
+Resume file: .planning/phases/06-concurrency-immunity-spike-image-rebuild-gate/06-02-SUMMARY.md
 </content>
 
 ## Operator Next Steps
