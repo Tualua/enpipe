@@ -16,6 +16,8 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 **Open correctness debt (deferred at v1.1 close — see STATE.md Deferred Items):** real-media use surfaced a **silent frame-corruption bug** — concurrent `qsvencc` sessions on the Arc A380 can emit isolated frames whose pixels come from a *different* concurrent encode (root cause: iHD/media-driver cross-process 10-bit reference-surface aliasing; frame counts stay correct, so it is silent). This directly threatens the non-negotiable core value and is the leading candidate to drive the next milestone.
 
+**Phase 6 GATE complete (2026-07-23) — v1.2 premise PROVEN:** the milestone's load-bearing gate passed on real Arc A380 hardware — ffmpeg `av1_qsv` is **immune** to the cross-process frame corruption (320 concurrent sessions across JOBS 3/5/8, **0 corrupt frames, 0 failed starts**), while `qsvencc` corrupts in the identical harness (96 frames, control non-vacuous). D-12 verdict = **PROCEED** at full JOBS (no cap). ENV-01 hard-assert self-check landed in the devcontainer; the COR-01 concurrency-immunity harness + hardware-gated pytest are committed. Evidence: `.planning/debug/scene-chunk-frame-mismatch.md` (`## ФАЗА 6 (GATE)`). Documented residual: the gate evidence was captured on a side-loaded ffmpeg 8.1, not a canonical rebuilt image (`06-HUMAN-UAT.md` tracks the clean-rebuild re-confirmation). Phase 7 (backend seam refactor) is cleared to start.
+
 ## Current Milestone: v1.2 ffmpeg backend
 
 **Goal:** Eliminate the concurrent-encode silent frame corruption by adding an ffmpeg `av1_qsv` encode backend (empirically immune) as the new default, while retaining `qsvencc` as an opt-in selectable backend — restoring full-speed parallel encoding with correct output.
@@ -121,4 +123,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-23 — started milestone v1.2 (ffmpeg backend) after v1.1 complete*
+*Last updated: 2026-07-23 — Phase 6 (concurrency-immunity GATE) complete; v1.2 ffmpeg-migration premise proven (av1_qsv immune, D-12 PROCEED)*
