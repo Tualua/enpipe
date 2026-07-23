@@ -422,17 +422,19 @@ Combine each with 2-3 representative `(kf_frame, kf_time, start_off, end_off)` t
 
 **If this table is empty:** N/A — see above; all three assumptions are explicitly flagged Claude's-Discretion areas per CONTEXT.md, not compliance-critical or ambiguous factual claims.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where should the golden-argv fast test and its fixtures physically live?**
    - What we know: CONTEXT.md D-09 requires a fast, hardware-free test asserting byte-for-byte argv reproduction; the existing test-tree convention colocates pure-logic tests next to the module under test (`tests/unit/encoding/test_chunk.py` next to `encoding/chunk.py`, `tests/unit/mkv/test_ebml.py` next to `mkv/ebml.py` per Phase 2's DEBT-01 precedent).
    - What's unclear: Whether the new test belongs in a new `tests/unit/backends/test_qsvencc.py` (mirroring the new `backends/` package) or should stay logically grouped with the existing `tests/unit/encoding/test_chunk.py` (renamed/refocused). CONTEXT.md explicitly leaves file format/location as discretion.
    - Recommendation: Create `tests/unit/backends/test_qsvencc.py`, mirroring the new package structure 1:1 (this codebase's established convention per Phase 2), and move the existing `chunk_command`/`parse_metrics`/`fmt_seek` tests there since those functions physically relocate too.
+   - **RESOLVED (Plan 07-01/07-02):** `tests/unit/backends/test_qsvencc.py` created for the relocated `chunk_command`/`parse_metrics`/`fmt_seek`/`build_command` tests (07-02 Task 2), and the D-09 golden-argv fixtures + fast test live at `tests/fixtures/golden_argv/qsvencc.json` + `tests/unit/backends/test_golden_argv.py` (07-01, re-pointed to `build_command` in 07-04 Task 2). Mirrors the new `backends/` package 1:1 per the recommendation.
 
 2. **Should the qsvencc backend's `compute_chunk_seek_trim` (old 2-tuple-string shape) be kept as a named, independently-tested function in `backends/qsvencc.py`, or inlined directly into `build_command`?**
    - What we know: D-04 describes it as "a thin wrapper... moves into backends/qsvencc.py" — implying it remains a distinct, nameable unit.
    - What's unclear: Whether `tests/integration/test_hardware_real_media.py`'s existing non-tautological keyframe-alignment check (lines 208-220, which currently calls `compute_chunk_seek_trim(prod_table, s, e)` directly) should keep calling a qsvencc-specific function, or should be rewritten to call the backend-agnostic numeric core plus local formatting — the latter keeps that specific integration test conceptually backend-agnostic (it is testing keyframe alignment, not qsvencc's string format), which seems more aligned with the test's own stated purpose.
    - Recommendation: Rewrite `test_hardware_real_media.py`'s ground-truth check to call `compute_chunk_seek_trim_numeric` + locally format with `fmt_seek` imported from `enpipe.backends.qsvencc` (since `fmt_seek` genuinely is qsvencc-specific formatting and this integration test is explicitly verifying the qsvencc production path) — this is Claude's Discretion, flagged for the planner to confirm during task-writing.
+   - **RESOLVED (Plan 07-03 Task 2):** adopted the recommendation — `test_hardware_real_media.py`'s `_verify` ground-truth block is rewritten to call `compute_chunk_seek_trim_numeric` and format seek locally via `fmt_seek` imported from `enpipe.backends.qsvencc`; the numeric core stays the single shared derivation (D-04) and `build_command` is the qsvencc-side formatter (not a separately kept `compute_chunk_seek_trim` name).
 
 ## Sources
 
