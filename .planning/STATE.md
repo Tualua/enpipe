@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: ffmpeg backend
 status: planning
-last_updated: "2026-07-23T03:30:00.000Z"
-last_activity: 2026-07-23
+stopped_at: Phase 6 context gathered
+last_updated: "2026-07-23T04:21:51.538Z"
+last_activity: 2026-07-23 — v1.2 roadmap created
 progress:
   total_phases: 5
   completed_phases: 0
@@ -164,9 +165,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23T03:30:00.000Z
-Stopped at: v1.2 roadmap created (ROADMAP.md Phases 6–10 appended; REQUIREMENTS.md traceability filled 10/10)
-Resume file: None
+Last session: 2026-07-23T04:21:51.517Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-concurrency-immunity-spike-image-rebuild-gate/06-CONTEXT.md
 </content>
 
 ## Operator Next Steps
