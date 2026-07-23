@@ -60,6 +60,20 @@ vainfo 2>/dev/null | grep -iE 'Driver version|VAProfileAV1|VAProfileHEVCMain10' 
 echo "  ffmpeg QSV-энкодеры:"
 ffmpeg -hide_banner -encoders 2>/dev/null | grep -iE 'av1_qsv|hevc_qsv' | sed 's/^/    /' \
     || echo "    QSV-энкодеров нет"
+# ffmpeg-8.1 — opt-in параллельная сборка (BtbN static), не заменяет системный
+# ffmpeg. Информационно, НИКОГДА не роняет скрипт под set -euo pipefail:
+# каждая под-команда прикрыта `|| echo ...` / `2>/dev/null`.
+echo "  ffmpeg-8.1 (opt-in, BtbN static):"
+if command -v ffmpeg-8.1 >/dev/null 2>&1; then
+    ffmpeg-8.1 -hide_banner -version 2>/dev/null | head -1 | sed 's/^/    /' \
+        || echo "    версию получить не удалось"
+    ffmpeg-8.1 -hide_banner -encoders 2>/dev/null | grep -iE 'av1_qsv|hevc_qsv' | sed 's/^/    /' \
+        || echo "    QSV-энкодеров нет"
+    ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null | grep -i 'dovi_rpu' | sed 's/^/    /' \
+        || echo "    dovi_rpu BSF нет"
+else
+    echo "    не установлен (пересобери образ)"
+fi
 printf "  qsvencc:   "; command -v qsvencc >/dev/null && qsvencc --version 2>/dev/null | head -1 || echo "НЕТ"
 # dovi_tool: пока нигде в пайплайне не вызывается — держим ради Phase-4 DV RPU
 # проверки (TEST-04, DEBT-04); AV1-совместимость extract-rpu НЕ подтверждена,
