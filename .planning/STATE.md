@@ -4,8 +4,8 @@ milestone: v1.2
 milestone_name: ffmpeg backend
 status: planning
 stopped_at: Phase 7 context gathered
-last_updated: "2026-07-23T12:07:21.530Z"
-last_activity: 2026-07-23 -- Phase 07 planning complete
+last_updated: "2026-10-01T15:38:25.459Z"
+last_activity: 2026-10-01 -- Completed quick task 261001-lq0: devcontainer claude-code via npm + persistent agent auth
 progress:
   total_phases: 5
   completed_phases: 1
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 Phase: 7
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-07-23 -- Phase 07 planning complete
+Last activity: 2026-10-01 -- Completed quick task 261001-lq0: devcontainer claude-code via npm + persistent agent auth
 
 ## Performance Metrics
 
@@ -144,6 +144,7 @@ None yet.
 | 260722-4oz | При `--no-metrics` не создавать `.metrics.csv`: гейт `if rows:` -> `if metrics_on and rows:` в `encoding/pipeline.py` (метрический артефакт пишется только когда метрики считались; `rows` копится ради size/time, но файл не нужен). `write_metrics_csv` остался чистым/нетронутым. Тест `test_pipeline_wiring.py` доказывает обе ветки (no_metrics -> не вызывается + нет файла; metrics on -> вызывается). 167 fast-тестов зелёные, ruff чист | 2026-07-22 | 61a38ab | [260722-4oz-skip-metrics-csv](./quick/260722-4oz-skip-metrics-csv/) |
 | 260722-lxs | В devcontainer (dlstreamer-база) добавлен слой dev/debug-утилит из болей сегодняшней отладки: `skopeo` (инспекция OCI-образов без docker), `strace`, `ripgrep`, `xxd`, `mediainfo`, `intel-gpu-tools` (`intel_gpu_top` — загрузка Arc), `hyperfine`, `p7zip-full` — отдельный RUN-слой (не бьёт кэш media/qsvencc), Russian WHY-коммент на каждый; post-create.sh проверяет наличие. НЕ собран здесь — хост пересобирает | 2026-07-22 | e1c9322 | [260722-lxs-devcontainer](./quick/260722-lxs-devcontainer/) |
 | 260723-36w | Opt-in FFmpeg 8.1 (BtbN static GPL) side-by-side в devcontainer: отдельный RUN-слой тянет `ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz` в `/opt/ffmpeg-8.1`, на PATH как `ffmpeg-8.1`/`ffprobe-8.1`; системный ffmpeg 6.1.1 НЕ трогается. ЗАЧЕМ: `av1_qsv` — иммунный к межпроцессной порче кадров путь энкода (см. debug scene-chunk-frame-mismatch), плюс `dovi_rpu` BSF (DV-проброс), которого нет в 6.1.1. Пин: осознанно подвижный `latest`-тег (без SHA256), единообразно с qsvencc/dovi_tool. Слой перед podman apt-фиксом (кэш media/qsvencc не бьётся); non-fatal self-check в post-create.sh (version + av1_qsv/hevc_qsv + dovi_rpu). НЕ собран здесь — хост пересобирает (чек-лист в SUMMARY) | 2026-07-23 | 885a578 | [260723-36w-add-future-ready-ffmpeg-8-1-btbn-static-](./quick/260723-36w-add-future-ready-ffmpeg-8-1-btbn-static-/) |
+| 261001-lq0 | claude-code ставится npm'ом (`@anthropic-ai/claude-code`), а не фичей `ghcr.io/anthropics/devcontainer-features/claude-code` — фича делала то же самое (тот же npm-пакет в nvm-префиксе), минус pin в lock и минус зависимость сборки от ghcr. Авторизации claude/opencode/qwen переживают ребилд через 4 named volume'а (`/root/.claude`, `/root/.qwen`, `/root/.local/share/opencode`, `/root/.config/opencode`). Ключевое: `~/.claude.json` — отдельный ФАЙЛ, томом не прикрыть, а symlink — ловушка (claude пишет через temp+`rename()`, rename сносит симлинк → молчаливая поломка), поэтому `CLAUDE_CONFIG_DIR=/root/.claude` в containerEnv (эмпирически проверено, что переносит и `.claude.json`) + идемпотентная миграция в post-create.sh, которая НЕ перезаписывает уже персистентный конфиг. Самопроверка `PERSIST_OK`: `findmnt` на каждый путь + наличие кредов. НЕ собран здесь (нет docker) — хост пересобирает; чек-лист в PLAN | 2026-10-01 | 1554162 | [261001-lq0-devcontainer-claude-code-via-npm-persist](./quick/261001-lq0-devcontainer-claude-code-via-npm-persist/) |
 | 260722-lji | Devcontainer переведён на базу `intel/dlstreamer` (Ubuntu 24.04): медиа-стек (iHD 26.2.2/oneVPL/ffmpeg-QSV) теперь ИЗ образа, из Dockerfile убран ручной apt-стек драйверов+ffmpeg. Сохранены qsvencc (Rigaya, ubuntu24.04-ассет + dep-strip libmfx1/opencl-icd), dovi_tool, mkvtoolnix, tmux, proxy-ENV+IS_SANDBOX, apt-sandbox fix; devcontainer.json — фичи node+claude-code, /data-фикс (keep-groups + userns-фолбэк), LIBVA_DRIVER_NAME=iHD, remoteUser root. post-create.sh: sudo->AS_ROOT-guard. НЕ собран/не проверен здесь (нет docker/GPU) — хост пересобирает; чек-лист в SUMMARY | 2026-07-22 | 4ff3c36 | [260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl](./quick/260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl/) |
 
 ## Deferred Items
