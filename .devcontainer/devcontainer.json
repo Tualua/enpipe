@@ -6,14 +6,19 @@
   // Git/common-utils в базовом образе intel/dlstreamer НЕ гарантированы так же,
   // как в старом python-devcontainer-образе, но нужный минимум (git, python3,
   // сборочные тулы) фактически есть в dlstreamer/post-create уже сам ставит
-  // недостающее (см. Dockerfile). Фичами добавляем только то, чего в образе
-  // точно нет: Node и Claude Code. В dlstreamer НЕТ дефолтного vscode-юзера —
-  // но remoteUser здесь "root" и ничего не зависит от юзера vscode, поэтому
-  // фичу создания пользователя добавлять не нужно (не добавляй её случайно).
+  // недостающее (см. Dockerfile). Фичей добавляем только то, чего в образе
+  // точно нет: Node. В dlstreamer НЕТ дефолтного vscode-юзера — но remoteUser
+  // здесь "root" и ничего не зависит от юзера vscode, поэтому фичу создания
+  // пользователя добавлять не нужно (не добавляй её случайно).
+  //
+  // Claude Code СОЗНАТЕЛЬНО ставится НЕ фичей, а npm'ом в post-create.sh рядом
+  // с opencode/qwen. Фича `ghcr.io/anthropics/devcontainer-features/claude-code`
+  // под капотом делает ровно то же — ставит npm-пакет @anthropic-ai/claude-code
+  // в nvm-префикс — но добавляет лишний pin в devcontainer-lock.json и завязывает
+  // сборку образа на доступность ghcr. Явный npm-install держит все три
+  // AI-CLI в одном месте и обновляется одной строкой (см. post-create.sh, секция 2).
   "features": {
-    "ghcr.io/devcontainers/features/node:2": { "version": "lts" },
-    // Claude Code — официальная фича Anthropic
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+    "ghcr.io/devcontainers/features/node:2": { "version": "lts" }
   },
 
   // --- Проброс Intel Arc A380 (VA-API/QSV): узлы /dev/dri (card* + renderD*) ---
@@ -35,18 +40,59 @@
     // При несовпадении uid/gid можно зафиксировать явно: "--userns=keep-id:uid=1010,gid=1011".
   ],
 
-  // --- Проброс медиапапок хоста ---
+  // --- Проброс медиапапок хоста + персистентное состояние AI-CLI ---
+  //
+  // Named volume'ы ниже нужны, чтобы АВТОРИЗАЦИИ claude/opencode/qwen переживали
+  // "Rebuild Container". Без них креды лежат в writable-слое контейнера и
+  // стираются при каждом ребилде — приходится логиниться заново. Где что лежит:
+  //   claude   → $CLAUDE_CONFIG_DIR/.credentials.json (OAuth-токен)
+  //              + $CLAUDE_CONFIG_DIR/.claude.json    (oauthAccount, onboarding)
+  //   opencode → ~/.local/share/opencode/auth.json    (провайдер + ключ)
+  //              + ~/.config/opencode/                (opencode.jsonc, плагины)
+  //   qwen     → ~/.qwen/settings.json                (env.DASHSCOPE_API_KEY)
+  //              + ~/.qwen/oauth_creds.json           (если выбран OAuth-режим)
+  //
+  // Пути захардкожены под /root намеренно: remoteUser здесь "root" (в базе
+  // intel/dlstreamer нет vscode-юзера). Сменишь remoteUser — поправь и target'ы.
+  //
+  // ВАЖНО: тома создаются ПУСТЫМИ, старый writable-слой в них не переносится.
+  // Первый ребилд после этого изменения => один раз залогиниться заново
+  // (или заранее вытащить ~/.claude ~/.claude.json ~/.qwen ~/.local/share/opencode
+  // ~/.config/opencode в tar на /data/downloads и распаковать обратно).
   "mounts": [
     "source=/data/media,target=/data/media,type=bind,consistency=cached",
-    "source=/data/downloads,target=/data/downloads,type=bind,consistency=cached"
+    "source=/data/downloads,target=/data/downloads,type=bind,consistency=cached",
+    "source=enpipe-claude,target=/root/.claude,type=volume",
+    "source=enpipe-qwen,target=/root/.qwen,type=volume",
+    "source=enpipe-opencode-data,target=/root/.local/share/opencode,type=volume",
+    "source=enpipe-opencode-config,target=/root/.config/opencode,type=volume"
   ],
 
   "containerEnv": {
     // iHD — драйвер Intel Media для Arc/Alchemist (тот же, что на хосте)
-    "LIBVA_DRIVER_NAME": "iHD"
+    "LIBVA_DRIVER_NAME": "iHD",
+
+    // Claude Code хранит ДВЕ вещи: каталог ~/.claude (креды, плагины, настройки,
+    // projects) и ОТДЕЛЬНЫЙ файл ~/.claude.json (oauthAccount, onboarding-флаги).
+    // Том можно смонтировать только на каталог, а не на файл, поэтому
+    // ~/.claude.json сам по себе ребилд не переживает.
+    //
+    // Symlink ~/.claude.json -> ~/.claude/.claude.json — ЛОВУШКА: claude пишет
+    // этот конфиг атомарно (temp-файл + rename(), см. saveConfigWithLock), а
+    // rename ЗАМЕНЯЕТ симлинк обычным файлом — персистентность молча ломается
+    // после первой же записи.
+    //
+    // Поэтому используем официальный CLAUDE_CONFIG_DIR: он задаёт configuration
+    // home, и .claude.json резолвится ОТНОСИТЕЛЬНО него (проверено эмпирически:
+    // `CLAUDE_CONFIG_DIR=<tmp> claude plugin list` создаёт <tmp>/.claude.json).
+    // Значение /root/.claude — тот же путь, что и дефолт для каталога, так что
+    // меняется ровно одно: .claude.json переезжает ВНУТРЬ тома enpipe-claude.
+    // Разовую миграцию старого ~/.claude.json делает post-create.sh (секция 2a).
+    "CLAUDE_CONFIG_DIR": "/root/.claude"
   },
 
-  // opencode + qwen-code (npm), Python-зависимости проекта, права на GPU, проверки
+  // claude-code + opencode + qwen-code (npm), персистентность авторизаций,
+  // Python-зависимости проекта, права на GPU, проверки
   "postCreateCommand": "bash .devcontainer/post-create.sh",
 
   "customizations": {

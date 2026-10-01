@@ -33,9 +33,47 @@ else
     echo "            Проверь runArgs --device=/dev/dri и наличие Arc на хосте."
 fi
 
-# --- 2) AI-CLI через npm (Claude Code уже поставлен devcontainer-фичей) ---
-echo "-- npm: opencode + qwen-code --"
-npm install -g opencode-ai @qwen-code/qwen-code
+# --- 2) AI-CLI через npm (все три одной командой) ---
+# Claude Code ставится ЗДЕСЬ, а не devcontainer-фичей
+# `ghcr.io/anthropics/devcontainer-features/claude-code`. Фича делала ровно то же
+# (npm-пакет @anthropic-ai/claude-code в nvm-префикс), но тянула лишний pin в
+# devcontainer-lock.json и завязывала сборку на доступность ghcr. Версии не
+# пинятся сознательно — как и у opencode/qwen; нужен pin, пиши `@<version>`.
+echo "-- npm: claude-code + opencode + qwen-code --"
+npm install -g @anthropic-ai/claude-code opencode-ai @qwen-code/qwen-code
+
+# --- 2a) Персистентность авторизаций AI-CLI между ребилдами ---
+# Креды лежат на named volume'ах (см. mounts в devcontainer.json), поэтому сами
+# по себе ребилд переживают. Здесь остаётся ОДНА вещь, которую томом не решить:
+# claude хранит часть состояния в ОТДЕЛЬНОМ файле ~/.claude.json, а том
+# монтируется только на каталог. Решение — CLAUDE_CONFIG_DIR (задан в
+# containerEnv), который переносит .claude.json ВНУТРЬ каталога-тома.
+# Symlink тут не годится: claude пишет конфиг через temp+rename(), а rename
+# заменил бы симлинк обычным файлом — персистентность сломалась бы молча.
+#
+# Ниже — разовая миграция старого $HOME/.claude.json на новое место. Она
+# идемпотентна и НИКОГДА не перезаписывает уже персистентный конфиг: если
+# приёмник есть, исходник оставляется на месте с предупреждением (затереть
+# рабочую авторизацию хуже, чем оставить мусорный файл).
+echo "-- персистентность авторизаций: claude/.claude.json --"
+CC_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+if [ "$(readlink -f "$CC_DIR" 2>/dev/null)" = "$(readlink -f "$HOME" 2>/dev/null)" ]; then
+    # CLAUDE_CONFIG_DIR указывает на сам $HOME -> .claude.json и так на старом
+    # месте, миграция не нужна и не имеет смысла.
+    echo "   CLAUDE_CONFIG_DIR == \$HOME — миграция не требуется"
+elif [ -f "$HOME/.claude.json" ]; then
+    mkdir -p "$CC_DIR"
+    if [ -e "$CC_DIR/.claude.json" ]; then
+        echo "   ВНИМАНИЕ: $CC_DIR/.claude.json уже существует — $HOME/.claude.json"
+        echo "            НЕ перенесён (не затираем рабочую авторизацию). Лишний файл"
+        echo "            можно удалить вручную, если он устарел."
+    else
+        mv "$HOME/.claude.json" "$CC_DIR/.claude.json"
+        echo "   перенесён: \$HOME/.claude.json -> $CC_DIR/.claude.json"
+    fi
+else
+    echo "   нечего переносить (\$HOME/.claude.json отсутствует)"
+fi
 
 # --- 2b) Claude Code: плагин GSD (маркетплейс gsd-plugin, плагин gsd) ---
 echo "-- claude plugin: jnuyens/gsd-plugin --"
@@ -120,6 +158,42 @@ for c in claude opencode qwen; do
     command -v "$c" >/dev/null && ( "$c" --version 2>/dev/null | head -1 || echo "установлен" ) || echo "НЕТ"
 done
 printf "  GSD-плагин: "; claude plugin list 2>/dev/null | grep -qi gsd && echo "установлен" || echo "не найден"
+# Персистентность авторизаций: проверяем ДВЕ независимые вещи по каждому пути.
+#   mount — реально ли путь отдельная точка монтирования. Если нет, значит том из
+#           devcontainer.json не подхватился (контейнер ещё не пересобран после
+#           правки mounts) и креды СНОВА потеряются при следующем ребилде. Это
+#           молчаливый отказ, который без проверки заметен только по повторному
+#           запросу /login — поэтому он трекается флагом, а не просто печатается.
+#   cred  — лежит ли на этом пути сам файл креда. Его отсутствие НЕ ошибка
+#           (свежий том = просто ещё не логинились), отсюда "нет (нужен логин)".
+# Как и ENV-01 выше, блок best-effort: не делает mid-script exit, итог — одной
+# сводной строкой в конце скрипта.
+echo "  персистентность авторизаций (named volumes):"
+PERSIST_OK=1
+_check_persist() {
+    local path="$1" cred="$2" label="$3"
+    printf "    %-26s " "$label"
+    if findmnt -no TARGET "$path" >/dev/null 2>&1; then
+        printf "том: OK   "
+    else
+        printf "том: НЕТ  "; PERSIST_OK=0
+    fi
+    if [ -f "$cred" ]; then
+        echo "креды: есть"
+    else
+        echo "креды: нет (нужен логин)"
+    fi
+}
+_check_persist "$CC_DIR"                     "$CC_DIR/.credentials.json"              "claude ($CC_DIR)"
+_check_persist "$HOME/.qwen"                 "$HOME/.qwen/settings.json"              "qwen (~/.qwen)"
+_check_persist "$HOME/.local/share/opencode" "$HOME/.local/share/opencode/auth.json"  "opencode (share)"
+_check_persist "$HOME/.config/opencode"      "$HOME/.config/opencode/opencode.jsonc"  "opencode (config)"
+# .claude.json должен лежать ВНУТРИ тома; файл в $HOME означает, что
+# CLAUDE_CONFIG_DIR не применился и этот конфиг ребилд не переживёт.
+if [ -f "$HOME/.claude.json" ] && [ "$CC_DIR" != "$HOME" ]; then
+    echo "    ВНИМАНИЕ: $HOME/.claude.json вне тома (CLAUDE_CONFIG_DIR не применился?)"
+    PERSIST_OK=0
+fi
 echo "  медиапапки:"
 for d in /data/media /data/downloads; do
     printf "    %-16s " "$d"
@@ -132,6 +206,16 @@ if [ "${ENV01_OK:-0}" -eq 1 ]; then
     echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): OK"
 else
     echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): ПРОВАЛЕН — см. ОШИБКА выше"
+fi
+
+# Сводка персистентности по флагу PERSIST_OK (см. блок проверок выше).
+if [ "${PERSIST_OK:-0}" -eq 1 ]; then
+    echo "ПЕРСИСТЕНТНОСТЬ авторизаций (claude/opencode/qwen на named volumes): OK"
+else
+    echo "ПЕРСИСТЕНТНОСТЬ авторизаций (claude/opencode/qwen на named volumes): ПРОВАЛЕНА"
+    echo "   -> тома из .devcontainer/devcontainer.json не подхвачены: пересобери"
+    echo "      контейнер (Dev Containers: Rebuild Container). Иначе авторизации"
+    echo "      снова потеряются при следующем ребилде."
 fi
 
 echo "== post-create завершён =="
