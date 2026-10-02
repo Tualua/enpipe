@@ -93,3 +93,21 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.2: Усиление замка COR-02: триада на каждой сессии, сверка кадров, путь с метриками (BACKLOG)
+
+**Goal:** [Captured for future planning] Пробелы верификации фазы 7 (07-VERIFICATION.md, 07-REVIEW.md WR-01..03), некритичные: (1) `assert_qsvencc_triad` проверяется только на первой успешной сессии — проверять каждую сессию и эталоны; (2) проверка порчи по PSNR может пропустить кадр — `count_frames` считает пакеты, нет `-xerror`, число строк PSNR не сверяется с числом кадров, порог 30 dB ловит только полную подмену кадра; (3) замок и стресс-матрица гоняют только `metrics=False`, а продакшен по умолчанию добавляет `--psnr --ssim` (больше параллельных GPU-сессий) — нужен конкурентный прогон пути по умолчанию.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.3: Гейт версии qsvencc в legacy/encode_scenes.py (BACKLOG)
+
+**Goal:** [Captured for future planning] Пробел верификации фазы 7 (07-REVIEW.md WR-04), некритичный: `legacy/encode_scenes.py` запускает параллельный qsvencc без проверки ревизии >= 4634 и без `--backend qsv`; docstring `qsvencc_version` утверждает покрытие «каждого запуска». Либо подключить гейт в legacy, либо сузить формулировку docstring.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
