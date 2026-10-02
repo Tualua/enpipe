@@ -342,14 +342,18 @@ curl -fsSL https://github.com/Tualua/enpipe/releases/download/deps-qsvencc-r4634
 | A4 | Upstream will ship an 8.32+ release containing r4634+ soon | D-06 | None for this phase; the TODO/backlog item covers it |
 | A5 | Stress-matrix wall time ~20-25 min qsvencc-only | R4 | Scheduling only |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the post-create revision check `exit 1` (true hard-assert) or only flag like ENV-01?**
    - Known: ENV-01 style is flag + summary, never mid-script exit; D-07 says "hard-asserts ... mirroring ENV-01 style".
    - Recommendation: follow ENV-01 (flag + `ПРОВАЛЕН` summary); the runtime gate is the real enforcement.
+   - RESOLVED: ENV-01 style adopted (flag + `ПРОВАЛЕН` in summary, no mid-script `exit 1`); runtime gate is the enforcement — Plan 07-03 Task 2 (D-07).
 2. **Release asset name/tag** (discretion): recommend `deps-qsvencc-r4634` + asset `qsvencc_8.31-r4634_amd64.deb`, prerelease flag.
+   - RESOLVED: tag `deps-qsvencc-r4634`, asset `qsvencc_8.31-r4634_amd64.deb`, pinned by sha256 — Plan 07-01.
 3. **Does the user want the first plan task to be the upload checkpoint?** Strongly recommended (time-boxed to 2026-10-15; blocks Dockerfile verification).
+   - RESOLVED: yes — the mirror-upload checkpoint is Plan 07-01 Task 1, ahead of all Dockerfile work.
 4. **Where is the old `.chunks`/outputs risk documented?** Suggest one line in the Phase 7 SUMMARY/README that outputs produced with r4604 at JOBS>1 may contain isolated corrupt frames.
+   - RESOLVED: one-line r4604/JOBS>1 outputs warning recorded in the ФАЗА 7 debt-closure section of scene-chunk-frame-mismatch.md — Plan 07-05 Task 3 (D-19).
 
 ## Environment Availability
 
