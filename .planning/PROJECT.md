@@ -50,9 +50,9 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 <!-- v1.2 Concurrent-encode correctness (re-scoped 2026-10-02) — adopt fixed qsvencc (45003f1); ffmpeg backend parked as backlog 999.1. Detailed REQ-IDs in REQUIREMENTS.md. -->
 
-- [ ] qsvencc build containing upstream fix `45003f1` shipped in the devcontainer, revision asserted by the self-check (QSV-01)
-- [ ] Fail-fast on a qsvencc build older than the fix (QSV-02)
-- [ ] Concurrent-encode regression test (per-frame content verification, triad active) proving fixed qsvencc is corruption-free at production+stress JOBS (COR-02)
+- [x] qsvencc build containing upstream fix `45003f1` shipped in the devcontainer, revision asserted by the self-check (QSV-01) — Validated in Phase 7: Adopt Fixed qsvencc + Regression Lock
+- [x] Fail-fast on a qsvencc build older than the fix (QSV-02) — Validated in Phase 7: Adopt Fixed qsvencc + Regression Lock
+- [x] Concurrent-encode regression test (per-frame content verification, triad active) proving fixed qsvencc is corruption-free at production+stress JOBS (COR-02) — Validated in Phase 7: Adopt Fixed qsvencc + Regression Lock
 
 ### Validated
 

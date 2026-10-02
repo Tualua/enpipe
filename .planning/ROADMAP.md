@@ -81,7 +81,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | v1.0      | 2/2            | Complete    | 2026-07-08 |
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
-| 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete   | 2026-10-02 |
+| 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
 
 ## Backlog
 
