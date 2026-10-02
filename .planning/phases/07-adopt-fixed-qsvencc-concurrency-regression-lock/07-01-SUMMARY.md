@@ -16,7 +16,7 @@ key-files:
   modified: []
 key-decisions:
   - "Релиз создан из devcontainer через gh пользователя (пользователь авторизовал gh и попросил сделать это Claude), а не на хосте"
-requirements-completed: [QSV-01]
+requirements-completed: []
 duration: 10min
 completed: 2026-10-02
 ---
