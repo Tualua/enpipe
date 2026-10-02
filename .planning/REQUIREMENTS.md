@@ -16,12 +16,12 @@
 ### qsvencc fix adoption (QSV)
 
 - [ ] **QSV-01**: The devcontainer installs a qsvencc build containing upstream commit `45003f1` (source build until an upstream release includes it, then a pinned release), and the post-create self-check asserts the installed revision.
-- [ ] **QSV-02**: `enpipe encode`/`enpipe run` fail fast with an explicit error when the qsvencc on PATH predates the fix, so a downgraded or stale build can never silently produce corrupted output.
+- [x] **QSV-02**: `enpipe encode`/`enpipe run` fail fast with an explicit error when the qsvencc on PATH predates the fix, so a downgraded or stale build can never silently produce corrupted output.
 
 ### Encode correctness (COR)
 
 - [x] **COR-01**: A concurrent-encode regression test proves the ffmpeg backend produces zero corrupted frames under parallel `JOBS` (production and stress levels), using **per-frame content verification** (not just frame counts), with the HW-decode + P010 + B-pyramid corruption triad asserted present so a decode-fallback cannot yield a false "clean."
-- [ ] **COR-02**: A hardware-gated regression test proves the fixed qsvencc produces zero corrupted frames under parallel `JOBS` (production and stress levels) with per-frame content verification and the corruption triad asserted active — inverting the Phase 6 "qsvencc control corrupts" expectation into a permanent lock.
+- [x] **COR-02**: A hardware-gated regression test proves the fixed qsvencc produces zero corrupted frames under parallel `JOBS` (production and stress levels) with per-frame content verification and the corruption triad asserted active — inverting the Phase 6 "qsvencc control corrupts" expectation into a permanent lock.
 
 ---
 
@@ -76,8 +76,8 @@ Phase numbering continues from v1.1 (which ended at Phase 5); v1.2 phases are 6�
 | ENV-01  | Phase 6  | Complete |
 | COR-01  | Phase 6  | Complete |
 | QSV-01  | Phase 7  | Pending  |
-| QSV-02  | Phase 7  | Pending  |
-| COR-02  | Phase 7  | Pending  |
+| QSV-02  | Phase 7  | Complete |
+| COR-02  | Phase 7  | Complete |
 
 **Coverage (v1.2, active):**
 - v1.2 requirements: 5 total
