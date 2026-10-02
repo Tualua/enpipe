@@ -3,7 +3,7 @@
 **Defined:** 2026-07-23
 **Core Value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
 
-**Milestone scope (v1.2 ffmpeg backend):** Eliminate the concurrent-encode silent frame corruption by adding an ffmpeg `av1_qsv` encode backend (empirically immune) as the new **default**, while retaining `qsvencc` as an opt-in selectable backend. Dual-backend. ffmpeg owns SDR + HDR10; DV/HDR10+ are carried through ffmpeg **only if** a dovi_tool AV1 `inject-rpu` spike validates, otherwise encoded as a single-pass whole-file qsvencc job (legacy route, no scene splitting — corruption-free by construction) — never silently downgraded. NOT: rewriting detect/seek-trim algorithms (reused unchanged); NOT the streaming orchestrator. `legacy/` stays the frozen parity oracle.
+**Milestone scope (v1.2 Concurrent-encode correctness, re-scoped 2026-10-02):** Eliminate the concurrent-encode silent frame corruption. The corruption was fixed upstream in rigaya/QSVEnc (`45003f1`, issue #308) and verified on our Arc A380, so v1.2 adopts the fixed qsvencc and locks it in with a regression test instead of migrating the default encoder to ffmpeg `av1_qsv`. The ffmpeg migration (former BK/FF/HDR requirements, former Phases 7–10) is parked as backlog item 999.1. NOT: rewriting detect/seek-trim algorithms; NOT the streaming orchestrator. `legacy/` stays the frozen parity oracle.
 
 ---
 
@@ -11,34 +11,32 @@
 
 ### Environment (ENV)
 
-- [ ] **ENV-01**: The devcontainer image is rebuilt with ffmpeg 8.1 on PATH (av1_qsv encode + `av1_metadata`/`dovi_rpu` BSFs available), verified by the post-create self-check — a prerequisite before any in-container ffmpeg encode.
+- [x] **ENV-01**: The devcontainer image is rebuilt with ffmpeg 8.1 on PATH (av1_qsv encode + `av1_metadata`/`dovi_rpu` BSFs available), verified by the post-create self-check — a prerequisite before any in-container ffmpeg encode.
 
-### Backend selection & seam (BK)
+### qsvencc fix adoption (QSV)
 
-- [ ] **BK-01**: User can choose the encode backend via `--backend ffmpeg|qsvencc` (and an env var), defaulting to `ffmpeg`; the choice applies to every scene chunk in a run.
-- [ ] **BK-02**: Both encode backends live behind a shared `backends/` seam that keeps each backend's command-builder a pure, argv-testable function; the qsvencc backend stays byte-identical to the pre-refactor output (legacy-oracle parity preserved, zero behavior change).
-
-### ffmpeg av1_qsv encode (FF)
-
-- [ ] **FF-01**: ffmpeg `av1_qsv` encodes a scene chunk into a byte-concatenable raw `.obu` reproducing the qsvencc preset (ICQ→`-global_quality`, GOP length, B-pyramid/`gop-ref-dist`, tiling, 10-bit Main), with the concatenated `movie.obu` fully decoding to the expected frame count.
-- [ ] **FF-02**: Per-chunk seek/trim on the ffmpeg path is frame-exact (keyframe input-seek + frame-indexed trim, never time-based `-ss`/`-t`), so chunk boundaries land on source keyframes and per-chunk + total `count_frames` guards pass.
-- [ ] **FF-03**: `enpipe run`/`enpipe encode` on an SDR source transcodes end-to-end on the ffmpeg default backend, producing correct output at full parallel `JOBS`.
+- [ ] **QSV-01**: The devcontainer installs a qsvencc build containing upstream commit `45003f1` (source build until an upstream release includes it, then a pinned release), and the post-create self-check asserts the installed revision.
+- [ ] **QSV-02**: `enpipe encode`/`enpipe run` fail fast with an explicit error when the qsvencc on PATH predates the fix, so a downgraded or stale build can never silently produce corrupted output.
 
 ### Encode correctness (COR)
 
-- [ ] **COR-01**: A concurrent-encode regression test proves the ffmpeg backend produces zero corrupted frames under parallel `JOBS` (production and stress levels), using **per-frame content verification** (not just frame counts), with the HW-decode + P010 + B-pyramid corruption triad asserted present so a decode-fallback cannot yield a false "clean."
-
-### HDR / Dolby Vision (HDR)
-
-- [ ] **HDR-01**: HDR10 static metadata (mastering-display + max-CLL) and color signaling survive the ffmpeg path (via `mkvmerge` container tags + the `av1_metadata` BSF), verified by an `ffprobe` side-data diff against the source.
-- [ ] **HDR-02**: DV and HDR10+ sources are never silently downgraded under the ffmpeg default — they are either carried through the ffmpeg path (if HDR-03 validates) or encoded via a **single-pass whole-file qsvencc job** (the legacy `encode_av1_opus.sh` route: no scene splitting, one session — therefore corruption-free *by construction* since the corruption needs concurrent sessions — at full HW-decode+encode speed with 10-bit/B-pyramid/DV preserved), with the chosen behavior explicit and logged.
-- [ ] **HDR-03**: A spike validates `dovi_tool` PR #389 AV1 `inject-rpu` over an ffmpeg-encoded `.obu` (RPU-count == frame-count, correct per-frame display-order alignment through B-pyramid) on a real DV fixture; the verdict decides HDR-02's routing and is recorded.
+- [x] **COR-01**: A concurrent-encode regression test proves the ffmpeg backend produces zero corrupted frames under parallel `JOBS` (production and stress levels), using **per-frame content verification** (not just frame counts), with the HW-decode + P010 + B-pyramid corruption triad asserted present so a decode-fallback cannot yield a false "clean."
+- [ ] **COR-02**: A hardware-gated regression test proves the fixed qsvencc produces zero corrupted frames under parallel `JOBS` (production and stress levels) with per-frame content verification and the corruption triad asserted active — inverting the Phase 6 "qsvencc control corrupts" expectation into a permanent lock.
 
 ---
 
 ## Future Requirements
 
 Deferred; tracked but not in the v1.2 roadmap.
+
+### ffmpeg av1_qsv backend (backlog 999.1, parked 2026-10-02)
+
+Former v1.2 requirements, parked when the qsvencc corruption was fixed upstream. Full text preserved in git history and in `.planning/phases/999.1-ffmpeg-av1qsv-backend/`.
+
+- **BK-01**: `--backend ffmpeg|qsvencc` selection (+ env var).
+- **BK-02**: Shared `backends/` seam with the qsvencc backend byte-identical to pre-refactor output.
+- **FF-01/02/03**: ffmpeg `av1_qsv` chunk encode reproducing the qsvencc preset, frame-exact seek/trim, end-to-end SDR on full JOBS.
+- **HDR-01/02/03**: HDR10 static metadata via mkvmerge tags + `av1_metadata`; DV/HDR10+ never silently downgraded; `dovi_tool` PR #389 AV1 `inject-rpu` spike.
 
 ### Dolby Vision / HDR10+
 
@@ -64,35 +62,28 @@ Explicitly excluded for v1.2.
 | Auto-routing DV/HDR10+ to qsvencc **silently** | Violates the core value — routing (if used) must be explicit + logged, never a silent metadata downgrade (HDR-02) |
 | Overlapped / streaming orchestrator | Out of scope since v1.0; gated on SSD/NVMe, not this milestone |
 | Rewriting detect / seek-trim / EBML algorithms | Load-bearing correctness invariants reused unchanged; `compute_chunk_seek_trim` exonerated by the corruption debug and shared, not re-derived |
-| Removing qsvencc from the pipeline | Dual-backend by decision — qsvencc is the DV/HDR10+ fallback and the corruption-safe path |
-| Host-side kernel fix for the qsvencc corruption (i915→Xe, GuC/HuC) | Outside container control; the whole point of v1.2 is to route around it via ffmpeg, not fix the kernel |
+| Removing qsvencc from the pipeline | qsvencc remains the sole encoder; with the upstream fix it is corruption-free under concurrency and keeps DV/HDR10+ support |
+| Host-side kernel fix for the qsvencc corruption (i915→Xe, GuC/HuC) | Unnecessary — root cause was a missing VPP-output sync in qsvencc, fixed upstream (`45003f1`) |
 
 ---
 
 ## Traceability
 
-Phase numbering continues from v1.1 (which ended at Phase 5); v1.2 phases are 6–10.
+Phase numbering continues from v1.1 (which ended at Phase 5); v1.2 phases are 6–7 (re-scoped 2026-10-02).
 
-| Requirement | Phase   | Status  |
-|-------------|---------|---------|
-| ENV-01  | Phase 6  | Pending |
-| COR-01  | Phase 6  | Pending |
-| BK-02   | Phase 7  | Pending |
-| FF-01   | Phase 8  | Pending |
-| FF-02   | Phase 8  | Pending |
-| FF-03   | Phase 8  | Pending |
-| BK-01   | Phase 8  | Pending |
-| HDR-01  | Phase 9  | Pending |
-| HDR-03  | Phase 10 | Pending |
-| HDR-02  | Phase 10 | Pending |
+| Requirement | Phase   | Status   |
+|-------------|---------|----------|
+| ENV-01  | Phase 6  | Complete |
+| COR-01  | Phase 6  | Complete |
+| QSV-01  | Phase 7  | Pending  |
+| QSV-02  | Phase 7  | Pending  |
+| COR-02  | Phase 7  | Pending  |
 
 **Coverage (v1.2, active):**
-- v1.2 requirements: 10 total
-- Mapped to phases: 10 ✅
+- v1.2 requirements: 5 total
+- Mapped to phases: 5 ✅
 - Unmapped: 0
-
-Phase map: P6 = ENV-01, COR-01 (gate) · P7 = BK-02 (seam) · P8 = FF-01, FF-02, FF-03, BK-01 (SDR + default flip) · P9 = HDR-01 (HDR10 static) · P10 = HDR-03, HDR-02 (DV/HDR10+ decision). BK-01's `--backend` scaffold is stubbed in P7 but the requirement (ffmpeg default) is realized in P8, so it maps to P8.
 
 ---
 *Requirements defined: 2026-07-23*
-*Last updated: 2026-07-23 after v1.2 roadmap creation (phases 6–10, 100% coverage)*
+*Last updated: 2026-10-02 — v1.2 re-scoped: qsvencc corruption fixed upstream (`45003f1`); ffmpeg migration parked as backlog 999.1*

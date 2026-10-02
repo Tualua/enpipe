@@ -14,24 +14,45 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 `enpipe` is now an installable, pinned, tested `src/enpipe/` package with a unified CLI: `enpipe detect`, `enpipe encode`, and the v1.1 headline command `enpipe run <video>` — one command that runs scene detection → `.scenes` → AV1 encode → mux sequentially, byte/frame-identical to the manual two-step and to the frozen `legacy/` oracle. Correctness-critical logic (EBML/Cues parser, seek/trim, high-water-mark ordering) is isolated behind pure, unit-tested functions; a fast hardware-free test tier plus a parallel==sequential regression baseline run in GitHub Actions CI on every push, with a hardware-gated real-Arc tier named out.
 
-**Open correctness debt (deferred at v1.1 close — see STATE.md Deferred Items):** real-media use surfaced a **silent frame-corruption bug** — concurrent `qsvencc` sessions on the Arc A380 can emit isolated frames whose pixels come from a *different* concurrent encode (root cause: iHD/media-driver cross-process 10-bit reference-surface aliasing; frame counts stay correct, so it is silent). This directly threatens the non-negotiable core value and is the leading candidate to drive the next milestone.
+**Correctness debt — fixed upstream (2026-10-02):** real-media use had surfaced a **silent frame-corruption bug** — concurrent `qsvencc` sessions on the Arc A380 could emit isolated frames whose pixels came from a *different* concurrent encode (frame counts stay correct, so it was silent). The real root cause turned out to be a missing sync of the MFX VPP output before encoder submit with VA memory inside qsvencc (not the driver/kernel as earlier hypothesised); it is fixed in rigaya/QSVEnc `45003f1` (issue #308), co-authored by the project owner and verified on our Arc A380. Adopting that build and locking it with a regression test is v1.2 Phase 7.
 
-**Phase 6 GATE complete (2026-07-23) — v1.2 premise PROVEN:** the milestone's load-bearing gate passed on real Arc A380 hardware — ffmpeg `av1_qsv` is **immune** to the cross-process frame corruption (320 concurrent sessions across JOBS 3/5/8, **0 corrupt frames, 0 failed starts**), while `qsvencc` corrupts in the identical harness (96 frames, control non-vacuous). D-12 verdict = **PROCEED** at full JOBS (no cap). ENV-01 hard-assert self-check landed in the devcontainer; the COR-01 concurrency-immunity harness + hardware-gated pytest are committed. Evidence: `.planning/debug/scene-chunk-frame-mismatch.md` (`## ФАЗА 6 (GATE)`). Documented residual: the gate evidence was captured on a side-loaded ffmpeg 8.1, not a canonical rebuilt image (`06-HUMAN-UAT.md` tracks the clean-rebuild re-confirmation). Phase 7 (backend seam refactor) is cleared to start.
+**Phase 6 GATE complete (2026-07-23) — v1.2 premise PROVEN:** the milestone's load-bearing gate passed on real Arc A380 hardware — ffmpeg `av1_qsv` is **immune** to the cross-process frame corruption (320 concurrent sessions across JOBS 3/5/8, **0 corrupt frames, 0 failed starts**), while `qsvencc` corrupts in the identical harness (96 frames, control non-vacuous). D-12 verdict = **PROCEED** at full JOBS (no cap). ENV-01 hard-assert self-check landed in the devcontainer; the COR-01 concurrency-immunity harness + hardware-gated pytest are committed. Evidence: `.planning/debug/scene-chunk-frame-mismatch.md` (`## ФАЗА 6 (GATE)`). Documented residual: the gate evidence was captured on a side-loaded ffmpeg 8.1, not a canonical rebuilt image (`06-HUMAN-UAT.md` tracks the clean-rebuild re-confirmation). The ffmpeg path remains a proven, parked alternative (backlog 999.1).
 
-## Current Milestone: v1.2 ffmpeg backend
+## Current Milestone: v1.2 Concurrent-encode correctness
 
-**Goal:** Eliminate the concurrent-encode silent frame corruption by adding an ffmpeg `av1_qsv` encode backend (empirically immune) as the new default, while retaining `qsvencc` as an opt-in selectable backend — restoring full-speed parallel encoding with correct output.
+**Goal:** Eliminate the concurrent-encode silent frame corruption — restoring full-speed parallel encoding with correct output. **Re-scoped 2026-10-02:** originally planned as a migration of the default encoder to ffmpeg `av1_qsv`; since the corruption was fixed upstream in qsvencc (`45003f1`), v1.2 now adopts the fixed qsvencc instead and keeps it as the sole encoder (which also keeps DV/HDR10+ handling untouched — the reason qsvencc was chosen originally).
 
 **Target features:**
-- ffmpeg `av1_qsv` encode backend (ffmpeg 8.1), mapping the current qsvencc preset (ICQ/quality, GOP length, `--gop-ref-dist`/B-pyramid, tile config, tune) with equivalent per-chunk seek/trim semantics.
-- HDR10 / HDR10+ / Dolby Vision RPU passthrough through the ffmpeg path — via the ffmpeg 8.1 `dovi_rpu` BSF plus master-display/max-cll/dhdr10 signaling — matching qsvencc's current coverage.
-- Backend selection: ffmpeg `av1_qsv` default, `qsvencc` opt-in behind a flag/env var; both fully supported and tested.
-- Concurrent-encode correctness proof: a regression test with per-frame content verification demonstrating the ffmpeg backend is corruption-free under parallel `JOBS` (using the handed-off reproducer), kept distinct from the qsvencc path.
-- Preserve the correctness invariants (per-chunk + total frame counts, keyframe alignment) across both backends.
+- Devcontainer ships a qsvencc build containing `45003f1` (source build until an upstream release includes it), with the post-create self-check asserting the revision.
+- `enpipe encode`/`run` fail fast on a qsvencc build older than the fix.
+- Hardware-gated regression test: qsvencc at production+stress JOBS with the HW-decode + P010 + B-pyramid triad active → 0 corrupt frames by per-frame content verification (Phase 6 harness, inverted control).
+- Preserve the correctness invariants (per-chunk + total frame counts, keyframe alignment).
 
-**Key context:** Direct sequel to the v1.1 close audit's open debt — qsvencc concurrent-encode frame corruption (root cause: iHD/i915 cross-process 10-bit reference-surface aliasing; ffmpeg `av1_qsv` empirically immune, 35/35 clean). ffmpeg 8.1 is already staged in the devcontainer (quick task 260723-36w) specifically for `av1_qsv` + `dovi_rpu`. Full analysis: `.planning/debug/scene-chunk-frame-mismatch.md` and `HANDOFF-qsvencc-frame-corruption.md`. The DV/HDR10+ passthrough through ffmpeg is the load-bearing risk — the whole reason qsvencc was chosen originally.
+**Key context:** Phase 6 built the per-frame concurrency harness and proved ffmpeg `av1_qsv` immune; that work stays as the regression harness and as the evidence base for the parked ffmpeg backend (backlog 999.1, with full Phase 7 seam-refactor planning artifacts). Debug history: `.planning/debug/scene-chunk-frame-mismatch.md`, `HANDOFF-qsvencc-frame-corruption.md`, `qsvenc-upstream-issue.md`.
 
 ## Requirements
+
+### Validated
+
+<!-- Inferred from existing legacy/ code — working per in-code documentation, though not yet run against real media (see Context). -->
+
+- ✓ Scene detection via ffmpeg QSV decode/downscale → PySceneDetect `AdaptiveDetector`, emitting an ordered `List[Scene]` written to a `<video>.scenes` text log — existing (`legacy/scene_detection.py`)
+- ✓ Parallel segmented scene detection (`jobs`), splitting at real detected cut boundaries and stitching per-segment results — existing (`legacy/scene_detection.py`)
+- ✓ Scene-aware AV1 chunked encoding via `qsvencc`, each chunk seeked to the nearest source keyframe (mkv Cues fast path + ffprobe fallback) — existing (`legacy/encode_scenes.py`)
+- ✓ Ordered "high-water mark" reassembly of out-of-order parallel chunk completions into a bit-exact concatenated `movie.obu` — existing (`legacy/encode_scenes.py`)
+- ✓ HDR10 / HDR10+ / Dolby Vision detection and per-chunk RPU handling (`qsvencc --dolby-vision-rpu copy`) — existing (`legacy/encode_scenes.py`)
+- ✓ Parallel audio encode (lossless→FLAC, other→Opus, already-target→copy) on a background thread — existing (`legacy/encode_scenes.py`)
+- ✓ Per-scene + frame-weighted SSIM/PSNR/size metrics CSV — existing (`legacy/encode_scenes.py`)
+- ✓ Final mux via `mkvmerge` (video + audio + source subs/chapters/attachments) with frame-count verification guards — existing (`legacy/encode_scenes.py`)
+- ✓ Reproducible Intel Arc QSV dev/runtime environment (devcontainer: ffmpeg QSV, qsvencc, iHD driver, `/dev/dri` passthrough) — existing (`.devcontainer/`)
+
+### Active
+
+<!-- v1.2 Concurrent-encode correctness (re-scoped 2026-10-02) — adopt fixed qsvencc (45003f1); ffmpeg backend parked as backlog 999.1. Detailed REQ-IDs in REQUIREMENTS.md. -->
+
+- [ ] qsvencc build containing upstream fix `45003f1` shipped in the devcontainer, revision asserted by the self-check (QSV-01)
+- [ ] Fail-fast on a qsvencc build older than the fix (QSV-02)
+- [ ] Concurrent-encode regression test (per-frame content verification, triad active) proving fixed qsvencc is corruption-free at production+stress JOBS (COR-02)
 
 ### Validated
 
@@ -123,4 +144,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-23 — Phase 6 (concurrency-immunity GATE) complete; v1.2 ffmpeg-migration premise proven (av1_qsv immune, D-12 PROCEED)*
+*Last updated: 2026-10-02 — v1.2 re-scoped: qsvencc corruption fixed upstream (45003f1); ffmpeg migration parked as backlog 999.1*

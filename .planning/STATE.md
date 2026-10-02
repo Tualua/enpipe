@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.2
-milestone_name: ffmpeg backend
+milestone_name: Concurrent-encode correctness
 status: planning
-stopped_at: Phase 7 context gathered
+stopped_at: v1.2 re-scoped; Phase 7 (adopt fixed qsvencc) not started
 last_updated: "2026-10-01T15:38:25.459Z"
-last_activity: 2026-10-01 -- Completed quick task 261001-lq0: devcontainer claude-code via npm + persistent agent auth
+last_activity: 2026-10-02 -- v1.2 re-scoped: qsvencc corruption fixed upstream (45003f1); ffmpeg migration parked as backlog 999.1
 progress:
-  total_phases: 5
+  total_phases: 2
   completed_phases: 1
-  total_plans: 7
+  total_plans: 3
   completed_plans: 3
-  percent: 20
+  percent: 50
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 7 — backend seam refactor (zero behavior change)
+**Current focus:** Phase 7 — adopt fixed qsvencc + concurrency regression lock
 
 ## Current Position
 
 Phase: 7
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-01 -- Completed quick task 261001-lq0: devcontainer claude-code via npm + persistent agent auth
+Status: Ready to discuss
+Last activity: 2026-10-02 -- v1.2 re-scoped: qsvencc corruption fixed upstream (45003f1); ffmpeg migration parked as backlog 999.1
 
 ## Performance Metrics
 
@@ -84,6 +84,7 @@ Recent decisions affecting current work:
 - Roadmap (v1.1): Phase 5 depends only on Phase 4 (needs `run_detect`/`run_encode` + the unified CLI dispatcher to exist and be hardware-verified before wrapping them)
 - Roadmap (v1.2): Phase numbering continues from v1.1 (starts at Phase 6, not reset to 1); v1.0/v1.1 groupings preserved in ROADMAP.md, v1.2 appended
 - Roadmap (v1.2): Risk-first 5-phase shape from research SUMMARY adopted under coarse granularity — Phase 6 (ENV-01+COR-01) is a GATE proving ffmpeg av1_qsv immunity at production+stress JOBS with per-frame content verification BEFORE any backend code; if it fails the migration premise is invalid
+- Roadmap (v1.2, 2026-10-02): RE-SCOPE — qsvencc concurrent-encode corruption fixed upstream (rigaya/QSVEnc 45003f1, issue #308: missing MFX VPP output sync before encode with VA memory), verified on our Arc A380 by the user (co-author of the fix). ffmpeg migration (former Phases 7–10, BK/FF/HDR reqs) parked as backlog 999.1; new Phase 7 = adopt fixed qsvencc + concurrency regression lock (QSV-01, QSV-02, COR-02). Decisions below about Phases 7–10 are superseded.
 - Roadmap (v1.2): Refactor-before-feature — Phase 7 (BK-02) lands the `backends/` seam validated byte-identical vs the legacy oracle (qsvencc-only) before Phase 8 adds ffmpeg encode code
 - Roadmap (v1.2): SDR→HDR→DV ordering — Phase 8 (FF-01/02/03 + BK-01 default flip) carries the load-bearing invariants; Phase 9 (HDR-01) is solved-but-relocated (encoder→mkvmerge tags); Phase 10 (HDR-03+HDR-02) is the POC-gated highest-risk DV/HDR10+ decision, deferred last so it cannot block core value
 - Roadmap (v1.2): BK-01 maps to Phase 8 (requirement = ffmpeg default realized), though its `--backend` flag scaffold is stubbed in Phase 7
@@ -153,7 +154,7 @@ Items acknowledged and deferred at the v1.1 milestone close on 2026-07-23 (pre-c
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| debug | scene-chunk-frame-mismatch — single corrupt frames (VMAF≈0) in scene-chunk encode; **silent output corruption**, strikes at core value | root_cause_found (concurrent-qsvencc cross-process aliasing) | v1.1 close 2026-07-23 |
+| debug | scene-chunk-frame-mismatch — single corrupt frames (VMAF≈0) in scene-chunk encode; **silent output corruption**, strikes at core value | fixed upstream (rigaya/QSVEnc 45003f1, verified on A380 2026-10-02); adoption = v1.2 Phase 7 | v1.1 close 2026-07-23 |
 | debug | qsvenc-upstream-issue — iHD/media-driver cross-process 10-bit reference-surface aliasing (upstream bug report draft) | unknown/draft | v1.1 close 2026-07-23 |
 | debug | cannot-write-data-mounts — devcontainer `/data` bind-mount EACCES (rootless Podman userns mapping) | fix-applied-pending-rebuild | v1.1 close 2026-07-23 |
 | uat_gap | Phase 03 — 03-HUMAN-UAT.md | partial (0 pending scenarios) | v1.1 close 2026-07-23 |
