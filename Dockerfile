@@ -96,40 +96,46 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
          done ) \
     && rm -rf /var/lib/apt/lists/*
 
-# --- qsvencc (Rigaya) — последняя Ubuntu 24.04 .deb с GitHub Releases ---
-# ДОСЛОВНО как .devcontainer/Dockerfile: на trixie (glibc 2.41) сборка под
-# Ubuntu 24.04 (glibc 2.39) запускается, но .deb объявляет Depends:
-# intel-opencl-icd, libmfx1 — обоих в Debian trixie нет (libmfx1 = мёртвый
-# MSDK, Arc его не использует; intel-opencl-icd убран из trixie). Поэтому
-# распаковываем .deb, вырезаем эти две зависимости из control, пересобираем
-# и ставим через apt — так реальные зависимости (libc/libstdc++/…)
-# резолвятся штатно. Рантайм oneVPL/OpenCL уже стоит выше.
-#
-# Опциональная авторизация к api.github.com: неавторизованный лимит —
-# 60 запросов/час НА ОБЩИЙ IP раннера (флаки-403 на shared CI-раннерах);
-# секрет опционален (required=false), локальная сборка без него ведёт
-# себя как раньше; с токеном лимит поднимается до 5000/час.
-RUN --mount=type=secret,id=github_token,required=false set -eux; \
+# --- qsvencc (Rigaya) r4634 — зеркало в Release, пин по sha256 ---
+# Почему пин на зеркало, а не releases/latest: релиз 8.31 (r4604) содержит баг
+# тихой межсессионной порчи кадров; фикс rigaya/QSVEnc 45003f1 (issue #308) есть
+# только в nightly-сборке. Поэтому .deb зеркалирован ассетом релиза
+# `deps-qsvencc-r4634` нашего репозитория и пиннится по sha256 (D-01..D-03).
+# Provenance: Actions run 36932190976 репозитория rigaya/QSVEnc, head_sha
+# 45003f157253392016f29d6201c3b04c5107d9fa, артефакт QSVEncC_ubuntu2004_deb.
+# Вырезание зависимостей (awk по control) больше не нужно (D-05): новая .deb
+# собрана на Ubuntu 20.04 с ослабленными зависимостями (libc6>=2.31, libva-drm2,
+# libva-x11-2, iHD|va-driver) — intel-opencl-icd/libmfx1 не объявлены.
+# TODO(D-06): перейти на закреплённый апстрим-релиз 8.32+ (содержащий 45003f1)
+# отдельной quick-задачей — см. .planning/todos/pending/2026-10-02-qsvencc-pin-upstream-release.md
+# (там полный чек-лист всех мест порога/пина).
+ARG QSVENCC_URL=https://github.com/Tualua/enpipe/releases/download/deps-qsvencc-r4634/qsvencc_8.31-r4634_amd64.deb
+ARG QSVENCC_SHA256=aa10f196ad07733d937a469d27b0e03973bcc266b90b3f852da0d2ce8936743d
+# Токен github_token опционален (репозиторий публичный): нужен только для
+# приватных форков / лимитов загрузки с github.com. xtrace отключён вокруг чтения
+# секрета и авторизованного curl — иначе токен печатается в лог сборки.
+# apt-get update должен стоять непосредственно перед установкой .deb в том же RUN —
+# зависимости .deb резолвятся по свежим спискам; не выносить в другой слой.
+# Литерал 4634 должен равняться QSVENCC_MIN_REV (проверяет
+# tests/unit/shared/test_qsvencc_threshold_sync.py); `--version` GPU не требует.
+RUN --mount=type=secret,id=github_token,required=false set -eu; \
+    set +x; \
     if [ -s /run/secrets/github_token ]; then \
         set -- -H "Authorization: Bearer $(cat /run/secrets/github_token)"; \
     else \
         set --; \
     fi; \
-    url="$(curl -fsSL "$@" https://api.github.com/repos/rigaya/QSVEnc/releases/latest \
-          | jq -r '.assets[].browser_download_url | select(test("_amd64.deb$"))' | head -1)"; \
-    test -n "$url"; \
-    curl -fsSL "$@" -o /tmp/qsvencc.deb "$url"; \
-    tmpd="$(mktemp -d)"; \
-    dpkg-deb -R /tmp/qsvencc.deb "$tmpd"; \
-    awk 'BEGIN{FS=OFS=": "} /^Depends:/{n=split($2,a,","); s=""; for(i=1;i<=n;i++){t=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",t); g=t; sub(/[ (|].*/,"",g); if(g!="intel-opencl-icd" && g!="libmfx1"){s=(s==""?t:s","t)}} $0="Depends: " s} {print}' \
-        "$tmpd/DEBIAN/control" > "$tmpd/DEBIAN/control.new"; \
-    mv "$tmpd/DEBIAN/control.new" "$tmpd/DEBIAN/control"; \
-    grep '^Depends:' "$tmpd/DEBIAN/control"; \
-    dpkg-deb -b "$tmpd" /tmp/qsvencc-fixed.deb; \
+    curl -fsSL "$@" -o /tmp/qsvencc.deb "$QSVENCC_URL"; \
+    set -x; \
+    echo "$QSVENCC_SHA256  /tmp/qsvencc.deb" | sha256sum -c -; \
     apt-get update; \
-    apt-get install -y --no-install-recommends /tmp/qsvencc-fixed.deb; \
+    apt-get install -y --no-install-recommends /tmp/qsvencc.deb; \
     command -v qsvencc; \
-    rm -rf "$tmpd" /tmp/qsvencc.deb /tmp/qsvencc-fixed.deb; rm -rf /var/lib/apt/lists/*
+    ver="$(qsvencc --version)"; \
+    printf '%s\n' "$ver" | head -1; \
+    rev="$(printf '%s\n' "$ver" | sed -n '1s/.*(r\([0-9]*\)).*/\1/p')"; \
+    test "${rev:-0}" -ge 4634; \
+    rm -f /tmp/qsvencc.deb; rm -rf /var/lib/apt/lists/*
 
 # --- dovi_tool (quietvoid) — статический musl-бинарь, дистрибутиво-независим ---
 # ДОСЛОВНО как .devcontainer/Dockerfile. Сейчас dovi_tool НЕ используется ни

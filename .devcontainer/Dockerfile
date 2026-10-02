@@ -70,34 +70,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       p7zip-full \
     && rm -rf /var/lib/apt/lists/*
 
-# --- qsvencc (Rigaya) — последняя Ubuntu 24.04 .deb с GitHub Releases ---
-# База теперь сама Ubuntu 24.04 — .deb под ubuntu-24.04 нативно подходит (никакого
-# междистрибутивного glibc-подбора, как было на Debian trixie). .deb объявляет
-# Depends: intel-opencl-icd, libmfx1 — libmfx1 (мёртвый MSDK) Arc не использует,
-# а Intel NEO OpenCL (intel-opencl-icd) на этой базе не устанавливаем; OpenCL-загрузчик
-# для VPP уже стоит выше (ocl-icd-libopencl1). Поэтому распаковываем .deb, вырезаем
-# эти две зависимости из control, пересобираем и ставим через apt — так реальные
-# зависимости (libc/libstdc++/…) резолвятся штатно. Rigaya публикует .deb ПОДИСТРИБУТИВНО
-# (Ubuntu20.04/22.04/24.04); база теперь Ubuntu 24.04 — берём именно Ubuntu24.04-ассет,
-# с фолбэком на первый `_amd64.deb`, если схема именования сменится.
+# --- qsvencc (Rigaya) r4634 — зеркало в Release, пин по sha256 ---
+# Почему пин на зеркало, а не releases/latest: релиз 8.31 (r4604) содержит баг
+# тихой межсессионной порчи кадров; фикс rigaya/QSVEnc 45003f1 (issue #308) есть
+# только в nightly-сборке. Поэтому .deb зеркалирован ассетом релиза
+# `deps-qsvencc-r4634` нашего репозитория и пиннится по sha256 (D-01..D-03).
+# Provenance: Actions run 36932190976 репозитория rigaya/QSVEnc, head_sha
+# 45003f157253392016f29d6201c3b04c5107d9fa, артефакт QSVEncC_ubuntu2004_deb.
+# Вырезание зависимостей (awk по control) больше не нужно (D-05): новая .deb
+# собрана на Ubuntu 20.04 с ослабленными зависимостями (libc6>=2.31, libva-drm2,
+# libva-x11-2, iHD|va-driver) — intel-opencl-icd/libmfx1 не объявлены.
+# TODO(D-06): перейти на закреплённый апстрим-релиз 8.32+ (содержащий 45003f1)
+# отдельной quick-задачей — см. .planning/todos/pending/2026-10-02-qsvencc-pin-upstream-release.md
+# (там полный чек-лист всех мест порога/пина).
+ARG QSVENCC_URL=https://github.com/Tualua/enpipe/releases/download/deps-qsvencc-r4634/qsvencc_8.31-r4634_amd64.deb
+ARG QSVENCC_SHA256=aa10f196ad07733d937a469d27b0e03973bcc266b90b3f852da0d2ce8936743d
+# apt-get update должен стоять непосредственно перед установкой .deb в том же RUN —
+# зависимости .deb резолвятся по свежим спискам; не выносить в другой слой.
+# Литерал 4634 должен равняться QSVENCC_MIN_REV (проверяет
+# tests/unit/shared/test_qsvencc_threshold_sync.py); `--version` GPU не требует.
 RUN set -eux; \
-    assets="$(curl -fsSL https://api.github.com/repos/rigaya/QSVEnc/releases/latest \
-              | jq -r '.assets[].browser_download_url | select(test("_amd64[.]deb$"))')"; \
-    url="$(printf '%s\n' "$assets" | grep -iE 'ubuntu[._]?24[._]04' | head -1)"; \
-    [ -n "$url" ] || url="$(printf '%s\n' "$assets" | head -1)"; \
-    test -n "$url"; \
-    curl -fsSL -o /tmp/qsvencc.deb "$url"; \
-    tmpd="$(mktemp -d)"; \
-    dpkg-deb -R /tmp/qsvencc.deb "$tmpd"; \
-    awk 'BEGIN{FS=OFS=": "} /^Depends:/{n=split($2,a,","); s=""; for(i=1;i<=n;i++){t=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",t); g=t; sub(/[ (|].*/,"",g); if(g!="intel-opencl-icd" && g!="libmfx1"){s=(s==""?t:s","t)}} $0="Depends: " s} {print}' \
-        "$tmpd/DEBIAN/control" > "$tmpd/DEBIAN/control.new"; \
-    mv "$tmpd/DEBIAN/control.new" "$tmpd/DEBIAN/control"; \
-    grep '^Depends:' "$tmpd/DEBIAN/control"; \
-    dpkg-deb -b "$tmpd" /tmp/qsvencc-fixed.deb; \
+    curl -fsSL -o /tmp/qsvencc.deb "$QSVENCC_URL"; \
+    echo "$QSVENCC_SHA256  /tmp/qsvencc.deb" | sha256sum -c -; \
     apt-get update; \
-    apt-get install -y --no-install-recommends /tmp/qsvencc-fixed.deb; \
+    apt-get install -y --no-install-recommends /tmp/qsvencc.deb; \
     command -v qsvencc; \
-    rm -rf "$tmpd" /tmp/qsvencc.deb /tmp/qsvencc-fixed.deb; rm -rf /var/lib/apt/lists/*
+    ver="$(qsvencc --version)"; \
+    printf '%s\n' "$ver" | head -1; \
+    rev="$(printf '%s\n' "$ver" | sed -n '1s/.*(r\([0-9]*\)).*/\1/p')"; \
+    test "${rev:-0}" -ge 4634; \
+    rm -f /tmp/qsvencc.deb; rm -rf /var/lib/apt/lists/*
 
 # --- dovi_tool (quietvoid) — статический musl-бинарь, дистрибутиво-независим ---
 # DEBT-04: сейчас dovi_tool НЕ используется ни одним путём пайплайна (текущий
