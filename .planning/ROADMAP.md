@@ -36,7 +36,7 @@ Full phase detail is archived per milestone under `.planning/milestones/`:
 Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:** the corruption was fixed upstream in rigaya/QSVEnc (`45003f1`, issue #308 — missing sync of the MFX VPP output before encoder submit with VA memory; verified on our Arc A380). The ffmpeg `av1_qsv` migration (former Phases 7–10) is parked as backlog item 999.1; v1.2 now adopts the fixed qsvencc and locks it in with a regression test. `legacy/` stays the frozen parity oracle.
 
 - [x] **Phase 6: Concurrency-Immunity Spike + Image Rebuild (GATE)** — Rebuild the devcontainer to ffmpeg-8.1 and prove ffmpeg av1_qsv is corruption-free at production+stress JOBS with per-frame content verification, before any backend code exists. (completed 2026-07-23)
-- [ ] **Phase 7: Adopt Fixed qsvencc + Concurrency Regression Lock** — Ship qsvencc ≥ `45003f1` in the devcontainer, fail fast on older builds, and prove 0 corrupt frames at production+stress JOBS with the corruption triad active.
+- [x] **Phase 7: Adopt Fixed qsvencc + Concurrency Regression Lock** — Ship qsvencc ≥ `45003f1` in the devcontainer, fail fast on older builds, and prove 0 corrupt frames at production+stress JOBS with the corruption triad active. (completed 2026-10-02)
 
 ## Phase Details
 
@@ -69,7 +69,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 - [x] 07-02-PLAN.md — QSV-02: fail-closed revision gate (shared/qsvencc_version.py) wired into run_encode/run_pipeline + autouse test stub; `--backend qsv` in chunk_command
 - [x] 07-03-PLAN.md — QSV-01: pin both Dockerfiles to the sha256-verified mirror + build-time revision check; post-create QSV-01 hard-assert; D-06 todo; host build checkpoint
 - [x] 07-04-PLAN.md — COR-02: invert the qsvencc control into a regression lock (production argv, ANSI-safe qsvencc triad, fail-not-skip); stress/non-vacuity runner
-- [ ] 07-05-PLAN.md — COR-02 gate on hardware: D-16 non-vacuity on r4604, lock + stress matrix on r4634, D-18 regression checks, D-19 debt closure
+- [x] 07-05-PLAN.md — COR-02 gate on hardware: D-16 non-vacuity on r4604, lock + stress matrix on r4634, D-18 regression checks, D-19 debt closure
 
 ## Progress
 
@@ -81,7 +81,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 4. Unified CLI + Hardware-Gated Real-Media Validation | v1.0      | 2/2            | Complete    | 2026-07-08 |
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
-| 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 4/5 | In Progress|  |
+| 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete   | 2026-10-02 |
 
 ## Backlog
 
