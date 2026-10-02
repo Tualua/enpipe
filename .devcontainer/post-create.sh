@@ -135,7 +135,23 @@ if command -v ffmpeg-8.1 >/dev/null 2>&1; then
 else
     echo "    ОШИБКА: ffmpeg-8.1 не найден на PATH (пересобери образ)"; ENV01_OK=0
 fi
-printf "  qsvencc:   "; command -v qsvencc >/dev/null && qsvencc --version 2>/dev/null | head -1 || echo "НЕТ"
+# QSV-01: порог 4634 совпадает с рантайм-гейтом enpipe.shared.qsvencc_version.
+# QSVENCC_MIN_REV (синхронность проверяет tests/unit/shared/
+# test_qsvencc_threshold_sync.py). Это ранний сигнал при создании контейнера,
+# реальное принуждение — рантайм-гейт (QSV-02); аварийный выход не используем — стиль
+# скрипта (ENV-01): флаг + громкая сводка.
+QSV01_OK=1
+if command -v qsvencc >/dev/null 2>&1; then
+    _qsv_ver="$(qsvencc --version 2>/dev/null || true)"
+    printf "  qsvencc:   %s\n" "$(printf '%s\n' "$_qsv_ver" | sed -n 1p)"
+    _qsv_rev="$(printf '%s\n' "$_qsv_ver" | sed -n '1s/.*(r\([0-9]*\)).*/\1/p')"
+    if [ -z "$_qsv_rev" ] || [ "$_qsv_rev" -lt 4634 ]; then
+        echo "    ОШИБКА: qsvencc r${_qsv_rev:-?} старше r4634 (нет фикса 45003f1 — тихая порча кадров при параллельном кодировании); пересобери образ"; QSV01_OK=0
+    fi
+else
+    echo "    ОШИБКА: qsvencc не найден на PATH"; QSV01_OK=0
+    echo "  qsvencc:   НЕТ"
+fi
 # dovi_tool: пока нигде в пайплайне не вызывается — держим ради Phase-4 DV RPU
 # проверки (TEST-04, DEBT-04); AV1-совместимость extract-rpu НЕ подтверждена,
 # см. комментарий у RUN-блока установки в Dockerfile.
@@ -206,6 +222,13 @@ if [ "${ENV01_OK:-0}" -eq 1 ]; then
     echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): OK"
 else
     echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): ПРОВАЛЕН — см. ОШИБКА выше"
+fi
+
+# QSV-01 сводка по флагу QSV01_OK (см. блок qsvencc выше).
+if [ "${QSV01_OK:-0}" -eq 1 ]; then
+    echo "QSV-01 (qsvencc >= r4634 / 45003f1): OK"
+else
+    echo "QSV-01 (qsvencc >= r4634 / 45003f1): ПРОВАЛЕН — см. ОШИБКА выше"
 fi
 
 # Сводка персистентности по флагу PERSIST_OK (см. блок проверок выше).
