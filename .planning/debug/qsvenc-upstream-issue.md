@@ -1,3 +1,7 @@
+> **СТАТУС: SUPERSEDED / RESOLVED (v1.2 Phase 7).** Гипотеза про media-driver оказалась неверной; черновик подавать НЕ нужно.
+>
+> **Резолюция (закрыто, v1.2 Phase 7):** реальная первопричина - отсутствие синхронизации выхода MFX VPP перед подачей в энкодер при VA-памяти внутри самого qsvencc (а не iHD/ядро, как предполагалось ранее). Фикс - rigaya/QSVEnc `45003f1` (issue #308; параллельный патч #316 соавторен пользователем). Принята сборка r4634 через зеркало Release `deps-qsvencc-r4634` (проверка sha256). Замок регрессии - `tests/integration/test_concurrency_immunity.py::test_qsvencc_immune_at_production_jobs`; рантайм-гейт - `enpipe.shared.qsvencc_version` (r4634). Подробности: [`scene-chunk-frame-mismatch.md`](./scene-chunk-frame-mismatch.md), раздел «ФАЗА 7».
+
 # Upstream bug report — draft (CORRECTED after CI build + hardware test)
 
 Status: the original draft proposed a one-line P010 `rt_format` fix. **We built and tested it — it is INERT** (see "Update" below). This draft is reframed accordingly. The corruption is a **cross-process 10-bit reference-surface aliasing** issue whose likely home is intel/media-driver (iHD), with a possible contributing factor in QSVEnc's surface-pool structure. File thoughtfully; lead with the media-driver angle.

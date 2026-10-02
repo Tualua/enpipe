@@ -154,8 +154,8 @@ Items acknowledged and deferred at the v1.1 milestone close on 2026-07-23 (pre-c
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| debug | scene-chunk-frame-mismatch — single corrupt frames (VMAF≈0) in scene-chunk encode; **silent output corruption**, strikes at core value | fixed upstream (rigaya/QSVEnc 45003f1, verified on A380 2026-10-02); adoption = v1.2 Phase 7 | v1.1 close 2026-07-23 |
-| debug | qsvenc-upstream-issue — iHD/media-driver cross-process 10-bit reference-surface aliasing (upstream bug report draft) | unknown/draft | v1.1 close 2026-07-23 |
+| debug | scene-chunk-frame-mismatch — single corrupt frames (VMAF≈0) in scene-chunk encode; **silent output corruption**, strikes at core value | resolved (Phase 7, 45003f1 r4634) | v1.1 close 2026-07-23 |
+| debug | qsvenc-upstream-issue — iHD/media-driver cross-process 10-bit reference-surface aliasing (upstream bug report draft) | resolved (Phase 7, 45003f1 r4634) | v1.1 close 2026-07-23 |
 | debug | cannot-write-data-mounts — devcontainer `/data` bind-mount EACCES (rootless Podman userns mapping) | fix-applied-pending-rebuild | v1.1 close 2026-07-23 |
 | uat_gap | Phase 03 — 03-HUMAN-UAT.md | partial (0 pending scenarios) | v1.1 close 2026-07-23 |
 | verification_gap | Phase 03 — 03-VERIFICATION.md | human_needed | v1.1 close 2026-07-23 |

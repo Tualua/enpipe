@@ -2,8 +2,12 @@
 
 **Дата передачи:** 2026-07-23
 **Автор передачи:** предыдущая сессия (enpipe, devcontainer без write-доступа к /data)
-**Статус бага:** `root_cause_found` — корень локализован в межпроцессной изоляции 10-bit reference-поверхностей; последний вывод указывает на ЯДРО хоста (drm/i915), НЕ userspace. Фикс в enpipe сознательно отложен.
+**Статус бага:** `resolved` (45003f1, Phase 7) - см. резолюцию ниже; прежний вывод про ядро хоста опровергнут.
 **Полная история отладки:** [`scene-chunk-frame-mismatch.md`](./scene-chunk-frame-mismatch.md) (читать целиком — 300 строк, 6+ проверенных гипотез). Апстрим-черновик: [`qsvenc-upstream-issue.md`](./qsvenc-upstream-issue.md).
+
+---
+
+**Резолюция (закрыто, v1.2 Phase 7):** реальная первопричина - отсутствие синхронизации выхода MFX VPP перед подачей в энкодер при VA-памяти внутри самого qsvencc (а не iHD/ядро, как предполагалось ранее). Фикс - rigaya/QSVEnc `45003f1` (issue #308; параллельный патч #316 соавторен пользователем). Принята сборка r4634 через зеркало Release `deps-qsvencc-r4634` (проверка sha256). Замок регрессии - `tests/integration/test_concurrency_immunity.py::test_qsvencc_immune_at_production_jobs`; рантайм-гейт - `enpipe.shared.qsvencc_version` (r4634). Доказательства: [`scene-chunk-frame-mismatch.md`](./scene-chunk-frame-mismatch.md), раздел «ФАЗА 7».
 
 ---
 

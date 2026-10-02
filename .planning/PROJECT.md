@@ -105,7 +105,7 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 - **Current codebase:** The productionized code lives in `src/enpipe/{detection,encoding,shared,mkv,cli}` — an installable `uv`/`uv_build` package with a pinned `uv.lock` (scenedetect==0.7, numpy==2.5.1), a `shared.proc` subprocess seam, a fast hardware-free test tier plus a hardware-gated real-Arc tier, and GitHub Actions CI. `legacy/scene_detection.py` / `legacy/encode_scenes.py` remain in place, unmodified, as the byte-identical parity oracle. See `.planning/codebase/` for the original map.
 - **Verification state:** No longer "unverified against real media" — v1.0/v1.1 were hardware-validated end-to-end on a real Intel Arc A380 (SDR/HDR10 live; HDR10+/DV fixture-gated), with per-chunk/total frame counts, keyframe alignment, and legacy-oracle parity all checked.
-- **Open correctness debt:** real-media use surfaced concurrent-`qsvencc` cross-process frame corruption on the Arc A380 (silent single-frame swaps; root cause is iHD/media-driver 10-bit reference-surface aliasing). Tracked in `.planning/debug/{scene-chunk-frame-mismatch,qsvenc-upstream-issue}.md`, deferred at v1.1 close (STATE.md Deferred Items). Also open: a devcontainer `/data` bind-mount permission issue (fix pending host rebuild) and two `human_needed` Phase-03 UAT/verification markers.
+- **Resolved correctness debt:** the concurrent-`qsvencc` frame corruption is closed by upstream `45003f1` (r4634) with Phase 7 hardware evidence (0 corrupt frames at JOBS 3/5/8, non-vacuity proven on r4604); see `.planning/debug/scene-chunk-frame-mismatch.md`. Still open: a devcontainer `/data` bind-mount permission issue (fix pending host rebuild) and two `human_needed` Phase-03 UAT/verification markers.
 - **Resolved debt (v1.0):** dependencies are pinned+locked; the 130-line hand-rolled EBML parser is isolated into a pure `enpipe.mkv.ebml` module; the ThreadPool-vs-ProcessPool inconsistency was resolved by profiling (kept threads, comment corrected with measured numbers); `dovi_tool` retention is documented.
 - **Design doc:** `PIPELINE_DESIGN.md` (Russian) is a completed engineering analysis of a streaming-pipeline redesign whose conclusion is to keep the sequential `detect jobs=4 → encode jobs=4` workflow on current hardware. It is a baseline/decision document, not a spec for work to build now.
 
@@ -124,7 +124,7 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 | Keep sequential `detect jobs=4 → encode jobs=4` as the production path | Proven faster than jobs=3 encode; sequential detect warms ZFS ARC so encode reads from RAM | — Pending |
 | Preserve existing correctness invariants rather than rewrite core algorithms | Keyframe-alignment and DV RPU handling are load-bearing and hard to re-derive safely | ✓ Good — v1.0 shipped byte-identical to legacy oracle |
 | v1.1: `enpipe run` is a SEQUENTIAL one-command wrapper (detect→.scenes→encode), not the overlapped orchestrator | Delivers the single-command UX users want at zero regression risk, reusing the verified v1.0 stages; matches PIPELINE_DESIGN.md's recommended sequential path | ✓ Good — v1.1 shipped byte/frame-identical to the manual two-step on real Arc |
-| Acknowledge (not resolve) the concurrent-`qsvencc` frame-corruption bug at v1.1 close | v1.1's own scope (the `run` wrapper) is complete; the corruption is a pre-existing hardware/driver-level defect discovered post-Phase-5, best scoped as its own milestone | ⚠️ Revisit — deferred to next milestone; silent-corruption risk to the core value until fixed |
+| Acknowledge (not resolve) the concurrent-`qsvencc` frame-corruption bug at v1.1 close | v1.1's own scope (the `run` wrapper) is complete; the corruption is a pre-existing hardware/driver-level defect discovered post-Phase-5, best scoped as its own milestone | ✓ Resolved by v1.2 Phase 7 — fixed upstream (45003f1, r4634), locked by regression test |
 
 ## Evolution
 
@@ -144,4 +144,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-02 — v1.2 re-scoped: qsvencc corruption fixed upstream (45003f1); ffmpeg migration parked as backlog 999.1*
+*Last updated: 2026-10-02 — Phase 7 hardware gate passed; corruption debt closed (45003f1, r4634)*
