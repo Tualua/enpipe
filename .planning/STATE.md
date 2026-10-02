@@ -4,7 +4,7 @@ milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: Ready to discuss
 stopped_at: Phase 7 context gathered
-last_updated: "2026-10-02T03:37:02.685Z"
+last_updated: "2026-10-02T09:36:23.781Z"
 last_activity: "2026-10-02 -- v1.2 re-scoped: qsvencc corruption fixed upstream (45003f1); ffmpeg migration parked as backlog 999.1"
 progress:
   total_phases: 3
