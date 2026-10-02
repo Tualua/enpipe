@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Concurrent-encode correctness
-status: planning
-stopped_at: v1.2 re-scoped; Phase 7 (adopt fixed qsvencc) not started
-last_updated: "2026-10-01T15:38:25.459Z"
-last_activity: 2026-10-02 -- v1.2 re-scoped: qsvencc corruption fixed upstream (45003f1); ffmpeg migration parked as backlog 999.1
+status: Ready to discuss
+stopped_at: Phase 7 context gathered
+last_updated: "2026-10-02T03:07:46.063Z"
+last_activity: "2026-10-02 -- v1.2 re-scoped: qsvencc corruption fixed upstream (45003f1); ffmpeg migration parked as backlog 999.1"
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 1
-  total_plans: 3
+  total_plans: 7
   completed_plans: 3
-  percent: 50
+  percent: 33
 ---
 
 # Project State
@@ -171,9 +171,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23T10:21:20.162Z
+Last session: 2026-10-02T03:07:46.046Z
 Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-backend-seam-refactor-zero-behavior-change/07-CONTEXT.md
+Resume file: .planning/phases/07-adopt-fixed-qsvencc-concurrency-regression-lock/07-CONTEXT.md
 </content>
 
 ## Operator Next Steps
