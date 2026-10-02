@@ -27,7 +27,7 @@ key-files:
 key-decisions:
   - "Обхода гейта через окружение/флаг нет (D-10); гейт доверяет строке ревизии, не дайджесту (T-07-24)"
   - "Повторная проверка в батче на каждый файл — намеренно, без кэша"
-requirements-completed: [QSV-02, COR-02]
+requirements-completed: [QSV-02]
 duration: 15min
 completed: 2026-10-02
 ---
