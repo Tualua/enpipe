@@ -25,8 +25,16 @@ GOP_LEN = int(os.environ.get("GOP_LEN", "300"))
 
 def chunk_command(src: Path, seek: str, trim: str, out: Path,
                   hdr_flags: List[str], metrics: bool) -> List[str]:
+    # Начиная с r4634 (45003f1) у qsvencc есть `--backend auto|qsv|vaapi`;
+    # `auto` при отсутствии QSV-устройства молча уходит на VA-API (только
+    # warning), где нет `--avhw`/MFX VPP и игнорируется `--b-pyramid` -- это
+    # другой путь кодирования, чем тот, на котором проверены фикс и триада;
+    # на A380 `--backend vaapi --avhw` = rc 253. Явный `qsv` превращает
+    # отсутствие QSV в жёсткую ошибку. r4604 этот флаг не знает -- но
+    # рантайм-гейт (QSV-02) такую сборку не пустит.
     cmd = [
-        "qsvencc", "--avhw", "--va", "-i", str(src), "-c", "av1",
+        "qsvencc", "--backend", "qsv", "--avhw", "--va",
+        "-i", str(src), "-c", "av1",
         "--icq", str(ICQ), "--qp-max", str(QPMAX),
         "--output-depth", "10", "--profile", "main",
         "--gop-len", str(GOP_LEN), "--gop-ref-dist", "6", "--b-pyramid",

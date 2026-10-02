@@ -63,3 +63,13 @@ def test_parse_metrics_returns_none_fields_when_absent():
     m = parse_metrics("qsvencc: no metrics printed")
     assert m == {"ssim_y": None, "ssim_all": None, "ssim_db": None,
                  "psnr_y": None, "psnr_avg": None}
+
+
+def test_chunk_command_pins_qsv_backend():
+    for metrics in (False, True):
+        cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
+                            Path("out.obu"), hdr_flags=[], metrics=metrics)
+        assert cmd[0] == "qsvencc"
+        assert cmd.count("--backend") == 1
+        assert cmd[cmd.index("--backend") + 1] == "qsv"
+        assert cmd.index("--backend") < cmd.index("--avhw")
