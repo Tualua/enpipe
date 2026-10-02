@@ -120,3 +120,14 @@ Add an ffmpeg `av1_qsv` encode backend (empirically immune to the concurrent-enc
 | 8. ffmpeg SDR Backend + Flip Default                  | v1.2      | 0/?            | Not started | -          |
 | 9. HDR10 Static Metadata Through ffmpeg               | v1.2      | 0/?            | Not started | -          |
 | 10. DV / HDR10+ Decision (POC-gated)                  | v1.2      | 0/?            | Not started | -          |
+
+## Backlog
+
+### Phase 999.1: ffmpeg av1_qsv backend (BACKLOG)
+
+**Goal:** [Captured for future planning] Бывшие фазы 7–10 v1.2: слой `backends/` без изменения поведения, ffmpeg `av1_qsv` для SDR, HDR10 через ffmpeg, решение по DV/HDR10+. Отложено 2026-10-02: тихая порча кадров qsvencc при параллельном кодировании исправлена в апстриме (rigaya/QSVEnc `45003f1`, issue #308) и проверена на Arc A380, поэтому главного довода за переход на ffmpeg больше нет. Артефакты планирования бывшей фазы 7 (CONTEXT/RESEARCH/PATTERNS/REVIEWS + 4 PLAN) лежат в каталоге этого пункта; результаты GATE фазы 6 и `research/` остаются на месте для возможного возврата.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
