@@ -21,7 +21,7 @@
 ### Encode correctness (COR)
 
 - [x] **COR-01**: A concurrent-encode regression test proves the ffmpeg backend produces zero corrupted frames under parallel `JOBS` (production and stress levels), using **per-frame content verification** (not just frame counts), with the HW-decode + P010 + B-pyramid corruption triad asserted present so a decode-fallback cannot yield a false "clean."
-- [x] **COR-02**: A hardware-gated regression test proves the fixed qsvencc produces zero corrupted frames under parallel `JOBS` (production and stress levels) with per-frame content verification and the corruption triad asserted active — inverting the Phase 6 "qsvencc control corrupts" expectation into a permanent lock.
+- [ ] **COR-02**: A hardware-gated regression test proves the fixed qsvencc produces zero corrupted frames under parallel `JOBS` (production and stress levels) with per-frame content verification and the corruption triad asserted active — inverting the Phase 6 "qsvencc control corrupts" expectation into a permanent lock.
 
 ---
 
@@ -77,7 +77,7 @@ Phase numbering continues from v1.1 (which ended at Phase 5); v1.2 phases are 6�
 | COR-01  | Phase 6  | Complete |
 | QSV-01  | Phase 7  | Pending  |
 | QSV-02  | Phase 7  | Complete |
-| COR-02  | Phase 7  | Complete |
+| COR-02  | Phase 7  | Pending |
 
 **Coverage (v1.2, active):**
 - v1.2 requirements: 5 total
