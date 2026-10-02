@@ -31,12 +31,13 @@ Full phase detail is archived per milestone under `.planning/milestones/`:
 
 </details>
 
-### 🚧 v1.2 Concurrent-encode correctness (Phases 6–7) — IN PROGRESS
+### 🚧 v1.2 Concurrent-encode correctness (Phases 6–8) — IN PROGRESS
 
 Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:** the corruption was fixed upstream in rigaya/QSVEnc (`45003f1`, issue #308 — missing sync of the MFX VPP output before encoder submit with VA memory; verified on our Arc A380). The ffmpeg `av1_qsv` migration (former Phases 7–10) is parked as backlog item 999.1; v1.2 now adopts the fixed qsvencc and locks it in with a regression test. `legacy/` stays the frozen parity oracle.
 
 - [x] **Phase 6: Concurrency-Immunity Spike + Image Rebuild (GATE)** — Rebuild the devcontainer to ffmpeg-8.1 and prove ffmpeg av1_qsv is corruption-free at production+stress JOBS with per-frame content verification, before any backend code exists. (completed 2026-07-23)
 - [x] **Phase 7: Adopt Fixed qsvencc + Concurrency Regression Lock** — Ship qsvencc ≥ `45003f1` in the devcontainer, fail fast on older builds, and prove 0 corrupt frames at production+stress JOBS with the corruption triad active. (completed 2026-10-02)
+- [ ] **Phase 8: Усиление замка COR-02: триада на каждой сессии, сверка кадров, путь с метриками** — Промоутировано из backlog 999.2 (пробелы WR-01..03 верификации фазы 7).
 
 ## Phase Details
 
@@ -71,6 +72,13 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 - [x] 07-04-PLAN.md — COR-02: invert the qsvencc control into a regression lock (production argv, ANSI-safe qsvencc triad, fail-not-skip); stress/non-vacuity runner
 - [x] 07-05-PLAN.md — COR-02 gate on hardware: D-16 non-vacuity on r4604, lock + stress matrix on r4634, D-18 regression checks, D-19 debt closure
 
+### Phase 8: Усиление замка COR-02: триада на каждой сессии, сверка кадров, путь с метриками
+**Goal**: Пробелы верификации фазы 7 (07-VERIFICATION.md, 07-REVIEW.md WR-01..03), некритичные: (1) `assert_qsvencc_triad` проверяется только на первой успешной сессии — проверять каждую сессию и эталоны; (2) проверка порчи по PSNR может пропустить кадр — `count_frames` считает пакеты, нет `-xerror`, число строк PSNR не сверяется с числом кадров, порог 30 dB ловит только полную подмену кадра; (3) замок и стресс-матрица гоняют только `metrics=False`, а продакшен по умолчанию добавляет `--psnr --ssim` (больше параллельных GPU-сессий) — нужен конкурентный прогон пути по умолчанию.
+**Depends on**: Phase 7
+**Requirements**: TBD
+**Plans**: 0 plans
+- [ ] TBD (run /gsd:plan-phase 8 to break down)
+
 ## Progress
 
 | Phase                                                 | Milestone | Plans Complete | Status      | Completed  |
@@ -82,21 +90,13 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
+| 8. Усиление замка COR-02                            | v1.2      | 0/0 | Not started | - |
 
 ## Backlog
 
 ### Phase 999.1: ffmpeg av1_qsv backend (BACKLOG)
 
 **Goal:** [Captured for future planning] Бывшие фазы 7–10 v1.2: слой `backends/` без изменения поведения, ffmpeg `av1_qsv` для SDR, HDR10 через ffmpeg, решение по DV/HDR10+. Отложено 2026-10-02: тихая порча кадров qsvencc при параллельном кодировании исправлена в апстриме (rigaya/QSVEnc `45003f1`, issue #308) и проверена на Arc A380, поэтому главного довода за переход на ffmpeg больше нет. Артефакты планирования бывшей фазы 7 (CONTEXT/RESEARCH/PATTERNS/REVIEWS + 4 PLAN) лежат в каталоге этого пункта; результаты GATE фазы 6 и `research/` остаются на месте для возможного возврата.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.2: Усиление замка COR-02: триада на каждой сессии, сверка кадров, путь с метриками (BACKLOG)
-
-**Goal:** [Captured for future planning] Пробелы верификации фазы 7 (07-VERIFICATION.md, 07-REVIEW.md WR-01..03), некритичные: (1) `assert_qsvencc_triad` проверяется только на первой успешной сессии — проверять каждую сессию и эталоны; (2) проверка порчи по PSNR может пропустить кадр — `count_frames` считает пакеты, нет `-xerror`, число строк PSNR не сверяется с числом кадров, порог 30 dB ловит только полную подмену кадра; (3) замок и стресс-матрица гоняют только `metrics=False`, а продакшен по умолчанию добавляет `--psnr --ssim` (больше параллельных GPU-сессий) — нужен конкурентный прогон пути по умолчанию.
 **Requirements:** TBD
 **Plans:** 0 plans
 
