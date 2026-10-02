@@ -186,3 +186,62 @@ def test_scenes_override_routes_to_both_stages(monkeypatch: pytest.MonkeyPatch) 
 
     assert captured["detect"].output == Path("/tmp/custom.scenes")
     assert captured["encode"].scenes == Path("/tmp/custom.scenes")
+
+
+# --- гейт версии qsvencc (QSV-02, D-11) --- #
+
+def test_qsvencc_gate_refusal_before_run_detect(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    calls: List[str] = []
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))
+
+    def _refuse() -> int:
+        raise SystemExit("encode_scenes: old")
+
+    monkeypatch.setattr(cli_main, "ensure_qsvencc_fixed", _refuse)
+
+    with pytest.raises(SystemExit):
+        main(["run", "x.mkv", "--no-metrics"])
+
+    assert calls == []
+
+
+def test_qsvencc_gate_runs_between_preflight_and_detect(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    calls: List[str] = []
+
+    def _gate() -> int:
+        calls.append("gate")
+        return 4634
+
+    monkeypatch.setattr(cli_main, "ensure_qsvencc_fixed", _gate)
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))
+
+    main(["run", "x.mkv", "--no-metrics"])
+
+    assert calls == ["gate", "detect", "encode"]
+
+
+def test_qsvencc_real_gate_refuses_old_build_end_to_end(
+        monkeypatch: pytest.MonkeyPatch, fp) -> None:
+    from enpipe.shared import qsvencc_version
+
+    _stub_all_tools_present(monkeypatch)
+    calls: List[str] = []
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))
+    monkeypatch.setattr(
+        cli_main, "ensure_qsvencc_fixed", qsvencc_version.ensure_qsvencc_fixed)
+    fp.register(
+        ["qsvencc", "--version"],
+        stdout="QSVEncC (x64) 8.31 (r4604) by rigaya, Sep 27 2026 03:54:16 "
+               "(gcc 9.4.0/Linux)\n")
+
+    with pytest.raises(SystemExit) as ei:
+        main(["run", "x.mkv", "--no-metrics"])
+
+    assert "r4634" in str(ei.value.code)
+    assert calls == []

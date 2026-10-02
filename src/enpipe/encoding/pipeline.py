@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 from enpipe.shared import proc as _proc
 from enpipe.shared.batch import iter_input_videos, run_batch
 from enpipe.shared.logging import _START, die, log, step
+from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed
 
 from .audio import encode_audio
 from .chunk import GOP_LEN, ICQ, QPMAX, chunk_command, count_frames, encode_chunk
@@ -107,6 +108,13 @@ def run_encode(args) -> None:
     for tool in ("qsvencc", "ffprobe", "ffmpeg", "mkvmerge"):
         if not shutil.which(tool):
             die(f"не найден {tool}")
+
+    # QSV-02 / D-11: отказ на сборке qsvencc старше r4634 (45003f1) -- до любой
+    # работы. НАМЕРЕННО без кэша: в батч-режиме рекурсия process_one ->
+    # run_encode повторяет проверку на каждый файл -- это фича (каждый файл
+    # заново защищён, ~7 мс), а не случайность; не "оптимизировать"
+    # кэшем/состоянием.
+    ensure_qsvencc_fixed()
 
     if args.out is not None and getattr(args, "out_dir", None) is not None:
         die("-o/--out и --out-dir взаимоисключающи: задайте только один")

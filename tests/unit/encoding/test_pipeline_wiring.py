@@ -13,6 +13,8 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 import enpipe.encoding.pipeline as p
 from enpipe.encoding.chunk import chunk_command as _real_chunk_command
 from enpipe.encoding.keyframes import compute_chunk_seek_trim
@@ -154,3 +156,28 @@ def test_run_encode_writes_metrics_csv_when_enabled(tmp_path, monkeypatch):
     assert mock_write_metrics_csv.call_count == 1
     called_csv_path = mock_write_metrics_csv.call_args[0][0]
     assert called_csv_path == Path(str(out) + ".metrics.csv")
+
+
+def test_run_encode_refuses_before_any_work_on_old_qsvencc(tmp_path, monkeypatch):
+    video = tmp_path / "source.mkv"
+    video.write_bytes(b"dummy-source-bytes")
+    workdir = tmp_path / "chunks"
+    args = Namespace(
+        video=video, scenes=tmp_path / "source.mkv.scenes", out=tmp_path / "out.mkv",
+        frm=0, to=None, workdir=workdir, keep=True, jobs=1,
+        no_audio=True, no_metrics=True, csv=None,
+    )
+    monkeypatch.setattr(p.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+
+    def _refuse():
+        raise SystemExit("encode_scenes: old qsvencc")
+
+    monkeypatch.setattr(p, "ensure_qsvencc_fixed", _refuse)
+    mock_run = Mock()
+    monkeypatch.setattr(p._proc, "run", mock_run)
+
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+
+    assert mock_run.call_count == 0
+    assert not workdir.exists()

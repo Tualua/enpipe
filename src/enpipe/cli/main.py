@@ -26,6 +26,7 @@ from enpipe.encoding.pipeline import JOBS as ENCODE_JOBS
 from enpipe.encoding.pipeline import _ensure_out_dir, resolve_output_path, run_encode
 from enpipe.shared.batch import iter_input_videos, run_batch
 from enpipe.shared.logging import die
+from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed
 
 
 def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
@@ -84,10 +85,15 @@ def run_pipeline(args) -> None:
     ни run_detect, ни run_encode -- у run_encode остаётся СВОЙ preflight):
     проверяет инструменты энкод-стадии ДО запуска (потенциально долгого)
     детекта, чтобы не тратить его впустую, если энкодер всё равно упадёт из-за
-    отсутствующего инструмента."""
+    отсутствующего инструмента. Также отказывает на сборке qsvencc старше
+    r4634 (ensure_qsvencc_fixed) до детекта."""
     for tool in ("qsvencc", "ffprobe", "ffmpeg", "mkvmerge"):
         if not shutil.which(tool):
             die(f"не найден {tool}")
+
+    # D-11: `enpipe run` обязан отказать на старом qsvencc ДО (долгой) стадии
+    # детекта. Повторная проверка внутри run_encode -- намеренная (см. там).
+    ensure_qsvencc_fixed()
 
     if args.out is not None and getattr(args, "out_dir", None) is not None:
         die("-o/--out и --out-dir взаимоисключающи: задайте только один")
