@@ -2,8 +2,11 @@
 isolated single-session reference encode and N concurrent same-command
 sessions for a fixed set of hotspot scenes from a real fixture, then proves
 (or disproves) per-frame content immunity via a full-file ffmpeg `psnr`
-sweep against that reference. Supports two backends -- ffmpeg `av1_qsv`
-(the encoder under test) and `qsvencc` (the known-corrupting control).
+sweep against that reference. Supports backends -- `qsvencc` (the LOCKED
+backend: the production chunk_command argv, regression lock for the
+45003f1 fix), `qsvencc-nobackend` (the same argv minus `--backend`, only for
+the one-time non-vacuity run on the old r4604 binary) and ffmpeg `av1_qsv`
+(retained for backlog 999.1 evidence).
 
 Leading underscore: never collected by pytest as a test module. Import-safe
 -- no hardware/ffmpeg calls happen at module load; every subprocess call
@@ -17,6 +20,7 @@ corruption mode this harness exists to catch.
 
 from __future__ import annotations
 
+import functools
 import re
 import shutil
 import subprocess
@@ -26,6 +30,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from enpipe.encoding.chunk import chunk_command, count_frames
+from enpipe.encoding.hdr import detect_hdr
+from enpipe.shared.qsvencc_version import parse_revision
 
 # --------------------------------------------------------------------------- #
 # Fixture + fixed hotspot scenes (hardcoded -- a fixed reproducer, not
@@ -100,18 +106,53 @@ def ffmpeg_av1qsv_command(seek: str, frames: int, out: Path) -> List[str]:
     ]
 
 
-def qsvencc_command(seek: str, trim: str, out: Path, icq: int = 24) -> List[str]:
-    """qsvencc control command: reuses `chunk_command` verbatim (the real
-    production argv builder), then overrides the `--icq` value in the
-    RETURNED argv to match the ffmpeg control's quality setting. This
-    threads ICQ=24 as an argv-local override -- it never sets
-    `os.environ["ICQ"]` and never reassigns `enpipe.encoding.chunk.ICQ`, so
-    that module constant stays at its default (23) for every other
-    importer (in particular, importing this harness module must not affect
-    `tests/unit/encoding/test_chunk.py`'s ICQ-default assertion)."""
-    cmd = chunk_command(FIXTURE, seek, trim, out, hdr_flags=[], metrics=False)
-    idx = cmd.index("--icq")
-    cmd[idx + 1] = str(icq)
+@functools.lru_cache(maxsize=1)
+def _fixture_hdr_flags() -> Tuple[str, ...]:
+    """HDR flags of the fixture, exactly as production derives them.
+
+    Called lazily inside qsvencc_command only -- never at import time: the
+    harness module is imported by fast-tier tests on machines without the
+    fixture. detect_hdr on a missing file silently returns [] (ffprobe
+    prints to stderr, stdout is empty), and lru_cache would then pin a
+    wrong, HDR-less argv -- so a missing fixture raises instead (exceptions
+    are not cached). The cached value is a tuple so callers cannot mutate it."""
+    if not FIXTURE.exists():
+        raise FileNotFoundError(
+            f"fixture {FIXTURE} not found: cannot derive production HDR flags"
+        )
+    return tuple(detect_hdr(FIXTURE))
+
+
+def qsvencc_command(
+    seek: str,
+    trim: str,
+    out: Path,
+    icq: Optional[int] = None,
+    strip_backend: bool = False,
+) -> List[str]:
+    """qsvencc command for the lock. Per D-14 the default is byte-for-byte
+    the production argv from `chunk_command`: production ICQ, the real HDR
+    flags of the fixture and `--backend qsv`. `metrics=False` is the one
+    declared deviation: --psnr/--ssim need OpenCL and would change the
+    pipeline under test. The committed lock never sets `icq`/`strip_backend`.
+
+    `icq` overrides the value after `--icq` in the RETURNED argv only (it
+    never touches os.environ or enpipe.encoding.chunk.ICQ). `strip_backend`
+    removes `--backend <v>` for the one-time D-16 non-vacuity run: the old
+    r4604 binary does not know that flag."""
+    cmd = chunk_command(
+        FIXTURE, seek, trim, out, hdr_flags=list(_fixture_hdr_flags()), metrics=False
+    )
+    if icq is not None:
+        cmd[cmd.index("--icq") + 1] = str(icq)
+    if strip_backend:
+        if "--backend" not in cmd:
+            raise ValueError(
+                "strip_backend=True but chunk_command produced no --backend "
+                "flag; production argv changed -- update the harness"
+            )
+        idx = cmd.index("--backend")
+        del cmd[idx:idx + 2]
     return cmd
 
 
@@ -120,7 +161,12 @@ def _build_command(backend: str, scene: HandoffScene, out: Path) -> List[str]:
         return ffmpeg_av1qsv_command(scene.seek, scene.frames, out)
     if backend == "qsvencc":
         return qsvencc_command(scene.seek, scene.trim, out)
-    raise ValueError(f"unknown backend: {backend!r} (expected 'ffmpeg' or 'qsvencc')")
+    if backend == "qsvencc-nobackend":
+        return qsvencc_command(scene.seek, scene.trim, out, strip_backend=True)
+    raise ValueError(
+        f"unknown backend: {backend!r} "
+        f"(expected 'ffmpeg', 'qsvencc' or 'qsvencc-nobackend')"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -362,4 +408,84 @@ def assert_triad(verbose_log: str, output_obu: Path) -> List[str]:
     for marker in _FALLBACK_MARKERS:
         if marker in verbose_log:
             missing.append(f"silent-fallback marker present: {marker!r}")
+    return missing
+
+
+# --------------------------------------------------------------------------- #
+# qsvencc anti-false-clean triad (D-15; Phase 6 D-05)
+# --------------------------------------------------------------------------- #
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def strip_ansi(text: str) -> str:
+    """qsvencc prefixes stderr lines with SGR escapes (e.g. ESC[39m) even
+    when redirected to a file; they would break every `^`-anchored search."""
+    return _ANSI_RE.sub("", text)
+
+
+def qsvencc_version_line() -> str:
+    """First line of `qsvencc --version`, ANSI-stripped; "" if not runnable."""
+    try:
+        proc = subprocess.run(
+            ["qsvencc", "--version"], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    lines = strip_ansi(proc.stdout or "").splitlines()
+    return lines[0].strip() if lines else ""
+
+
+def qsvencc_revision() -> Optional[int]:
+    return parse_revision(qsvencc_version_line())
+
+
+# Line-scoped announcements of a real fallback. A bare "fallback" token is
+# deliberately NOT matched (it over-matches benign lines such as
+# "fallback=0"). Narrowing the marker text does not weaken anti-false-clean:
+# the positive legs (avqsv, Backend qsv, Buffer Memory va, VPP nv12->p010,
+# 10-bit log + ffprobe, GopRefDist 6 + pyramid) independently detect the
+# EFFECT of any real fallback -- never loosen a positive leg.
+_QSVENCC_FALLBACK_PATTERNS: Tuple["re.Pattern[str]", ...] = tuple(
+    re.compile(p, re.I | re.M)
+    for p in (
+        r"^.*\bfalling back\b.*$",
+        r"^.*\bfall[ -]?back\s+to\b.*$",
+        r"^.*is not supported with.*$",
+        r"^.*unable to decode by qsv.*$",
+    )
+)
+
+_QSVENCC_POSITIVE_LEGS: Tuple[Tuple[str, str], ...] = (
+    ("HW decode (avqsv) not confirmed", r"^Input Info\s+avqsv:"),
+    ("Backend qsv not confirmed", r"^Backend\s+qsv\b"),
+    ("VA buffer memory not confirmed", r"^Buffer Memory\s+va\b"),
+    ("VPP nv12->p010 not confirmed",
+     r"^VPP\s+ColorFmtConvertion:\s*nv12\s*->\s*p010"),
+    ("log: output AV1(yuv420 10bit) not confirmed", r"^Output\s+AV1\(yuv420 10bit\)"),
+    ("GopRefDist 6 + B-pyramid on not confirmed",
+     r"^GopRefDist\s+6,\s*B-pyramid:\s*on"),
+)
+
+
+def assert_qsvencc_triad(log: str, output_obu: Path) -> List[str]:
+    """List of missing/violated legs of the qsvencc corruption triad (HW
+    decode, P010, GopRefDist 6 + B-pyramid; empty = intact) for a run whose
+    PSNR sweep came back clean (D-15, Phase 6 D-05 anti-false-clean). A
+    missing positive leg, or any matched fallback warning even with every
+    positive leg present, means the "clean" result came from a weaker
+    pipeline than production. Extra legs (Backend, VA memory, VPP) exist
+    because the `avsw:` negative is assumed from upstream naming only. The
+    P010 leg has two independent sources: the log and ffprobe of the output."""
+    text = strip_ansi(log)
+    missing: List[str] = []
+    for message, pattern in _QSVENCC_POSITIVE_LEGS:
+        if not re.search(pattern, text, re.M):
+            missing.append(message)
+    if not output_is_10bit(output_obu):
+        missing.append("p010/10-bit (output pix_fmt is not 10-bit)")
+    for pattern in _QSVENCC_FALLBACK_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            missing.append(f"fallback warning present: {m.group(0).strip()!r}")
     return missing
