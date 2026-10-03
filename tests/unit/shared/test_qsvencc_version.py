@@ -13,9 +13,10 @@ import pytest
 from enpipe.shared import qsvencc_version
 from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed, parse_revision
 
-FIXED = "QSVEncC (x64) 8.31 (r4634) by rigaya, Oct  1 2026 22:01:56 (gcc 9.4.0/Linux)"
+FIXED = "QSVEncC (x64) 8.32 (r4663) by rigaya, Oct  3 2026 10:00:00 (gcc 9.4.0/Linux)"
 BROKEN = "QSVEncC (x64) 8.31 (r4604) by rigaya, Sep 27 2026 03:54:16 (gcc 9.4.0/Linux)"
 OLDER = "QSVEncC (x64) 8.31 (r4603) by rigaya"
+PREV_PIN = "QSVEncC (x64) 8.32 (r4658) by rigaya"
 ARGV = ["qsvencc", "--version"]
 
 
@@ -26,7 +27,7 @@ def _refusal(excinfo) -> str:
 # --- parse_revision --- #
 
 def test_parse_fixed_build():
-    assert parse_revision(FIXED + "\nпрочее\n") == 4634
+    assert parse_revision(FIXED + "\nпрочее\n") == 4663
 
 
 def test_parse_broken_build():
@@ -55,14 +56,14 @@ def test_parse_trailing_ansi_still_matches():
 
 
 def test_parse_skips_leading_blank_lines():
-    assert parse_revision("\n\n" + FIXED) == 4634
+    assert parse_revision("\n\n" + FIXED) == 4663
 
 
 # --- ensure_qsvencc_fixed: допуск --- #
 
 def test_gate_accepts_fixed(fp):
     fp.register(ARGV, stdout=FIXED + "\n")
-    assert ensure_qsvencc_fixed() == 4634
+    assert ensure_qsvencc_fixed() == 4663
 
 
 def test_gate_accepts_newer(fp):
@@ -77,14 +78,22 @@ def test_gate_refuses_broken_build(fp):
     with pytest.raises(SystemExit) as ei:
         ensure_qsvencc_fixed()
     msg = _refusal(ei)
-    assert "r4634" in msg and "45003f1" in msg and "r4604" in msg
+    assert "r4663" in msg and "45003f1" in msg and "r4604" in msg
+
+
+def test_gate_refuses_prev_pin_r4658(fp):
+    fp.register(ARGV, stdout=PREV_PIN + "\n")
+    with pytest.raises(SystemExit) as ei:
+        ensure_qsvencc_fixed()
+    msg = _refusal(ei)
+    assert "r4658" in msg and "r4663" in msg and "--seek" in msg
 
 
 def test_gate_refuses_r4603(fp):
     fp.register(ARGV, stdout=OLDER + "\n")
     with pytest.raises(SystemExit) as ei:
         ensure_qsvencc_fixed()
-    assert "r4634" in _refusal(ei)
+    assert "r4663" in _refusal(ei)
 
 
 def test_gate_refuses_unparseable(fp):
@@ -92,7 +101,7 @@ def test_gate_refuses_unparseable(fp):
     with pytest.raises(SystemExit) as ei:
         ensure_qsvencc_fixed()
     msg = _refusal(ei)
-    assert "r4634" in msg and "45003f1" in msg
+    assert "r4663" in msg and "45003f1" in msg
 
 
 def test_gate_refuses_empty_output(fp):
@@ -100,14 +109,14 @@ def test_gate_refuses_empty_output(fp):
     with pytest.raises(SystemExit) as ei:
         ensure_qsvencc_fixed()
     msg = _refusal(ei)
-    assert "пустой вывод" in msg and "r4634" in msg
+    assert "пустой вывод" in msg and "r4663" in msg
 
 
 def test_gate_refuses_nonzero_returncode(fp):
     fp.register(ARGV, stdout=FIXED + "\n", returncode=1)
     with pytest.raises(SystemExit) as ei:
         ensure_qsvencc_fixed()
-    assert "r4634" in _refusal(ei)
+    assert "r4663" in _refusal(ei)
 
 
 def test_gate_refuses_missing_binary(monkeypatch):
@@ -129,7 +138,7 @@ def test_gate_refuses_timeout(monkeypatch):
     with pytest.raises(SystemExit) as ei:
         ensure_qsvencc_fixed()
     msg = _refusal(ei)
-    assert "TimeoutExpired" in msg and "r4634" in msg
+    assert "TimeoutExpired" in msg and "r4663" in msg
 
 
 # --- нет обхода --- #
