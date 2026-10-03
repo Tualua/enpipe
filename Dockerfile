@@ -1,100 +1,111 @@
 # Слим-РАНТАЙМ-образ enpipe (продовый прогон на NAS/хосте с Intel Arc).
-# Это ОТДЕЛЬНЫЙ образ от `.devcontainer/Dockerfile` (там — полная dev-среда с
+# Это ОТДЕЛЬНЫЙ образ от `.devcontainer/Dockerfile` (там - полная dev-среда с
 # node/tmux/git/AI-CLI/GSD для интерактивной разработки внутри Claude Code).
-# Здесь — только то, что нужно, чтобы выполнить `enpipe run <video>` в проде:
+# Здесь - только то, что нужно, чтобы выполнить `enpipe run <video>` в проде:
 # venv с пакетом enpipe (НЕ editable, из pinned uv.lock) + медиа-рантайм
-# (iHD/oneVPL/ffmpeg/mkvtoolnix/qsvencc/dovi_tool). Медиа-рецепты ниже
-# переиспользованы ДОСЛОВНО из .devcontainer/Dockerfile — тот же проверенный
-# набор пакетов/трюков, без изменений логики.
+# (iHD/oneVPL/OpenCL/ffmpeg/mkvtoolnix/qsvencc/dovi_tool).
 
 # ==================== STAGE 1: builder ====================
 # Ставим пакет enpipe в чистый /opt/venv настоящим wheel'ом (build-backend
-# uv_build), а не editable-ссылкой на src/ — так финальный runtime-слой не
+# uv_build), а не editable-ссылкой на src/ - так финальный runtime-слой не
 # зависит от исходников/build-инструментов, только от готового venv.
-FROM python:3.12-slim-trixie AS builder
+# База та же, что у runtime: venv хранит ссылку на интерпретатор, которым
+# создан, поэтому у обеих стадий обязан быть один и тот же /usr/bin/python3.12.
+FROM ubuntu:24.04 AS builder
 
-# uv берём готовым бинарником из официального образа astral-sh — так быстрее
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.12 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv берём готовым бинарником из официального образа astral-sh - так быстрее
 # и без лишней pip-установки в builder-слое. В проде тег стоит закрепить
 # дайджестом (не latest), latest допустим здесь как devcontainer-подобная
 # среда с явным этим предупреждением.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# UV_PROJECT_ENVIRONMENT — ставить именно в /opt/venv (а не в проектный
-# .venv), т.к. этот путь потом переносится в runtime-стадию как есть.
-# UV_COMPILE_BYTECODE — .pyc заранее, чтобы рантайм не тратил время на
-# компиляцию при первом импорте. UV_LINK_MODE=copy — hardlink между слоями
-# Docker невозможен (разные ФС-слои), copy тише варнингов uv.
-ENV UV_PYTHON=python3.12 \
+# UV_PYTHON=/usr/bin/python3.12 + UV_PYTHON_DOWNLOADS=never - использовать
+# именно системный интерпретатор (тот же путь будет в runtime), а не скачивать
+# свой. UV_PROJECT_ENVIRONMENT - ставить в /opt/venv, этот путь переносится в
+# runtime-стадию как есть. UV_COMPILE_BYTECODE - .pyc заранее. UV_LINK_MODE=copy -
+# hardlink между слоями Docker невозможен, copy тише варнингов uv.
+ENV UV_PYTHON=/usr/bin/python3.12 \
+    UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
 WORKDIR /app
 
-# Копируем ТОЛЬКО манифесты и исходники — раздельными слоями, чтобы правка
+# Копируем ТОЛЬКО манифесты и исходники - раздельными слоями, чтобы правка
 # src/ не инвалидировала кэш зависимостей (pyproject.toml/uv.lock меняются
 # реже, чем код).
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
-# --frozen — установить строго по коммитнутому uv.lock, без пересчёта
+# --frozen - установить строго по коммитнутому uv.lock, без пересчёта
 # резолвера (никаких новых версий зависимостей исподтишка).
-# --no-dev — выкинуть dev-группу (pytest/pytest-subprocess/pytest-mock/
+# --no-dev - выкинуть dev-группу (pytest/pytest-subprocess/pytest-mock/
 # ruff), она в рантайме не нужна и раздувает образ.
-# --no-editable — поставить enpipe как настоящий wheel в site-packages, а
+# --no-editable - поставить enpipe как настоящий wheel в site-packages, а
 # не .pth-ссылку на src/; это гарантирует, что финальному runtime-слою
 # исходники src/ не нужны вовсе (копируется только /opt/venv).
 RUN uv sync --frozen --no-dev --no-editable
 
 # ==================== STAGE 2: runtime ====================
-# Без "AS" — финальная стадия. Та же база python:3.12-slim-trixie, что и у
-# builder: одна и та же ФС-раскладка/glibc/python-путь, поэтому venv-copy
-# из builder переносится как есть, без пересборки нативных расширений.
+# Без "AS" - финальная стадия. Та же база ubuntu:24.04, что и у builder: тот же
+# /usr/bin/python3.12, поэтому venv-copy из builder переносится как есть.
 #
-# Почему trixie: prebuilt .deb qsvencc собран под glibc >= 2.39 (см. ниже),
-# на bookworm (glibc 2.36) он не запустится — тот же довод, что и в
-# .devcontainer/Dockerfile.
-# Почему slim, а не devcontainer-база (mcr.microsoft.com/devcontainers/...):
-# devcontainer-база несёt VS Code Server, python-фичи и прочую dev-обвязку,
-# которая в проде не нужна — здесь нужен только голый Python + медиа-стек.
-# ВАЖНО: OpenCL-VPP-фильтры qsvencc (--psnr/--ssim) в этом образе НЕ
-# работают — в Debian trixie нет пакета intel-opencl-icd (Intel NEO OpenCL),
-# ровно как и в .devcontainer/Dockerfile. Базовый AV1-энкод через oneVPL
-# при этом работает штатно; для прод-энкода использовать --no-metrics.
-FROM python:3.12-slim-trixie
+# Почему ubuntu:24.04: ради Intel graphics PPA (kobuk-team) с intel-opencl-icd.
+# Без OpenCL-рантайма VPP-фильтры qsvencc (--psnr/--ssim) не работают, а они
+# включены в пути по умолчанию. glibc 2.39 заодно удовлетворяет .deb qsvencc.
+# Метрики qsvencc на этом стеке нестабильны (VIDEOMETRIC: Failed to copy input
+# surface, известный дефект D-12 в бэклоге) - это не дефект образа.
+# Почему не devcontainer-база: она несёт VS Code Server и dev-обвязку, а в проде
+# нужен только голый Python + медиа-стек.
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# --- Включить non-free/contrib: там лежит intel-media-va-driver-non-free (iHD для Arc) ---
-# ДОСЛОВНО как .devcontainer/Dockerfile: trixie использует deb822-формат
-# (/etc/apt/sources.list.d/debian.sources), на всякий случай поддерживаем и
-# старый однострочный /etc/apt/sources.list.
+# --- Intel graphics PPA + медиа/OpenCL-стек ---
+# Тот же PPA, что в девконтейнере (сам девконтейнер на базе intel/dlstreamer,
+# а не на голом ubuntu:24.04). PPA подключается deb822-файлом .sources, а ключ
+# скачивается по закреплённому отпечатку и сверяется с ним до записи в keyring:
+# так нет обращения к Launchpad API, нет лишних пакетов (software-properties-
+# common, gpg-agent), а подмена ключа на сервере роняет сборку. PPA плавающая
+# (не версионируется), поэтому версии стека фиксируются в доказательствах (D-11).
+# intel-media-va-driver-non-free = iHD для Arc; libvpl2 = oneVPL-диспетчер;
+# libmfx-gen1.2 = GPU-рантайм oneVPL; intel-opencl-icd + ocl-icd-libopencl1 =
+# OpenCL для VPP-фильтров qsvencc; clinfo - диагностика видимости устройства.
+ARG INTEL_PPA_KEY_FPR=0C0E6AF955CE463C03FC51574D098D70AFBE5E1F
 RUN set -eux; \
-    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i -E 's/^(Components:.*)/\1 contrib non-free non-free-firmware/' \
-            /etc/apt/sources.list.d/debian.sources; \
-    elif [ -f /etc/apt/sources.list ]; then \
-        sed -i -E 's/^(deb .*)/\1 contrib non-free non-free-firmware/' /etc/apt/sources.list; \
-    fi
-
-# --- Intel Media (VA-API/oneVPL) + ffmpeg(QSV) + mkvtoolnix ---
-# ДОСЛОВНО как .devcontainer/Dockerfile, но БЕЗ tmux (интерактивный
-# dev-инструмент, в рантайм-образе не нужен). intel-media-va-driver-non-free
-# = драйвер iHD для Arc; libvpl2 = oneVPL-диспетчер; ocl-icd-libopencl1 =
-# загрузчик OpenCL (qsvencc линкует libOpenCL.so.1 для VPP-фильтров, но
-# см. предупреждение выше про intel-opencl-icd). GPU-рантайм oneVPL в Debian
-# называется libmfx-gen1.2 (в Ubuntu так же); держим перебор имён на случай
-# смены базы.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg jq xz-utils \
-      intel-media-va-driver-non-free libva2 libva-drm2 vainfo \
-      libvpl2 ocl-icd-libopencl1 \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
+    export GNUPGHOME="$(mktemp -d)"; \
+    curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x${INTEL_PPA_KEY_FPR}" \
+         -o /tmp/intel-ppa.asc; \
+    gpg --show-keys --with-colons /tmp/intel-ppa.asc | grep -q "^fpr:::::::::${INTEL_PPA_KEY_FPR}:"; \
+    install -d -m 0755 /etc/apt/keyrings; \
+    gpg --dearmor -o /etc/apt/keyrings/kobuk-team-intel-graphics.gpg /tmp/intel-ppa.asc; \
+    rm -rf /tmp/intel-ppa.asc "$GNUPGHOME"; \
+    printf '%s\n' \
+        'Types: deb' \
+        'URIs: https://ppa.launchpadcontent.net/kobuk-team/intel-graphics/ubuntu/' \
+        'Suites: noble' \
+        'Components: main' \
+        'Signed-By: /etc/apt/keyrings/kobuk-team-intel-graphics.gpg' \
+        > /etc/apt/sources.list.d/kobuk-team-ubuntu-intel-graphics-noble.sources; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      jq xz-utils \
+      intel-media-va-driver-non-free libmfx-gen1.2 libvpl2 \
+      libva2 libva-drm2 vainfo \
+      intel-opencl-icd ocl-icd-libopencl1 clinfo \
       ffmpeg \
       mkvtoolnix \
-    && ( for pkg in libmfx-gen1.2 libmfxgen1 libmfx-gen1; do \
-             apt-get install -y --no-install-recommends "$pkg" && break || true; \
-         done ) \
-    && rm -rf /var/lib/apt/lists/*
+      python3.12; \
+    rm -rf /var/lib/apt/lists/*
 
 # --- qsvencc (Rigaya) r4634 — зеркало в Release, пин по sha256 ---
 # Почему пин на зеркало, а не releases/latest: релиз 8.31 (r4604) содержит баг
@@ -137,6 +148,18 @@ RUN --mount=type=secret,id=github_token,required=false set -eu; \
     test "${rev:-0}" -ge 4634; \
     rm -f /tmp/qsvencc.deb; rm -rf /var/lib/apt/lists/*
 
+# --- Самопроверка стека (D-07) ---
+# При сборке GPU нет, поэтому проверяются только файлы; видимость устройства
+# проверяет `clinfo -l` на хосте. Путь библиотеки берётся из ICD-файла, а не
+# хардкодится: проверка переживёт смену раскладки пакета.
+RUN set -eux; \
+    test -s /etc/OpenCL/vendors/intel.icd; \
+    lib="$(head -n1 /etc/OpenCL/vendors/intel.icd)"; \
+    test -n "$lib"; \
+    test -e "$lib"; \
+    command -v clinfo; \
+    qsvencc --version | head -1
+
 # --- dovi_tool (quietvoid) — статический musl-бинарь, дистрибутиво-независим ---
 # ДОСЛОВНО как .devcontainer/Dockerfile. Сейчас dovi_tool НЕ используется ни
 # одним путём пайплайна (текущий DV-путь — qsvencc --dolby-vision-rpu copy,
@@ -163,15 +186,17 @@ RUN --mount=type=secret,id=github_token,required=false set -eux; \
     install -m0755 "$(find "$tmpd" -type f -name dovi_tool | head -1)" /usr/local/bin/dovi_tool; \
     rm -rf "$tmpd" /tmp/dovi.tgz
 
-# Переносим готовый venv из builder-стадии целиком — никаких исходников
+# Переносим готовый venv из builder-стадии целиком - никаких исходников
 # src/, build-инструментов или dev-зависимостей в этом слое нет.
 COPY --from=builder /opt/venv /opt/venv
 
-# PATH — чтобы `enpipe` резолвился из venv без активации.
-# LIBVA_DRIVER_NAME=iHD — выбор Intel Media-драйвера для VA-API, тот же
+# PATH - чтобы `enpipe` резолвился из venv без активации.
+# LIBVA_DRIVER_NAME=iHD - выбор Intel Media-драйвера для VA-API, тот же
 # containerEnv, что задан в .devcontainer/devcontainer.json.
 ENV PATH="/opt/venv/bin:$PATH" \
     LIBVA_DRIVER_NAME=iHD
+
+RUN enpipe --help >/dev/null
 
 ENTRYPOINT ["enpipe"]
 CMD ["--help"]
