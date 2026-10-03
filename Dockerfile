@@ -60,7 +60,7 @@ RUN uv sync --frozen --no-dev --no-editable
 # Почему ubuntu:24.04: ради Intel graphics PPA (kobuk-team) с intel-opencl-icd.
 # Без OpenCL-рантайма VPP-фильтры qsvencc (--psnr/--ssim) не работают, а они
 # включены в пути по умолчанию. glibc 2.39 заодно удовлетворяет .deb qsvencc.
-# Метрики на закреплённом форке 8.32+vppsync6 (r4663) несут те же патчи
+# Метрики на закреплённом форке 8.32+vppsync7 (r4665) несут те же патчи
 # #319/#320, что измерены стабильными на r4658: 0 отказов METRICS_FAILED из
 # 640 сессий. Отказы VIDEOMETRIC (D-12) были на r4634 и в
 # апстримном 8.32 и остались в истории.
@@ -116,7 +116,7 @@ RUN set -eux; \
       python3.12; \
     rm -rf /var/lib/apt/lists/*
 
-# --- qsvencc 8.32+vppsync6 (форк Tualua/QSVEnc) — пин по sha256 ---
+# --- qsvencc 8.32+vppsync7 (форк Tualua/QSVEnc) — пин по sha256 ---
 # Почему форк, а не rigaya releases/latest: апстрим 8.32 уже содержит фикс
 # межсессионной порчи кадров (rigaya/QSVEnc 45003f1, issue #308), но с
 # --psnr/--ssim на Linux/VA он всё ещё ломается: метрика читает VPP-поверхность
@@ -125,23 +125,26 @@ RUN set -eux; \
 # кадров при rc=0 — блокер фазы 08). Кроме того, `--seek` в апстриме и в
 # предыдущем пине (r4658) стартует на один GOP позже на TS/M2TS/MP4 (rc=255 "No video
 # packets found!" в последней GOP).
-# Provenance: релиз https://github.com/Tualua/QSVEnc/releases/tag/8.32-vppsync6;
+# Provenance: релиз https://github.com/Tualua/QSVEnc/releases/tag/8.32-vppsync7;
 # sha256 сверен с SHA256SUMS релиза и с digest на GitHub. Пакет
-# `8.32+vppsync6`, `--version` даёт `8.32 (r4663)`. Состав: rigaya 8.32 +
+# `8.32+vppsync7`, `--version` даёт `8.32 (r4665)`. Состав: rigaya 8.32 +
 # патчи #319, #320, #322 + исправление `--seek` (старт с первого keyframe на
 # или после цели для любого контейнера) + исправление `--seekto` на TS/M2TS
-# и для аудио.
+# и для аудио + патч #6 vppsync7: `--trim` после `--seek` на open-GOP HEVC —
+# RASL больше не входят в trim offset, а `--avsw` отбрасывает RADL в начале,
+# как `--avhw`. До r4665 чанк на open-GOP источнике молча начинался на N
+# кадров раньше при верном числе кадров.
 # Зависимости .deb ослаблены (libc6>=2.31, libva-drm2, libva-x11-2, iHD|va-driver)
 # — intel-opencl-icd/libmfx1 не объявлены, вырезать ничего не нужно (D-05).
 # Официальный 8.33+ (с этими патчами) заменит форк — тогда сменить URL/SHA256.
-ARG QSVENCC_URL=https://github.com/Tualua/QSVEnc/releases/download/8.32-vppsync6/qsvencc_8.32%2Bvppsync6_amd64_ubuntu2004.deb
-ARG QSVENCC_SHA256=f7be83b667c801dd86e8a5b42fd4e11e2e60255aab0ee5dbff85dab03e0d6024
+ARG QSVENCC_URL=https://github.com/Tualua/QSVEnc/releases/download/8.32-vppsync7/qsvencc_8.32%2Bvppsync7_amd64_ubuntu2004.deb
+ARG QSVENCC_SHA256=297d474cad9d95d9b6b20daa35f03eda81400bcc39d2f0f8766627ed4b2b6ac6
 # Токен github_token опционален (репозиторий публичный): нужен только для
 # приватных форков / лимитов загрузки с github.com. xtrace отключён вокруг чтения
 # секрета и авторизованного curl — иначе токен печатается в лог сборки.
 # apt-get update должен стоять непосредственно перед установкой .deb в том же RUN —
 # зависимости .deb резолвятся по свежим спискам; не выносить в другой слой.
-# Литерал 4663 должен равняться QSVENCC_MIN_REV (проверяет
+# Литерал 4665 должен равняться QSVENCC_MIN_REV (проверяет
 # tests/unit/shared/test_qsvencc_threshold_sync.py); `--version` GPU не требует.
 RUN --mount=type=secret,id=github_token,required=false set -eu; \
     set +x; \
@@ -159,7 +162,7 @@ RUN --mount=type=secret,id=github_token,required=false set -eu; \
     ver="$(qsvencc --version)"; \
     printf '%s\n' "$ver" | head -1; \
     rev="$(printf '%s\n' "$ver" | sed -n '1s/.*(r\([0-9]*\)).*/\1/p')"; \
-    test "${rev:-0}" -ge 4663; \
+    test "${rev:-0}" -ge 4665; \
     rm -f /tmp/qsvencc.deb; rm -rf /var/lib/apt/lists/*
 
 # --- Самопроверка стека (D-07) ---

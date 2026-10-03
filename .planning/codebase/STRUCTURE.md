@@ -64,7 +64,7 @@ enpipe/
 │       ├── batch.py            # Batch video processing, skip logic, error collection
 │       ├── logging.py          # die(), log(), step() (elapsed-time-prefixed output)
 │       ├── proc.py             # subprocess.run wrapper
-│       └── qsvencc_version.py  # Runtime qsvencc version check (r4663+ required)
+│       └── qsvencc_version.py  # Runtime qsvencc version check (r4665+ required)
 ├── tests/                      # Test suite (three tiers)
 │   ├── fixtures/               # Shared test resources
 │   │   └── media/              # (Reserved for test video files; currently empty)

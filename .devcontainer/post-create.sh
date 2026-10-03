@@ -135,7 +135,7 @@ if command -v ffmpeg-8.1 >/dev/null 2>&1; then
 else
     echo "    ОШИБКА: ffmpeg-8.1 не найден на PATH (пересобери образ)"; ENV01_OK=0
 fi
-# QSV-01: порог 4663 совпадает с рантайм-гейтом enpipe.shared.qsvencc_version.
+# QSV-01: порог 4665 совпадает с рантайм-гейтом enpipe.shared.qsvencc_version.
 # QSVENCC_MIN_REV (синхронность проверяет tests/unit/shared/
 # test_qsvencc_threshold_sync.py). Это ранний сигнал при создании контейнера,
 # реальное принуждение — рантайм-гейт (QSV-02); аварийный выход не используем — стиль
@@ -145,8 +145,8 @@ if command -v qsvencc >/dev/null 2>&1; then
     _qsv_ver="$(qsvencc --version 2>/dev/null || true)"
     printf "  qsvencc:   %s\n" "$(printf '%s\n' "$_qsv_ver" | sed -n 1p)"
     _qsv_rev="$(printf '%s\n' "$_qsv_ver" | sed -n '1s/.*(r\([0-9]*\)).*/\1/p')"
-    if [ -z "$_qsv_rev" ] || [ "$_qsv_rev" -lt 4663 ]; then
-        echo "    ОШИБКА: qsvencc r${_qsv_rev:-?} старше r4663 (нет фикса 45003f1 и/или исправления --seek из 8.32-vppsync6 — тихая порча/сдвиг содержимого чанков); пересобери образ"; QSV01_OK=0
+    if [ -z "$_qsv_rev" ] || [ "$_qsv_rev" -lt 4665 ]; then
+        echo "    ОШИБКА: qsvencc r${_qsv_rev:-?} старше r4665 (нет фикса 45003f1, исправления --seek из 8.32-vppsync6 и/или исправления open-GOP --trim из 8.32-vppsync7 — тихая порча/сдвиг содержимого чанков); пересобери образ"; QSV01_OK=0
     fi
 else
     echo "    ОШИБКА: qsvencc не найден на PATH"; QSV01_OK=0
@@ -226,9 +226,9 @@ fi
 
 # QSV-01 сводка по флагу QSV01_OK (см. блок qsvencc выше).
 if [ "${QSV01_OK:-0}" -eq 1 ]; then
-    echo "QSV-01 (qsvencc >= r4663 / 45003f1 + --seek): OK"
+    echo "QSV-01 (qsvencc >= r4665 / 45003f1 + --seek + open-GOP --trim): OK"
 else
-    echo "QSV-01 (qsvencc >= r4663 / 45003f1 + --seek): ПРОВАЛЕН — см. ОШИБКА выше"
+    echo "QSV-01 (qsvencc >= r4665 / 45003f1 + --seek + open-GOP --trim): ПРОВАЛЕН — см. ОШИБКА выше"
 fi
 
 # Сводка персистентности по флагу PERSIST_OK (см. блок проверок выше).

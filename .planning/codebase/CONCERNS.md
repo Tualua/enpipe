@@ -23,7 +23,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 **Impact:** Several safety checks and refinements from Phase 8 are marked **"Требует проверки человеком"** (requires human verification on hardware):
 - WR-03: Modified `METRICS_FAILED` classification and frame-loss detection logic — regression lock must pass on r4658 at production/stress JOBS.
 - WR-04: Moved `dovi_tool` token handling to `set +x` pattern — build must be tested to confirm no token leak.
-- WR-05: New per-path metric revisions (`QSVENCC_METRICS_MIN_REV` now equals global `QSVENCC_MIN_REV = 4663`) — metric-path variants must be validated on hardware.
+- WR-05: New per-path metric revisions (`QSVENCC_METRICS_MIN_REV` now equals global `QSVENCC_MIN_REV = 4665`) — metric-path variants must be validated on hardware.
 - WR-06: Replaced ΔPSNR gate with per-scene comparison in `parity_encode` — latent path, only surfaces if qsvencc becomes non-deterministic.
 - IN-04: Heuristic for retry decision based on error-message visibility threshold — depends on qsvencc error behavior on hardware.
 
@@ -38,23 +38,23 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 ### Fragile qsvencc Dependency Chain
 
 **Issue:** The pipeline is tightly coupled to specific qsvencc revisions for correctness:
-- Global minimum: `>= r4663` (`QSVENCC_MIN_REV`; ensures `45003f1` upstream fix for concurrent encode corruption and the fork `--seek` fix)
-- Metrics path minimum: `QSVENCC_METRICS_MIN_REV` = `QSVENCC_MIN_REV` = 4663 (Tualua fork with patches #319/#320 for stable metrics under concurrency)
-- Current pinned build: `8.32+vppsync6` (r4663 fork)
+- Global minimum: `>= r4665` (`QSVENCC_MIN_REV`; ensures `45003f1` upstream fix for concurrent encode corruption, the fork `--seek` fix and the open-GOP `--trim` fix)
+- Metrics path minimum: `QSVENCC_METRICS_MIN_REV` = `QSVENCC_MIN_REV` = 4665 (Tualua fork with patches #319/#320 for stable metrics under concurrency)
+- Current pinned build: `8.32+vppsync7` (r4665 fork)
 
 **Files:** 
 - `src/enpipe/shared/qsvencc_version.py` (revision gates)
-- `tests/integration/test_concurrency_immunity.py` (locks to `QSVENCC_METRICS_MIN_REV` = r4663 for metrics variants)
+- `tests/integration/test_concurrency_immunity.py` (locks to `QSVENCC_METRICS_MIN_REV` = r4665 for metrics variants)
 - `Dockerfile` (pins qsvencc to sha256-verified mirror)
 - `.devcontainer/Dockerfile` (same pin)
 
 **Impact:** 
 1. **Upstream dependency risk (999.4):** Patches #319/#320 remain in the Tualua fork; they are not yet in official rigaya/QSVEnc releases. Phase 8 measured 0 `METRICS_FAILED` on r4658, but if the official upstream 8.33+ does not include these patches, `--psnr/--ssim` at concurrent JOBS will regress to the r4634 behavior (VIDEOMETRIC failures, frame truncation, unreliable metrics).
-2. **Version-gate weakness (WR-05):** Global revision gate `>= 4663` does not detect whether the build is the patched fork or an unpatched official release with the same r-number. If qsvencc is installed via `--build-arg` or from a different mirror, old behavior could silently return. Production safety rests on frame-count validation (`count_frames` will catch truncation and call `die()`), but the regression-lock promise ("on old build, lock FAILS") is weaker than stated.
+2. **Version-gate weakness (WR-05):** Global revision gate `>= 4665` does not detect whether the build is the patched fork or an unpatched official release with the same r-number. If qsvencc is installed via `--build-arg` or from a different mirror, old behavior could silently return. Production safety rests on frame-count validation (`count_frames` will catch truncation and call `die()`), but the regression-lock promise ("on old build, lock FAILS") is weaker than stated.
 
 **Fix approach:**
 1. **(999.4, future phase)** Monitor rigaya/QSVEnc releases for inclusion of patches #319/#320. If/when they land in official releases (e.g., 8.33+), migrate from fork to official version and drop the Tualua fork dependency.
-2. **(WR-05, deferred per fix report)** For metric-path safety: consider stricter version checking (e.g., version string `8.32+vppsync6`, or sha256 of binary + strict URL pinning) if the system is ever opened to user-supplied qsvencc binaries.
+2. **(WR-05, deferred per fix report)** For metric-path safety: consider stricter version checking (e.g., version string `8.32+vppsync7`, or sha256 of binary + strict URL pinning) if the system is ever opened to user-supplied qsvencc binaries.
 
 **Current mitigation:** 
 - Devcontainer pins qsvencc to sha256-verified mirror; subprocess build argument cannot override without hash mismatch.
@@ -223,10 +223,11 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 
 **Status:** **Backlog 999.4.**
 
-**Details:** Current production pin is `8.32+vppsync6` (Tualua fork, r4663), which includes:
+**Details:** Current production pin is `8.32+vppsync7` (Tualua fork, r4665), which includes:
 - Upstream `45003f1` (concurrent encode corruption fix from rigaya/QSVEnc)
 - Local patches #319, #320, #322 (VPP surface sync, metric stability)
 - `--seek` fix (first keyframe at/after target for every container)
+- Patch #6: open-GOP `--trim` fix (RASL not counted into trim offset; `--avsw` drops RADL like `--avhw`)
 
 **Risk:** 
 1. Patches remain in fork only; not yet merged into official rigaya/QSVEnc.

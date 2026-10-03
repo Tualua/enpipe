@@ -14,11 +14,11 @@ All code is local/single-user; no API keys, tokens, or credentials are present.
 ## APIs & External Services
 
 **GitHub Releases API (build-time only):**
-- `api.github.com/repos/Tualua/QSVEnc/releases/tag/8.32-vppsync6` - fetch qsvencc `.deb` with specific SHA256 pinning
+- `api.github.com/repos/Tualua/QSVEnc/releases/tag/8.32-vppsync7` - fetch qsvencc `.deb` with specific SHA256 pinning
   - Called in: `Dockerfile` (ARG QSVENCC_URL), `.devcontainer/Dockerfile` (ARG QSVENCC_URL)
   - Auth: optional BuildKit secret `github_token` (unauthenticated calls have 60 req/hour limit; with token: 5000 req/hour)
-  - Provenance: pinned to fork tag `8.32-vppsync6`; sha256 f7be83b6…6024 verified against release `SHA256SUMS` and the GitHub digest
-  - qsvencc --version output: "8.32 (r4663)" — minimum revision checked at runtime via `src/enpipe/shared/qsvencc_version.py` (threshold: r4663)
+  - Provenance: pinned to fork tag `8.32-vppsync7`; sha256 297d474c…6ac6 verified against release `SHA256SUMS` and the GitHub digest
+  - qsvencc --version output: "8.32 (r4665)" — minimum revision checked at runtime via `src/enpipe/shared/qsvencc_version.py` (threshold: r4665)
 
 - `api.github.com/repos/quietvoid/dovi_tool/releases/latest` - fetch latest dovi_tool static musl binary
   - Called in: `Dockerfile` line 195, `.devcontainer/Dockerfile` line 120 (alternative: ffmpeg 8.1 build from BtbN)
@@ -44,15 +44,15 @@ All invoked via subprocess; no SDK wrappers or client libraries:
 - Package: Ubuntu 24.04 apt (system ffmpeg 6.1.1); devcontainer optionally includes ffmpeg 8.1 from BtbN
 - Entry point:  via `src/enpipe/shared/proc.py::run()` wrapper
 
-**qsvencc (Tualua/QSVEnc 8.32+vppsync6):**
+**qsvencc (Tualua/QSVEnc 8.32+vppsync7):**
 - Purpose: AV1 hardware encoding per scene chunk with HDR/DV metadata preservation
 - Invoked in: `src/enpipe/encoding/chunk.py::encode_chunk()`
   - Command built by `chunk_command()`: `["qsvencc", "--backend", "qsv", "--avhw", ..., "--seek", ..., "--trim", ..., "-o", ...]`
   - PSNR/SSIM metrics parsed from stderr (regex patterns in `src/enpipe/encoding/chunk.py`)
   - Frame count verification post-encode (via `count_frames()` → ffprobe)
 - Requires: Intel Arc GPU, `--backend qsv --avhw` flags
-- Metrics (--psnr/--ssim) depend on OpenCL/VPP: stable on r4658, same patches in r4663 (0 failures from 640 concurrent sessions; r4634 and upstream 8.32 had VIDEOMETRIC failures in Phase 8 matrix)
-- Version constraint: minimum r4663 (carries the `--seek` fix), enforced at runtime via `src/enpipe/shared/qsvencc_version.py`
+- Metrics (--psnr/--ssim) depend on OpenCL/VPP: stable on r4658, same patches in r4663 and r4665 (0 failures from 640 concurrent sessions; r4634 and upstream 8.32 had VIDEOMETRIC failures in Phase 8 matrix)
+- Version constraint: minimum r4665 (carries the `--seek` fix and the open-GOP `--trim` fix), enforced at runtime via `src/enpipe/shared/qsvencc_version.py`
 
 **mkvmerge (mkvtoolnix):**
 - Purpose: final container muxing (video + audio + chapters/metadata)
@@ -69,7 +69,7 @@ All invoked via subprocess; no SDK wrappers or client libraries:
 
 **Tool availability verification:**
 - Preflight check at CLI entry point (`src/enpipe/cli/main.py::main()`) via `shutil.which()` for qsvencc/ffprobe/ffmpeg/mkvmerge
-- Minimum qsvencc revision enforced via `src/enpipe/shared/qsvencc_version.py::check_qsvencc_version()` (compares parsed --version output revision against threshold r4663)
+- Minimum qsvencc revision enforced via `src/enpipe/shared/qsvencc_version.py::check_qsvencc_version()` (compares parsed --version output revision against threshold r4665)
 
 ## Data Storage
 
