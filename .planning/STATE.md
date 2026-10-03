@@ -138,7 +138,7 @@ None yet.
 ### Blockers/Concerns
 
 - Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual
-- Фаза 08 на паузе перед 08-06: qsvencc r4634 с --psnr/--ssim отдаёт 236 из 240 кадров при rc=0 (parity_encode.py, и legacy, и migrated); test_sdr[metrics] METRICS_FAILED x5. Кандидат-фикс: quick 261003-8qq (qsvencc 8.32+vppsync4, патч #320) — перепроверить. 08-02 ждёт чекпоинт D-07 на хосте.
+- Фаза 08: блокер «236/240 при rc=0 с метриками» снят сборкой qsvencc 8.32+vppsync4 (r4658, quick 261003-8qq). Перепроверено 2026-10-03 на A380: test_sdr[metrics] и [no-metrics] PASSED (metrics attempts=1); scratch/parity_encode.py с метриками 3/3 PARITY OK (attempts 1/1/1, movie.obu побайтно идентичен legacy↔migrated). 08-06 разблокирован; эталоны фаз 07–08 сняты на r4634 — учесть при сверке. 08-02 ждёт чекпоинт D-07 на хосте.
 
 ### Quick Tasks Completed
 
