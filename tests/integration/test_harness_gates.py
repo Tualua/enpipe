@@ -181,3 +181,40 @@ def test_sweep_line_count_third(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     with pytest.raises(harness.HarnessError) as ei:
         harness.sweep_chunk(Path("r"), Path("t"), tmp_path / "sweep.log")
     assert "2" in str(ei.value) and "3" in str(ei.value)
+
+
+# --- triad_for / reference_triad_violations ----------------------------------- #
+
+
+def test_triad_for_delegates(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: List[Tuple[str, tuple, dict]] = []
+    monkeypatch.setattr(
+        harness, "assert_triad",
+        lambda *a, **k: calls.append(("ffmpeg", a, k)) or ["f"],
+    )
+    monkeypatch.setattr(
+        harness, "assert_qsvencc_triad",
+        lambda *a, **k: calls.append(("qsv", a, k)) or ["q"],
+    )
+    obu = Path("o.obu")
+    assert harness.triad_for("ffmpeg", "log", obu, metrics=False, expect_frames=5) == ["f"]
+    assert harness.triad_for("qsvencc", "log", obu, metrics=True, expect_frames=111) == ["q"]
+    assert calls[0][0] == "ffmpeg" and calls[0][1] == ("log", obu)
+    assert calls[1][0] == "qsv"
+    assert calls[1][2] == {"metrics": True, "expect_frames": 111}
+
+
+def test_reference_triad_violations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for sc in harness.HANDOFF_SCENES:
+        obu, log = harness.reference_paths(tmp_path, sc)
+        obu.write_bytes(b"x")
+        log.write_text("bad" if sc.scene == 928 else "good")
+    refs = {sc.scene: harness.reference_paths(tmp_path, sc)[0] for sc in harness.HANDOFF_SCENES}
+    monkeypatch.setattr(
+        harness, "triad_for",
+        lambda backend, log, obu, *, metrics, expect_frames: ["why"] if log == "bad" else [],
+    )
+    got = harness.reference_triad_violations("qsvencc", tmp_path, refs, True)
+    assert got == [(928, "why")]

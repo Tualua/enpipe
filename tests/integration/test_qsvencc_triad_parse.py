@@ -183,3 +183,68 @@ def test_build_command_nobackend_matches_strip_backend(_no_hdr: None) -> None:
     )
     with pytest.raises(ValueError):
         harness._build_command("bogus", scene, out)
+
+
+# --- fourth leg: metrics were computed (metrics=True) ------------------------- #
+
+_REAL_METRICS_LINES = (
+    "\x1b[39mssim/psnr: SSIM YUV: 0.990178 (20.078102), 0.993459 (21.843302), "
+    "0.993026 (21.565271), All: 0.989977 (19.990024), (Frames: 111)\n"
+    "\x1b[39mssim/psnr: PSNR YUV: 47.097445, 51.163584, 51.002580, "
+    "Avg: 47.600905, (Frames: 111)\n"
+)
+
+
+def _triad_m(log: str, expect: int = 111) -> List[str]:
+    return harness.assert_qsvencc_triad(log, _OBU, metrics=True, expect_frames=expect)
+
+
+def test_metrics_intact() -> None:
+    assert _triad_m(_REAL_R4634_LOG + _REAL_METRICS_LINES) == []
+
+
+def test_metrics_missing_is_reported() -> None:
+    assert _has(_triad_m(_REAL_R4634_LOG), "metrics")
+
+
+def test_metrics_psnr_missing_is_reported() -> None:
+    ssim_only = _REAL_METRICS_LINES.splitlines()[0] + "\n"
+    assert _has(_triad_m(_REAL_R4634_LOG + ssim_only), "PSNR")
+
+
+def test_metrics_frames_mismatch_is_reported() -> None:
+    result = _triad_m(_REAL_R4634_LOG + _REAL_METRICS_LINES.replace("111", "110"))
+    assert _has(result, "Frames")
+
+
+def test_metrics_subsystem_failure_line_is_reported() -> None:
+    bad = (
+        "VIDEOMETRIC: Failed to copy input surface before video metric: unknown error\n"
+    )
+    assert _has(_triad_m(_REAL_R4634_LOG + _REAL_METRICS_LINES + bad), "metric")
+
+
+def test_metrics_values_are_not_checked() -> None:
+    low = _REAL_METRICS_LINES.replace("47.600905", "33.9")
+    assert _triad_m(_REAL_R4634_LOG + low) == []
+
+
+def test_metrics_off_ignores_metric_lines() -> None:
+    assert harness.assert_qsvencc_triad(_REAL_R4634_LOG, _OBU, metrics=False) == []
+    assert (
+        harness.assert_qsvencc_triad(_REAL_R4634_LOG + _REAL_METRICS_LINES, _OBU) == []
+    )
+
+
+def test_metrics_requires_expected_frames() -> None:
+    with pytest.raises(ValueError):
+        harness.assert_qsvencc_triad(_REAL_R4634_LOG, _OBU, metrics=True)
+
+
+def test_metrics_command_equals_production_chunk_command(_no_hdr: None) -> None:
+    out = Path("/tmp/x.obu")
+    got = harness.qsvencc_command("00:00:01.000", "0:10", out, metrics=True)
+    want = chunk_command(
+        harness.FIXTURE, "00:00:01.000", "0:10", out, hdr_flags=[], metrics=True
+    )
+    assert got == want

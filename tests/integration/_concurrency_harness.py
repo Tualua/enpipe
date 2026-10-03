@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from enpipe.encoding.chunk import chunk_command, count_frames
+from enpipe.encoding.chunk import chunk_command, count_frames, parse_metrics
 from enpipe.encoding.hdr import detect_hdr
 from enpipe.shared.qsvencc_version import parse_revision
 
@@ -572,7 +572,23 @@ _QSVENCC_POSITIVE_LEGS: Tuple[Tuple[str, str], ...] = (
 )
 
 
-def assert_qsvencc_triad(log: str, output_obu: Path) -> List[str]:
+_METRICS_FRAMES_RE = re.compile(
+    r"^.*ssim/psnr:\s*(SSIM|PSNR)\s+YUV:.*\(Frames:\s*(\d+)\)", re.M
+)
+_METRICS_SUBSYSTEM_FAILURES: Tuple[str, ...] = (
+    "VIDEOMETRIC: Failed",
+    "Failed to finish video quality metric",
+    "Decoded frame count does not match",
+)
+
+
+def assert_qsvencc_triad(
+    log: str,
+    output_obu: Path,
+    *,
+    metrics: bool = False,
+    expect_frames: Optional[int] = None,
+) -> List[str]:
     """List of missing/violated legs of the qsvencc corruption triad (HW
     decode, P010, GopRefDist 6 + B-pyramid; empty = intact) for a run whose
     PSNR sweep came back clean (D-15, Phase 6 D-05 anti-false-clean). A
@@ -580,7 +596,16 @@ def assert_qsvencc_triad(log: str, output_obu: Path) -> List[str]:
     positive leg present, means the "clean" result came from a weaker
     pipeline than production. Extra legs (Backend, VA memory, VPP) exist
     because the `avsw:` negative is assumed from upstream naming only. The
-    P010 leg has two independent sources: the log and ffprobe of the output."""
+    P010 leg has two independent sources: the log and ffprobe of the output.
+
+    Fourth leg (metrics=True, D-09): the SSIM and PSNR lines are present,
+    their `(Frames: N)` equals `expect_frames`, and no metric-subsystem
+    failure is reported. The metric VALUES are deliberately not checked: on
+    r4634 qsvencc printed 33.9 and 48.2 dB for byte-identical output (D-12),
+    so they say nothing about the encode. With metrics=False metric lines
+    are not a violation either way."""
+    if metrics and expect_frames is None:
+        raise ValueError("metrics=True requires expect_frames")
     text = strip_ansi(log)
     missing: List[str] = []
     for message, pattern in _QSVENCC_POSITIVE_LEGS:
@@ -592,4 +617,45 @@ def assert_qsvencc_triad(log: str, output_obu: Path) -> List[str]:
         m = pattern.search(text)
         if m:
             missing.append(f"fallback warning present: {m.group(0).strip()!r}")
+    if metrics:
+        parsed = parse_metrics(text)
+        if parsed["ssim_all"] is None:
+            missing.append("metrics: SSIM line missing (metrics=True)")
+        if parsed["psnr_avg"] is None:
+            missing.append("metrics: PSNR line missing (metrics=True)")
+        for mm in _METRICS_FRAMES_RE.finditer(text):
+            if int(mm.group(2)) != expect_frames:
+                missing.append(
+                    f"metrics: {mm.group(1)} Frames: {mm.group(2)} != expected {expect_frames}"
+                )
+        if any(marker in text for marker in _METRICS_SUBSYSTEM_FAILURES):
+            missing.append("metrics: metric subsystem failure reported in log")
     return missing
+
+
+def triad_for(
+    backend: str, log: str, obu: Path, *, metrics: bool, expect_frames: int
+) -> List[str]:
+    """Backend-appropriate triad assertion for one session or reference."""
+    if backend == "ffmpeg":
+        return assert_triad(log, obu)
+    return assert_qsvencc_triad(log, obu, metrics=metrics, expect_frames=expect_frames)
+
+
+def reference_triad_violations(
+    backend: str, workdir: Path, refs: Dict[int, Path], metrics: bool
+) -> List[Tuple[int, str]]:
+    """Triad violations of the isolated references themselves (D-08): a
+    reference built by a weaker pipeline would make byte equality meaningless.
+    Returns (scene, reason) pairs."""
+    out: List[Tuple[int, str]] = []
+    for scene in HANDOFF_SCENES:
+        ref = refs.get(scene.scene)
+        if ref is None:
+            continue
+        log = reference_paths(workdir, scene)[1].read_text()
+        for reason in triad_for(
+            backend, log, ref, metrics=metrics, expect_frames=scene.frames
+        ):
+            out.append((scene.scene, reason))
+    return out
