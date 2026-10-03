@@ -35,7 +35,12 @@ from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed
 from .audio import encode_audio
 from .chunk import GOP_LEN, ICQ, QPMAX, chunk_command, count_frames, encode_chunk
 from .hdr import detect_hdr
-from .keyframes import compute_chunk_seek_trim, keyframe_table
+from .keyframes import (
+    compute_chunk_seek_trim,
+    kf_before,
+    keyframe_table,
+    probe_leading_frames,
+)
 from .metrics import format_total_line, write_metrics_csv
 from .scenes_io import read_scenes
 
@@ -188,6 +193,30 @@ def run_encode(args) -> None:
     with step("чтение keyframe-таблицы источника"):
         table = keyframe_table(args.video, fps)
     log(f">> keyframe'ов в источнике: {len(table)}")
+
+    # Громкий отказ вместо тихой порчи: qsvencc на open-GOP (ведущие кадры после
+    # keyframe) сдвигает --trim на −N, и содержимое чанков смещается при верном
+    # числе кадров. Компенсацию trim+N не делаем (после починки апстрима она бы
+    # дала сдвиг в обратную сторону) и обхода через env нет намеренно. Проверка
+    # идёт на главном потоке, до аудио и чанков, на каждый файл в батч-режиме.
+    # Когда qsvencc починят, защиту стоит привязать к ревизии qsvencc (рядом с
+    # QSVENCC_MIN_REV в shared/qsvencc_version.py) отдельной задачей.
+    used_kfs = sorted({kf_before(table, s) for s, _ in scenes})
+    with step("проверка ведущих кадров (open-GOP) после keyframe'ов сцен"):
+        leading = probe_leading_frames(args.video, fps, used_kfs)
+    offenders = [(f, n) for f, n in sorted(leading.items()) if n > 0]
+    if offenders:
+        shown = ", ".join(f"{f}: {n}" for f, n in offenders[:10])
+        more = f" … и ещё {len(offenders) - 10}" if len(offenders) > 10 else ""
+        die("источник с open-GOP: после keyframe'ов, с которых режутся чанки, "
+            "идут ведущие кадры (pts раньше keyframe) — кадр K: N ведущих "
+            f"[{shown}{more}]. qsvencc сдвигает --trim на −N кадров на таких "
+            "источниках (offset считает отброшенные RASL): число кадров "
+            "совпало бы, а содержимое чанков было бы тихо сдвинуто. "
+            "Кодирование отменено. Перекодируйте источник с закрытым GOP или "
+            "дождитесь исправления qsvencc.")
+    log(f">> ведущих кадров после {len(used_kfs)} keyframe'ов нет — "
+        "open-GOP-защита пройдена")
     hdr_flags = detect_hdr(args.video)
     if hdr_flags:
         log(f">> HDR/DV: {' '.join(hdr_flags)}")

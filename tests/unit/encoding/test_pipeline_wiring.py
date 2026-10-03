@@ -42,6 +42,7 @@ def test_run_encode_wiring_concat_order_and_seek_trim(tmp_path, monkeypatch):
     # --- deterministic, mocked inputs --- #
     monkeypatch.setattr(p, "probe_fps", lambda src: 24.0)
     monkeypatch.setattr(p, "keyframe_table", lambda src, fps: _TABLE)
+    monkeypatch.setattr(p, "probe_leading_frames", lambda src, fps, kfs: {f: 0 for f, _ in kfs})
     monkeypatch.setattr(p, "detect_hdr", lambda src: [])
     monkeypatch.setattr(p, "read_scenes", lambda path: list(_SCENES))
     mock_write_metrics_csv = Mock(return_value={})
@@ -113,6 +114,7 @@ def test_run_encode_writes_metrics_csv_when_enabled(tmp_path, monkeypatch):
     # --- deterministic, mocked inputs --- #
     monkeypatch.setattr(p, "probe_fps", lambda src: 24.0)
     monkeypatch.setattr(p, "keyframe_table", lambda src, fps: _TABLE)
+    monkeypatch.setattr(p, "probe_leading_frames", lambda src, fps, kfs: {f: 0 for f, _ in kfs})
     monkeypatch.setattr(p, "detect_hdr", lambda src: [])
     monkeypatch.setattr(p, "read_scenes", lambda path: list(_SCENES))
     mock_write_metrics_csv = Mock(return_value={
@@ -178,6 +180,7 @@ def test_run_encode_survives_total_without_psnr(tmp_path, monkeypatch):
     # --- deterministic, mocked inputs --- #
     monkeypatch.setattr(p, "probe_fps", lambda src: 24.0)
     monkeypatch.setattr(p, "keyframe_table", lambda src, fps: _TABLE)
+    monkeypatch.setattr(p, "probe_leading_frames", lambda src, fps, kfs: {f: 0 for f, _ in kfs})
     monkeypatch.setattr(p, "detect_hdr", lambda src: [])
     monkeypatch.setattr(p, "read_scenes", lambda path: list(_SCENES))
     mock_write_metrics_csv = Mock(return_value={
@@ -242,3 +245,71 @@ def test_run_encode_refuses_before_any_work_on_old_qsvencc(tmp_path, monkeypatch
 
     assert mock_run.call_count == 0
     assert not workdir.exists()
+
+
+def _guard_setup(tmp_path, monkeypatch, scenes):
+    video = tmp_path / "source.mkv"
+    video.write_bytes(b"dummy-source-bytes")
+    workdir = tmp_path / "chunks"
+    args = Namespace(
+        video=video, scenes=tmp_path / "source.mkv.scenes", out=tmp_path / "out.mkv",
+        frm=0, to=None, workdir=workdir, keep=True, jobs=1,
+        no_audio=False, no_metrics=True, csv=None,
+    )
+    monkeypatch.setattr(p.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(p, "probe_fps", lambda src: 24.0)
+    monkeypatch.setattr(p, "keyframe_table", lambda src, fps: _TABLE)
+    monkeypatch.setattr(p, "detect_hdr", lambda src: [])
+    monkeypatch.setattr(p, "read_scenes", lambda path: list(scenes))
+    monkeypatch.setattr(p, "count_frames", lambda path: sum(e - s for s, e in scenes))
+    mocks = {
+        "chunk_command": Mock(), "encode_chunk": Mock(),
+        "encode_audio": Mock(return_value=(True, None)),
+    }
+    for name, m in mocks.items():
+        monkeypatch.setattr(p, name, m)
+    monkeypatch.setattr(p._proc, "run", Mock(return_value=Mock(returncode=0, stdout="", stderr="")))
+    return args, workdir, mocks
+
+
+def test_run_encode_refuses_open_gop_before_audio_and_chunks(tmp_path, monkeypatch):
+    args, workdir, mocks = _guard_setup(tmp_path, monkeypatch, _SCENES)
+    monkeypatch.setattr(p, "probe_leading_frames", lambda src, fps, kfs: {48: 4, 0: 0})
+
+    with pytest.raises(SystemExit) as excinfo:
+        p.run_encode(args)
+
+    msg = str(excinfo.value)
+    assert "open-GOP" in msg and "48" in msg and "4" in msg
+    for m in mocks.values():
+        assert m.call_count == 0
+    assert not list(workdir.glob("chunk_*.obu"))
+
+
+def test_run_encode_probes_only_used_seek_keyframes(tmp_path, monkeypatch):
+    args, workdir, mocks = _guard_setup(tmp_path, monkeypatch, _SCENES)
+    args.no_audio = True
+    seen = []
+
+    def _probe(src, fps, kfs):
+        seen.append(list(kfs))
+        return {f: 0 for f, _ in kfs}
+
+    monkeypatch.setattr(p, "probe_leading_frames", _probe)
+
+    def _enc(task):
+        idx, cmd, cp, expect = task
+        cp.write_bytes(b"x")
+        return idx, expect, None, 0.01, {"size": 1}
+
+    mocks["encode_chunk"].side_effect = _enc
+
+    def _mux(cmd, **kwargs):
+        if cmd and cmd[0] == "mkvmerge":
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(b"m")
+        return Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(p._proc, "run", Mock(side_effect=_mux))
+    p.run_encode(args)
+
+    assert seen == [[(0, 0.0), (48, 2.0)]]
