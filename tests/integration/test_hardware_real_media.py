@@ -27,8 +27,11 @@ DV RPU verification NEVER uses the mutating dovi_rpu ffmpeg bitstream
 filter to write, and NEVER uses dovi_tool's RPU-extraction subcommand
 (confirmed broken on AV1 input in the installed 2.3.2 version -- see
 04-RESEARCH.md). Only a read-only `ffmpeg -h bsf=dovi_rpu` self-check
-(AV1-support probe) and read-only `ffprobe -show_entries
-frame=side_data_list` inspection are used -- see Task 2's helpers below.
+(AV1-support probe) and read-only ffprobe inspection are used: per-frame
+`-show_entries frame=side_data_list` counted by "Dolby Vision Metadata", and
+`-show_streams` for the "DOVI configuration record". The probing binary is
+$ENPIPE_TEST_FFPROBE (default "ffprobe"); the pipeline under test always
+uses the ffmpeg/ffprobe on PATH -- see the DV helpers below.
 
 EMPIRICAL CORRECTION vs. the plan's draft interface (recorded here, not
 just in the SUMMARY, so a future reader isn't misled by stale assumptions):
@@ -52,7 +55,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -76,6 +79,12 @@ from enpipe.shared.qsvencc_version import QSVENCC_METRICS_MIN_REV
 pytestmark = pytest.mark.hardware
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# ffprobe used ONLY for read-only verification probes. The pipeline under test
+# deliberately keeps using the system ffmpeg/ffprobe from PATH. AV1 Dolby
+# Vision probing needs ffmpeg >= 7 (e.g. a BtbN static build,
+# /opt/ffmpeg-9/bin/ffprobe).
+VERIFY_FFPROBE = os.environ.get("ENPIPE_TEST_FFPROBE", "ffprobe")
 
 _FPS = 24
 _SIZE = "320x180"
@@ -397,8 +406,8 @@ def _encoder_available(name: str) -> bool:
 def _frame_side_data_types(path: Path) -> List[List[str]]:
     """Per-frame list of side_data_type strings, via read-only ffprobe
     (frame=side_data_list) -- shared by the HDR10 survival check here and
-    the DV RPU survival check in Task 2."""
-    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
+    the DV metadata survival check in the DV tests."""
+    cmd = [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_frames",
            "-show_entries", "frame=side_data_list", "-of", "json", str(path)]
     data = json.loads(subprocess.run(cmd, capture_output=True, text=True, check=True).stdout)
     return [
@@ -573,28 +582,66 @@ def _fixture(name: str) -> Optional[Path]:
     return p if p.is_file() else None
 
 
+def _verify_ffmpeg() -> str:
+    """ffmpeg sibling of VERIFY_FFPROBE (same build), else ffmpeg from PATH."""
+    probe = Path(VERIFY_FFPROBE)
+    if probe.parent != Path("."):
+        suffix = probe.name[len("ffprobe"):] if probe.name.startswith("ffprobe") else ""
+        return str(probe.parent / ("ffmpeg" + suffix))
+    return "ffmpeg"
+
+
 def _av1_dovi_self_check() -> bool:
     """Read-only AV1-DOVI-parsing self-check (D-07/Assumption A2, opencode
-    L2): confirms the installed ffmpeg's dovi_rpu bitstream filter declares
-    AV1 support in its Supported-codecs line via a WORD-BOUNDARY match (not
+    L2): confirms that the ffmpeg build matching the verification ffprobe
+    (see _verify_ffmpeg) has a dovi_rpu bitstream filter declaring AV1
+    support in its Supported-codecs line via a WORD-BOUNDARY match (not
     a bare substring, which could match spuriously). This is a READ-ONLY
     `-h` (help) invocation -- it does not filter, mutate, or process any
-    media; it only inspects what the installed ffmpeg build claims to
-    support, so a toolchain downgrade fails loud (skip with an explanation)
-    rather than silently under-reporting RPU frames."""
-    proc = subprocess.run(["ffmpeg", "-hide_banner", "-h", "bsf=dovi_rpu"],
-                           capture_output=True, text=True)
+    media; it only inspects what that ffmpeg build claims to support, so a
+    toolchain downgrade fails loud (skip with an explanation) rather than
+    silently under-reporting DV frames. A missing binary counts as
+    unsupported."""
+    try:
+        proc = subprocess.run([_verify_ffmpeg(), "-hide_banner", "-h", "bsf=dovi_rpu"],
+                              capture_output=True, text=True)
+    except (FileNotFoundError, PermissionError):
+        return False
     return re.search(r"\bav1\b", proc.stdout + proc.stderr, re.I) is not None
 
 
-def _dv_rpu_frame_count(path: Path) -> Tuple[int, int]:
-    """Returns (frames_with_rpu, total_frames) via the SAME read-only
+def _dv_metadata_frame_count(path: Path) -> Tuple[int, int]:
+    """Returns (frames_with_dv_metadata, total_frames) via the SAME read-only
     frame-level ffprobe probe as the HDR10 survival check
-    (_frame_side_data_types) -- no bitstream filter, no mutation. Counts
-    frames whose side_data_list contains a "Dolby Vision RPU Data" entry."""
+    (_frame_side_data_types) -- no bitstream filter, no mutation.
+
+    Counts frames whose side_data_list contains "Dolby Vision Metadata".
+    ffprobe's default AV1 decoder (libdav1d) exports the parsed RPU under
+    that name, whereas the raw "Dolby Vision RPU Data" entry only exists on
+    the HEVC source -- counting RPU Data would yield 0 on the AV1 output even
+    when every RPU survived. "Dolby Vision Metadata" is present on both, so
+    source-vs-output parity compares like with like; it also works on a raw
+    .obu chunk. The native av1 decoder exports no DV side data at all, hence
+    the reliance on ffprobe's default decoder (libdav1d)."""
     per_frame_types = _frame_side_data_types(path)
-    with_rpu = sum(1 for types in per_frame_types if "Dolby Vision RPU Data" in types)
-    return with_rpu, len(per_frame_types)
+    with_md = sum(1 for types in per_frame_types if "Dolby Vision Metadata" in types)
+    return with_md, len(per_frame_types)
+
+
+def _dovi_config_record(path: Path) -> Optional[Dict[str, Any]]:
+    """First "DOVI configuration record" side-data entry of the first video
+    stream, or None. Full -show_streams is required:
+    `-show_entries stream=side_data_list` returns empty dicts."""
+    cmd = [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0",
+           "-show_streams", "-of", "json", str(path)]
+    data = json.loads(subprocess.run(cmd, capture_output=True, text=True, check=True).stdout)
+    streams = data.get("streams", [])
+    if not streams:
+        return None
+    for sd in streams[0].get("side_data_list", []):
+        if sd.get("side_data_type") == "DOVI configuration record":
+            return sd
+    return None
 
 
 def test_hdr10plus(tmp_path: Path) -> None:
@@ -715,35 +762,36 @@ def test_run_parity_vs_two_step(tmp_path: Path) -> None:
     )
 
 
-def test_dv(tmp_path: Path) -> None:
-    fixture = _fixture("dv.mkv")
-    if fixture is None:
-        pytest.skip(
-            f"no Dolby Vision fixture at {FIXTURES_DIR / 'dv.mkv'} (or set "
-            f"$ENPIPE_TEST_MEDIA to a directory containing dv.mkv) -- see "
-            f"tests/fixtures/media/README.md for how to supply one. This is "
-            f"NOT a failure: genuine DV RPU source material cannot be "
-            f"synthesized (D-06) and must be operator-supplied."
-        )
+def _run_dv_case(
+    tmp_path: Path,
+    fixture: Path,
+    stem: str,
+    expected_out_compat: Optional[int] = None,
+) -> None:
     if not _av1_dovi_self_check():
         pytest.skip(
-            "installed ffmpeg's dovi_rpu bitstream filter does not report "
-            "AV1 support -- this toolchain cannot verify AV1 DOVI RPU "
+            "the ffmpeg matching the verification ffprobe has a dovi_rpu "
+            "bitstream filter without AV1 support -- cannot verify AV1 DV "
             "side-data (see 04-RESEARCH.md 'DV RPU Verification Mechanism' "
-            "/ Assumption A2); upgrade ffmpeg to re-enable this check"
+            "/ Assumption A2); point ENPIPE_TEST_FFPROBE at an ffprobe from "
+            "ffmpeg >= 7 (e.g. a BtbN static build)"
         )
 
-    src_with_rpu, src_total = _dv_rpu_frame_count(fixture)
-    assert src_with_rpu > 0, (
-        f"DV fixture {fixture} carries no per-frame RPU side-data -- not a "
-        f"valid DV fixture, or the fixture itself lacks genuine RPU"
+    src_cfg = _dovi_config_record(fixture)
+    assert src_cfg is not None, f"{fixture} has no DOVI configuration record -- not a DV fixture"
+    src_compat = src_cfg["dv_bl_signal_compatibility_id"]
+
+    src_with_md, src_total = _dv_metadata_frame_count(fixture)
+    assert src_with_md > 0, (
+        f"DV fixture {fixture} carries no per-frame Dolby Vision metadata -- "
+        f"not a valid DV fixture, or the fixture itself lacks genuine RPU"
     )
 
     src = tmp_path / fixture.name
     shutil.copyfile(fixture, src)
     scenes = src.with_name(src.name + ".scenes")
-    out = tmp_path / "dv.av1.mkv"
-    workdir = tmp_path / "dv.chunks"
+    out = tmp_path / f"{stem}.av1.mkv"
+    workdir = tmp_path / f"{stem}.chunks"
 
     _run_cli(["detect", str(src), "--jobs", "2"])
     assert scenes.is_file(), f"enpipe detect did not write {scenes}"
@@ -758,28 +806,84 @@ def test_dv(tmp_path: Path) -> None:
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
 
-    # SOURCE-parity of the RPU frame count (opencode M1/qwen M3): the
-    # genuine survival invariant is that the RPU frame-count SURVIVES the
-    # splice/mux, matching the SOURCE fixture's own count -- not merely
-    # "== total", which would be too strict if the source itself is
-    # partial (e.g. RPU present only on some frames).
-    out_with_rpu, out_total = _dv_rpu_frame_count(out)
-    assert out_with_rpu == src_with_rpu and out_with_rpu > 0, (
-        f"DV RPU frame-count did not survive splice/mux: source had "
-        f"{src_with_rpu}/{src_total} RPU frames, final output has "
-        f"{out_with_rpu}/{out_total}"
+    # SOURCE-parity of the DV metadata frame count (opencode M1/qwen M3): the
+    # genuine survival invariant is that the count SURVIVES the splice/mux,
+    # matching the SOURCE fixture's own count -- not merely "== total", which
+    # would be too strict if the source itself is partial (e.g. RPU present
+    # only on some frames).
+    out_with_md, out_total = _dv_metadata_frame_count(out)
+    assert out_with_md == src_with_md and out_with_md > 0, (
+        f"DV metadata frame-count did not survive splice/mux: source had "
+        f"{src_with_md}/{src_total} frames with DV metadata, final output "
+        f"has {out_with_md}/{out_total}"
     )
 
     # ALSO check source-parity at the pre-mux .obu chunk level (RESEARCH
     # Assumption A3 -- mkvmerge's DV-side-data mux path is distinct from
     # HDR10's, so pre-mux and post-mux must both be verified independently).
     scene_list = read_scenes(scenes)
-    chunk_with_rpu_total = 0
+    chunk_with_md_total = 0
     for i in range(len(scene_list)):
         chunk = workdir / f"chunk_{i:05d}.obu"
-        w, _ = _dv_rpu_frame_count(chunk)
-        chunk_with_rpu_total += w
-    assert chunk_with_rpu_total == src_with_rpu, (
-        f"pre-mux chunk RPU frame total ({chunk_with_rpu_total}) does not "
-        f"match source RPU frame count ({src_with_rpu})"
+        w, _ = _dv_metadata_frame_count(chunk)
+        chunk_with_md_total += w
+    assert chunk_with_md_total == src_with_md, (
+        f"pre-mux chunk DV metadata frame total ({chunk_with_md_total}) does "
+        f"not match source count ({src_with_md})"
     )
+
+    # Output configuration record: AV1 Dolby Vision is always profile 10.
+    # mkvmerge derives the record from the stream itself, not from qsvencc's
+    # --dolby-vision-profile flag.
+    out_cfg = _dovi_config_record(out)
+    assert out_cfg is not None, (
+        f"output {out} has no DOVI configuration record (source: {src_cfg})"
+    )
+    assert out_cfg["dv_profile"] == 10, (
+        f"output DV profile is not 10: source record {src_cfg}, output record {out_cfg}"
+    )
+    expected = src_compat if expected_out_compat is None else expected_out_compat
+    if expected_out_compat is not None:
+        # Sanity: the fixture really is the profile this test implies.
+        assert src_compat == expected_out_compat, (
+            f"fixture {fixture} has bl_signal_compatibility_id {src_compat}, "
+            f"test expects {expected_out_compat}: source record {src_cfg}"
+        )
+    assert out_cfg["dv_bl_signal_compatibility_id"] == expected, (
+        f"output bl_signal_compatibility_id != {expected}: "
+        f"source record {src_cfg}, output record {out_cfg}"
+    )
+
+
+def test_dv(tmp_path: Path) -> None:
+    fixture = _fixture("dv.mkv")
+    if fixture is None:
+        pytest.skip(
+            f"no Dolby Vision fixture at {FIXTURES_DIR / 'dv.mkv'} (or set "
+            f"$ENPIPE_TEST_MEDIA to a directory containing dv.mkv) -- see "
+            f"tests/fixtures/media/README.md for how to supply one. This is "
+            f"NOT a failure: genuine DV RPU source material cannot be "
+            f"synthesized (D-06) and must be operator-supplied."
+        )
+    _run_dv_case(tmp_path, fixture, "dv")
+
+
+def test_dv_profile5(tmp_path: Path) -> None:
+    """DV profile 5 (IPTPQc2 base layer, bl_signal_compatibility_id 0) source
+    -> AV1 profile 10.0. Guards against the output being flagged as 10.1
+    (HDR10-compatible), which a profile 5 base layer is not."""
+    fixture = _fixture("dv-p5.mkv")
+    if fixture is None:
+        pytest.skip(
+            f"no Dolby Vision profile 5 fixture at {FIXTURES_DIR / 'dv-p5.mkv'} "
+            f"(or set $ENPIPE_TEST_MEDIA to a directory containing dv-p5.mkv) "
+            f"-- a DV profile 5 (bl_signal_compatibility_id 0, IPTPQc2 base "
+            f"layer) source; see tests/fixtures/media/README.md. This is NOT "
+            f"a failure: genuine DV material cannot be synthesized (D-06) "
+            f"and must be operator-supplied."
+        )
+    src_cfg = _dovi_config_record(fixture)
+    assert src_cfg is not None and src_cfg["dv_profile"] == 5, (
+        f"{fixture} is not a DV profile 5 source: {src_cfg}"
+    )
+    _run_dv_case(tmp_path, fixture, "dv-p5", expected_out_compat=0)
