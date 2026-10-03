@@ -143,7 +143,12 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                     help="qsvencc metrics variants to run (default: %(default)s)")
     ap.add_argument("--expect", choices=("clean", "corrupt"), default="clean")
     ap.add_argument("--evidence-dir", type=Path, default=REPO_ROOT / "scratch")
-    return ap.parse_args(argv)
+    args = ap.parse_args(argv)
+    # IN-03: пустая лестница (`--jobs ","`, `--jobs ""`) дала бы PASS без
+    # единой сессии. Ошибка аргументов, а не вакуумный вердикт.
+    if not any(x.strip() for x in args.jobs.split(",")):
+        ap.error("пустая лестница JOBS (--jobs)")
+    return args
 
 
 def main(argv: Optional[List[str]] = None) -> int:  # noqa: C901 -- linear evidence script
@@ -346,6 +351,11 @@ def main(argv: Optional[List[str]] = None) -> int:  # noqa: C901 -- linear evide
             emit(f"BAD CELL metrics={'on' if metrics else 'off'} JOBS={jobs}: {cells[(metrics, jobs)]}")
         emit(f"0 byte mismatches / failures / skips in every cell: {not bad_cells}")
         emit(f"triad intact on every ok session and reference: {triad_ok}")
+    # IN-03: вердикт без единой ячейки - не PASS (страховка поверх проверки
+    # аргументов на случай иного пути к пустой матрице).
+    if not cells:
+        emit("no cells were run: empty matrix is not PASS")
+        passed = False
     emit("PASS" if passed else "FAIL")
 
     evidence_path = evidence_dir / f"gate_stress_matrix_{timestamp}.log"
