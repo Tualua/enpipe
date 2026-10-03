@@ -115,3 +115,15 @@ def test_parse_metrics_nan_in_values_and_mixed_case():
                       "PSNR YUV: Inf, 1, 1, Avg: NaN, (Frames: 1)")
     assert math.isnan(m["ssim_y"]) and math.isnan(m["ssim_all"])
     assert math.isinf(m["psnr_y"]) and math.isnan(m["psnr_avg"])
+
+
+def test_parse_metrics_negative_nan_and_inf():
+    # WR-02: glibc печатает NaN со знаковым битом как `-nan`; строка не должна
+    # теряться целиком (все поля None), nan обязан всплыть.
+    m = parse_metrics("ssim/psnr: SSIM YUV: 1.000000 (-nan), 1.000000 (-nan), "
+                      "1.000000 (-nan), All: 1.000000 (-nan), (Frames: 240)\n"
+                      "ssim/psnr: PSNR YUV: -nan, 65.724102, -inf, Avg: -nan, "
+                      "(Frames: 240)")
+    assert m["ssim_y"] == 1.0 and m["ssim_all"] == 1.0
+    assert math.isnan(m["ssim_db"])
+    assert math.isnan(m["psnr_y"]) and math.isnan(m["psnr_avg"])
