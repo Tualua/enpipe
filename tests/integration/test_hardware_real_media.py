@@ -23,6 +23,13 @@ METRICS_FAILED (the metrics path is NOT verified; this is not a green). The
 remaining tests deliberately keep --no-metrics: metrics are not their subject
 and the metrics path is covered by the parametrized tests.
 
+Chunk CONTENT check (`_verify_chunk_first_frames`): the first decoded frame of
+every kept chunk is compared by PSNR with the SOURCE frame S that starts the
+scene (decoded by the ffmpeg next to $ENPIPE_TEST_FFPROBE), plus a negative
+control against source frame S+(K_next-K). It catches `qsvencc --seek` landing
+one GOP late, which keeps frame counts and rc intact (see
+.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md).
+
 DV RPU verification NEVER uses the mutating dovi_rpu ffmpeg bitstream
 filter to write, and NEVER uses dovi_tool's RPU-extraction subcommand
 (confirmed broken on AV1 input in the installed 2.3.2 version -- see
@@ -60,6 +67,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _chunk_content as content  # noqa: E402
 import _concurrency_harness as harness  # noqa: E402
 
 from enpipe.cli.main import main as _enpipe_main
@@ -77,6 +85,14 @@ from enpipe.encoding.scenes_io import read_scenes
 from enpipe.shared.qsvencc_version import QSVENCC_METRICS_MIN_REV
 
 pytestmark = pytest.mark.hardware
+
+_FIRSTPKT_SEEK_BUG = (
+    "qsvencc --seek counts from firstpkt->pts and silently lands one GOP late "
+    "(rc=255 in the last GOP) -- upstream bug, see "
+    ".planning/debug/HANDOFF-qsvencc-seek-firstpkt.md; remove this xfail once "
+    "qsvencc is fixed"
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -380,6 +396,7 @@ def test_sdr(tmp_path: Path, request: pytest.FixtureRequest, metrics: bool) -> N
         _assert_metrics_csv(out)
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+    _verify_chunk_first_frames(src, workdir, read_scenes(scenes), tmp_path / "content")
 
 
 _HDR10_CODEC_ARGS: List[str] = [
@@ -451,6 +468,7 @@ def test_hdr10(tmp_path: Path, request: pytest.FixtureRequest, metrics: bool) ->
         _assert_metrics_csv(out)
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+    _verify_chunk_first_frames(src, workdir, read_scenes(scenes), tmp_path / "content")
 
     # HDR10 metadata survival -- FRAME-level (see module docstring's
     # "EMPIRICAL CORRECTION" note): every video frame of the final .mkv
@@ -540,6 +558,10 @@ def test_sdr_legacy_oracle_parity(
         _assert_metrics_csv(enpipe_out)
         _assert_metrics_csv(legacy_out)
 
+    scenes_list = read_scenes(scenes)
+    _verify_chunk_first_frames(src, wd_enpipe, scenes_list, tmp_path / "content_en")
+    _verify_chunk_first_frames(src, wd_legacy, scenes_list, tmp_path / "content_lg")
+
     # PRIMARY GATE: final .mkv frame-count parity.
     assert count_frames(legacy_out) == count_frames(enpipe_out), (
         "enpipe encode frame count does not match the frozen legacy oracle "
@@ -589,6 +611,88 @@ def _verify_ffmpeg() -> str:
         suffix = probe.name[len("ffprobe"):] if probe.name.startswith("ffprobe") else ""
         return str(probe.parent / ("ffmpeg" + suffix))
     return "ffmpeg"
+
+
+def _source_start_time(src: Path) -> float:
+    """Container start_time of the source (read-only probe)."""
+    out = subprocess.run(
+        [VERIFY_FFPROBE, "-v", "error", "-show_entries", "format=start_time",
+         "-of", "default=nw=1:nk=1", str(src)],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    try:
+        return float(out)
+    except ValueError:
+        return 0.0
+
+
+def _verify_chunk_first_frames(
+    src: Path, workdir: Path, scenes: List[Tuple[int, int]], tmp: Path
+) -> int:
+    """First frame of chunk_{i:05d}.obu vs source frame S (scene start), by
+    PSNR, with a wrong-GOP negative control at S+(K_next-K). Chunks are
+    numbered from 0 within `scenes`. Returns the number of chunks where the
+    negative control was discriminating. Collect-then-report."""
+    ffmpeg = _verify_ffmpeg()
+    fps = probe_fps(src)
+    table = keyframe_table_ffprobe(src, fps)  # independent ground truth
+    total = count_frames(src)
+    start_time = _source_start_time(src)
+    kf_frames = [f for f, _ in table]
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    errors: List[str] = []
+    oks: List[float] = []
+    disc_count = 0
+    for i, (s, e) in enumerate(scenes):
+        chunk = workdir / f"chunk_{i:05d}.obu"
+        k, k_time = kf_before(table, s)
+        later = [f for f in kf_frames if f > k]
+        k_next = later[0] if later else None
+        alt = s + (k_next - k) if k_next is not None else None
+        if alt is not None and alt >= total:
+            alt = None
+
+        c0 = tmp / f"c{i:05d}_chunk.mkv"
+        content.extract_chunk_first_frame(ffmpeg, chunk, c0)
+        ref = tmp / f"c{i:05d}_src_s.mkv"
+        content.extract_source_frame(ffmpeg, src, s, k, k_time, fps, start_time, ref)
+        psnr_ok = content.psnr_db(ffmpeg, c0, ref)
+        psnr_alt: Optional[float] = None
+        psnr_src_alt: Optional[float] = None
+        if alt is not None:
+            # K of the alt frame, for the fast extraction path
+            ka, ka_time = kf_before(table, alt)
+            ref_alt = tmp / f"c{i:05d}_src_alt.mkv"
+            content.extract_source_frame(
+                ffmpeg, src, alt, ka, ka_time, fps, start_time, ref_alt
+            )
+            psnr_alt = content.psnr_db(ffmpeg, c0, ref_alt)
+            psnr_src_alt = content.psnr_db(ffmpeg, ref, ref_alt)
+        err, disc = content.first_frame_verdict(psnr_ok, psnr_alt, psnr_src_alt)
+        oks.append(psnr_ok)
+        disc_count += 1 if disc else 0
+        print(
+            f"[content] {src.name} chunk {i} scene [{s},{e}) K={k} K_next={k_next} "
+            f"psnr_ok={psnr_ok:.2f} psnr_alt={psnr_alt} psnr_src_alt={psnr_src_alt} "
+            f"discriminating={disc}"
+        )
+        if err is not None:
+            errors.append(
+                f"chunk {i} scene [{s},{e}) K={k} K_next={k_next}: {err} "
+                f"(psnr_ok={psnr_ok:.2f}, psnr_alt={psnr_alt}, "
+                f"psnr_src_alt={psnr_src_alt})"
+            )
+    print(
+        f"[content] {src.name}: min psnr_ok={min(oks) if oks else None}, "
+        f"discriminating chunks={disc_count}/{len(scenes)}"
+    )
+    assert not errors, (
+        f"chunk content mismatch on {src.name} (frame counts may still match -- "
+        f"suspect qsvencc --seek firstpkt bug, see "
+        f".planning/debug/HANDOFF-qsvencc-seek-firstpkt.md):\n" + "\n".join(errors)
+    )
+    return disc_count
 
 
 def _av1_dovi_self_check() -> bool:
@@ -674,6 +778,7 @@ def test_hdr10plus(tmp_path: Path) -> None:
     assert out.is_file(), f"enpipe encode did not write {out}"
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+    _verify_chunk_first_frames(src, workdir, read_scenes(scenes), tmp_path / "content")
 
 
 def test_run_parity_vs_two_step(tmp_path: Path) -> None:
@@ -731,6 +836,10 @@ def test_run_parity_vs_two_step(tmp_path: Path) -> None:
 
     # COLLISION-AVOIDANCE: distinct tmp copies -> distinct derived paths.
     assert run_scenes != scenes2
+
+    run_scene_list = read_scenes(run_scenes)
+    _verify_chunk_first_frames(src, wd_run, run_scene_list, tmp_path / "content_run")
+    _verify_chunk_first_frames(src2, wd_two, run_scene_list, tmp_path / "content_two")
 
     # PRIMARY GATE: final .mkv frame-count parity.
     assert count_frames(run_out) == count_frames(two_out), (
@@ -805,6 +914,7 @@ def _run_dv_case(
     assert out.is_file(), f"enpipe encode did not write {out}"
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
+    _verify_chunk_first_frames(src, workdir, read_scenes(scenes), tmp_path / "content")
 
     # SOURCE-parity of the DV metadata frame count (opencode M1/qwen M3): the
     # genuine survival invariant is that the count SURVIVES the splice/mux,
@@ -868,10 +978,110 @@ def test_dv(tmp_path: Path) -> None:
     _run_dv_case(tmp_path, fixture, "dv")
 
 
+def _make_firstpkt_bug_source(dst: Path) -> None:
+    """12 s 1280x720 10-bit HEVC mp4 (software x265): keyframes every 48 frames
+    (0,48,96,144,192,240), B-frames on, four visibly different MOVING scenes
+    of 70/80/70/68 frames -> cuts at 70, 150 and 220, all mid-GOP. (x265 builds
+    open GOPs by default; a scene starting exactly on a keyframe then loses its
+    leading pictures when qsvencc lands on the next keyframe, which shows up as
+    a frame-count error rather than silent corruption, so it is avoided here.) mp4 rather than TS: a TS start_time of ~0.083 s breaks
+    the pipeline's own keyframe table before encoding, while mp4 (start_time 0)
+    still reproduces the qsvencc firstpkt seek bug."""
+    rate = "24000/1001"
+    size = "1280x720"
+    sources = [
+        f"testsrc2=size={size}:rate={rate}",
+        f"mandelbrot=size={size}:rate={rate}",
+        f"gradients=size={size}:rate={rate}:speed=0.05",
+        f"life=size={size}:rate={rate}:mold=10:ratio=0.1:"
+        f"death_color=#C83232:life_color=#00ff00",
+    ]
+    lengths = [70, 80, 70, 68]
+    inputs: List[str] = []
+    fc = ""
+    for i, (srcspec, n) in enumerate(zip(sources, lengths)):
+        inputs += ["-f", "lavfi", "-i", srcspec]
+        fc += (
+            f"[{i}:v]trim=end_frame={n},setpts=PTS-STARTPTS,"
+            f"format=yuv420p10le[v{i}];"
+        )
+    fc += "".join(f"[v{i}]" for i in range(len(sources)))
+    fc += f"concat=n={len(sources)}:v=1[v]"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *inputs,
+         "-filter_complex", fc, "-map", "[v]",
+         "-c:v", "libx265", "-preset", "ultrafast",
+         "-x265-params",
+         "keyint=48:min-keyint=48:scenecut=0:bframes=4:log-level=error",
+         str(dst)],
+        check=True, capture_output=True,
+    )
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason=_FIRSTPKT_SEEK_BUG)
+def test_chunk_content_firstpkt_seek_bug(tmp_path: Path) -> None:
+    """Reproduces the qsvencc --seek firstpkt bug: the encode succeeds and the
+    frame counts match, but chunk content comes from the next GOP. Only the
+    content check fails (AssertionError) -- precondition problems and encode
+    failures use pytest.fail() and are NOT masked by the xfail. XPASS (strict)
+    means the upstream fix landed: remove the xfail."""
+    if not _encoder_available("libx265"):
+        pytest.skip("libx265 encoder not available in this ffmpeg build")
+
+    src = tmp_path / "syn.mp4"
+    _make_firstpkt_bug_source(src)
+
+    _run_cli(["detect", str(src), "--jobs", "2"])
+    scenes_path = src.with_name(src.name + ".scenes")
+    scenes = read_scenes(scenes_path)
+    if len(scenes) < 3:
+        pytest.fail(f"precondition: need >= 3 scenes, got {scenes}")
+    included = scenes[:-1]
+    fps = probe_fps(src)
+    table = keyframe_table_ffprobe(src, fps)
+    last_kf = max(f for f, _ in table)
+    kfs = {f for f, _ in table}
+    if not any(s not in kfs for s, _ in included):
+        pytest.fail(f"precondition: no scene starts mid-GOP: {scenes}, kf={sorted(kfs)}")
+    if any(e > last_kf for _, e in included):
+        pytest.fail(
+            f"precondition: included scenes must end <= last keyframe {last_kf}: {scenes}"
+        )
+
+    out = tmp_path / "syn.av1.mkv"
+    workdir = tmp_path / "syn.chunks"
+    # The last scene is excluded: with the bug it inevitably overruns the end
+    # of the file (K_next + len > last frame), so the encode would die on frame
+    # count / rc=255 before the content check. Excluding it collapses both
+    # failure modes into one deterministic one (silent content shift).
+    _run_cli([
+        "encode", str(src), str(scenes_path),
+        "-o", str(out), "--workdir", str(workdir), "--keep", "--no-audio",
+        "--no-metrics", "--jobs", "2", "--from", "0", "--to", str(len(scenes) - 1),
+    ])
+    total_expect = 0
+    for i, (s, e) in enumerate(included):
+        got = count_frames(workdir / f"chunk_{i:05d}.obu")
+        if got != e - s:
+            pytest.fail(f"chunk {i}: {got} frames, expected {e - s}")
+        total_expect += e - s
+    if count_frames(out) != total_expect:
+        pytest.fail(f"{out}: {count_frames(out)} frames, expected {total_expect}")
+
+    disc = _verify_chunk_first_frames(src, workdir, included, tmp_path / "content")
+    if disc == 0:
+        pytest.fail("negative control never discriminated -- check is vacuous")
+
+
+@pytest.mark.xfail(
+    strict=True, raises=(pytest.fail.Exception, AssertionError), reason=_FIRSTPKT_SEEK_BUG
+)
 def test_dv_profile5(tmp_path: Path) -> None:
     """DV profile 5 (IPTPQc2 base layer, bl_signal_compatibility_id 0) source
     -> AV1 profile 10.0. Guards against the output being flagged as 10.1
-    (HDR10-compatible), which a profile 5 base layer is not."""
+    (HDR10-compatible), which a profile 5 base layer is not.
+
+    Strict xfail: the last chunk dies with rc=255 (qsvencc firstpkt seek bug)."""
     fixture = _fixture("dv-p5.mkv")
     if fixture is None:
         pytest.skip(

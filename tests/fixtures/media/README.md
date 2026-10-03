@@ -80,3 +80,24 @@ locally or point `ENPIPE_TEST_MEDIA` at a directory that already has them
   `dv_bl_signal_compatibility_id` equal to the source's (8.1 -> 10.1).
 - `test_dv_profile5`: the same on `dv-p5.mkv`; expects profile 10 with
   compat 0 (P5 -> 10.0). The record is derived by mkvmerge from the stream.
+
+## Chunk content check (first frame vs source)
+
+Frame counts and keyframe alignment do not see a chunk that silently starts
+one GOP late. So every hardware test that keeps its chunks (`--keep`) also
+compares the **first frame** of each `chunk_{i:05d}.obu` with source frame `S`
+(the scene start), decoded by the ffmpeg next to `ENPIPE_TEST_FFPROBE`:
+
+- PSNR(chunk first frame, source frame `S`) must be at least 30 dB.
+- Negative control: source frame `S + (K_next - K)` (where the chunk lands if
+  `--seek` jumps to the next keyframe) must score at least 3 dB lower. If
+  source frames `S` and `S+delta` are nearly identical (static content) the
+  control is reported as non-discriminating and only the 30 dB floor applies.
+
+Why: `qsvencc --seek` counts from `firstpkt->pts` and can land one GOP late with
+rc=0 and the expected frame count (see
+`.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md`).
+
+`test_dv_profile5` and `test_chunk_content_firstpkt_seek_bug` (synthetic HEVC
+mp4 that reproduces the bug) are **strict xfail** until qsvencc is fixed
+upstream. When one of them XPASSes the fix has landed: remove the xfail marker.
