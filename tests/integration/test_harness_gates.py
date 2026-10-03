@@ -516,6 +516,11 @@ def test_metrics_only_failure_rule() -> None:
     assert harness.metrics_only_failure([vm], "чанк 2: кадров 50, ожидалось 111") is False
     frame_loss = vm + "\nssim/psnr: Decoded frame count does not match original frames"
     assert harness.metrics_only_failure([frame_loss], "qsvencc rc=255: ...") is False
+    # IN-04: при >= 10 упавших вызовах die() мог обрезать строку с
+    # несовпадением кадров, отсутствие «ожидалось» ничего не доказывает.
+    shown = harness._DIE_ERRORS_SHOWN
+    assert harness.metrics_only_failure([vm] * (shown - 1), "qsvencc rc=255") is True
+    assert harness.metrics_only_failure([vm] * shown, "qsvencc rc=255") is False
 
 
 def test_frame_loss_marker_with_metrics_on_is_session_failed(env: _Env) -> None:

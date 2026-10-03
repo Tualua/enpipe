@@ -830,14 +830,30 @@ def tap_failures(log_dir: Path) -> List[str]:
     return out
 
 
+# IN-04: сколько ошибок чанков die() показывает в сообщении: `errors[:10]` в
+# src/enpipe/encoding/pipeline.py и legacy/encode_scenes.py. Менять вместе.
+_DIE_ERRORS_SHOWN = 10
+
+
 def metrics_only_failure(failed_stderrs: Sequence[str], message: str) -> bool:
     """True iff a retry is allowed: at least one qsvencc call failed, ALL failed
     calls failed in the metrics subsystem (D-12), and the error message carries
     no frame-count mismatch. A frame-count mismatch of a chunk or of the
     concatenation signals corruption or a bug and is never retried (T-08-08);
-    an empty list (e.g. mkvmerge failed, not qsvencc) is no reason to retry."""
+    an empty list (e.g. mkvmerge failed, not qsvencc) is no reason to retry.
+
+    IN-04. Несовпадение кадров чанка ищется по подстроке «ожидалось» в
+    сообщении die(), а оно содержит только первые _DIE_ERRORS_SHOWN ошибок.
+    Ошибки чанков бывают двух видов: rc!=0 qsvencc (ровно одна на упавший
+    вызов из tap) и несовпадение кадров при rc=0. Если упавших вызовов меньше
+    _DIE_ERRORS_SHOWN, то среди показанных ошибок хотя бы одно несовпадение
+    кадров обязательно есть, если оно вообще было. Иначе отсутствие слова
+    «ожидалось» ничего не доказывает, и повтор запрещён. Ограничение: проверка
+    привязана к русскому тексту сообщений enpipe/legacy (chunk.py,
+    pipeline.py, encode_scenes.py); смена формулировки требует правки здесь."""
     return (
         bool(failed_stderrs)
+        and len(failed_stderrs) < _DIE_ERRORS_SHOWN
         and all(is_metrics_failure(t) for t in failed_stderrs)
         and "ожидалось" not in message
     )
