@@ -726,11 +726,19 @@ def assert_qsvencc_triad(
             missing.append("metrics: SSIM line missing (metrics=True)")
         if parsed["psnr_avg"] is None:
             missing.append("metrics: PSNR line missing (metrics=True)")
+        frames_kinds = set()
         for mm in _METRICS_FRAMES_RE.finditer(text):
+            frames_kinds.add(mm.group(1))
             if int(mm.group(2)) != expect_frames:
                 missing.append(
                     f"metrics: {mm.group(1)} Frames: {mm.group(2)} != expected {expect_frames}"
                 )
+        # IN-01: finditer без совпадений нарушений не даёт, и при изменённом
+        # формате строки нога (Frames: N) молча стала бы вакуумной. Поэтому
+        # (Frames: N) обязан найтись и у SSIM, и у PSNR.
+        for kind in ("SSIM", "PSNR"):
+            if kind not in frames_kinds:
+                missing.append(f"metrics: {kind} Frames not reported")
         if any(marker in text for marker in _METRICS_SUBSYSTEM_FAILURES):
             missing.append("metrics: metric subsystem failure reported in log")
     return missing

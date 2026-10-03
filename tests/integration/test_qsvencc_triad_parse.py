@@ -217,6 +217,20 @@ def test_metrics_frames_mismatch_is_reported() -> None:
     assert _has(result, "Frames")
 
 
+def test_metrics_frames_not_reported_is_reported() -> None:
+    # IN-01: строки метрик разобраны, но (Frames: N) нет - нога не вакуумна.
+    no_frames = _REAL_METRICS_LINES.replace(", (Frames: 111)", "")
+    result = _triad_m(_REAL_R4634_LOG + no_frames)
+    assert "metrics: SSIM Frames not reported" in result
+    assert "metrics: PSNR Frames not reported" in result
+    psnr_no_frames = _REAL_METRICS_LINES.replace(
+        "Avg: 47.600905, (Frames: 111)", "Avg: 47.600905"
+    )
+    assert _triad_m(_REAL_R4634_LOG + psnr_no_frames) == [
+        "metrics: PSNR Frames not reported"
+    ]
+
+
 def test_metrics_subsystem_failure_line_is_reported() -> None:
     bad = (
         "VIDEOMETRIC: Failed to copy input surface before video metric: unknown error\n"
