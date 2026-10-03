@@ -4,7 +4,7 @@ milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: executing
 stopped_at: Phase 8 context gathered
-last_updated: "2026-10-03T02:04:18.869Z"
+last_updated: "2026-10-03T02:23:22.659Z"
 last_activity: 2026-10-03 -- Phase 08 execution started
 progress:
   total_phases: 5
@@ -138,6 +138,7 @@ None yet.
 ### Blockers/Concerns
 
 - Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual
+- Фаза 08 на паузе перед 08-06: qsvencc r4634 с --psnr/--ssim отдаёт 236 из 240 кадров при rc=0 (parity_encode.py, и legacy, и migrated); test_sdr[metrics] METRICS_FAILED x5. Разбор через /gsd:debug. 08-02 ждёт чекпоинт D-07 на хосте.
 
 ### Quick Tasks Completed
 
