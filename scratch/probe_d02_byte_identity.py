@@ -50,11 +50,10 @@ except ImportError as exc:
 
 from enpipe.encoding.chunk import chunk_command, count_frames  # noqa: E402
 
-_METRICS_FAILURE_MARKERS: Tuple[str, ...] = (
-    "VIDEOMETRIC:",
-    "allocVA",
-    "Decoded frame count does not match",
-)
+# Маркеры отказа метрик своей копии не имеют (IN-02): классификация идёт через
+# harness.is_metrics_failure, единственный источник правды. Прежняя копия
+# (`VIDEOMETRIC:`, `allocVA`, «Decoded frame count does not match») разошлась
+# с харнессом после WR-03 и считала потерю кадров отказом «только метрик».
 CLASSES: Tuple[str, ...] = (
     "byte_identical", "byte_mismatch", "no_reference",
     "SESSION_FAILED", "METRICS_FAILED", "frames_bad",
@@ -87,8 +86,7 @@ def _classify(
     (same is None) - `no_reference`, а НЕ `byte_identical`: байты ни с чем не
     сверены, засчитать её «совпавшей» значит дать ложное «чисто» (CR-01)."""
     if not ok:
-        clean = harness.strip_ansi(stderr_text)
-        if metrics and any(m in clean for m in _METRICS_FAILURE_MARKERS):
+        if metrics and harness.is_metrics_failure(stderr_text):
             return "METRICS_FAILED"
         return "SESSION_FAILED"
     if same is None:
@@ -101,9 +99,14 @@ def _classify(
 
 
 def _self_test() -> int:
-    ansi_vm = "\x1b[31mVIDEOMETRIC: error\x1b[0m"
+    ansi_vm = "\x1b[31mVIDEOMETRIC: Failed to run metric\x1b[0m"
     assert _classify(False, ansi_vm, True, None, None) == "METRICS_FAILED"
     assert _classify(False, ansi_vm, False, None, None) == "SESSION_FAILED"
+    # Потеря кадров главнее маркера метрик: это не «отказ только метрик».
+    loss = ansi_vm + "\nssim/psnr: Decoded frame count does not match original frames"
+    assert _classify(False, loss, True, None, None) == "SESSION_FAILED"
+    # allocVA - общая ошибка VA-аллокации, не отказ метрик.
+    assert _classify(False, "allocVA: failed", True, None, None) == "SESSION_FAILED"
     assert _classify(False, "rc=1: avqsv: failed to seek", True, None, None) == "SESSION_FAILED"
     assert _classify(True, "", False, False, False) == "byte_mismatch"
     assert _classify(True, "", False, True, False) == "frames_bad"
