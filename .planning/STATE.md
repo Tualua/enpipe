@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: executing
 stopped_at: Phase 8 context gathered
-last_updated: "2026-10-03T01:40:45.761Z"
+last_updated: "2026-10-03T01:48:43.598Z"
 last_activity: 2026-10-03 -- Phase 08 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 9
+  completed_plans: 10
   percent: 40
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 08 (cor02-lock-hardening) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Executing Phase 08
 Last activity: 2026-10-03 -- Phase 08 execution started
 
@@ -69,6 +69,7 @@ Last activity: 2026-10-03 -- Phase 08 execution started
 | Phase 05 P01 | 9min | 3 tasks | 3 files |
 | Phase 06 P02 | 25min | 3 tasks | 3 files |
 | Phase 08 P01 | 25min | 2 tasks | 2 files |
+| Phase 08 P03 | 40min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,7 @@ Recent decisions affecting current work:
 - [Phase 06-02]: run_concurrent takes an explicit refs: Dict[int, Path] param (not a same-workdir naming convention) so isolated references can be built once and reused across many ephemeral per-iteration stress-matrix workdirs
 - [Phase 06-02]: IMMUNITY_ITERS defaults to 8 (env-tunable) -- survival-probability math (0.35^8..0.65^8 ~= 2e-4..3e-2) justifies a modest, fast-rerun iteration count distinct from the one-time 20-iter stress tier
 - [Phase 08]: [Phase 08-01]: D-02 PASS на A380/qsvencc r4634 - побайтный критерий D-01 жизнеспособен; сцена 1129 с метриками побайтно не сверена
+- [Phase 08]: Гейт харнесса - sha256; отличные сессии всегда byte_mismatch, HarnessError только для идентичных с неверным числом кадров — D-01/D-03, анти-ложное-чисто
 
 ### Pending Todos
 
@@ -174,7 +176,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T01:40:40.622Z
+Last session: 2026-10-03T01:48:38.599Z
 Stopped at: Phase 8 context gathered
 Resume file: .planning/phases/08-cor02-lock-hardening/08-CONTEXT.md
 </content>
