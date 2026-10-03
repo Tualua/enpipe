@@ -94,10 +94,12 @@ compares the **first frame** of each `chunk_{i:05d}.obu` with source frame `S`
   source frames `S` and `S+delta` are nearly identical (static content) the
   control is reported as non-discriminating and only the 30 dB floor applies.
 
-Why: `qsvencc --seek` counts from `firstpkt->pts` and can land one GOP late with
-rc=0 and the expected frame count (see
-`.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md`).
+Why: the content check guards against `qsvencc --seek` landing one GOP late
+with rc=0 and the expected frame count (fixed in qsvencc 8.32-vppsync6, r4663,
+now the required minimum; see `.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md`)
+and against open-GOP leading-frame mismatches.
 
-`test_dv_profile5` and `test_chunk_content_firstpkt_seek_bug` (synthetic HEVC
-mp4 that reproduces the bug) are **strict xfail** until qsvencc is fixed
-upstream. When one of them XPASSes the fix has landed: remove the xfail marker.
+`test_dv_profile5` is a normal test now. `test_chunk_content_open_gop`
+(synthetic open-GOP HEVC mp4) stays **strict xfail** until the open-GOP issue
+(`.planning/debug/qsvencc-open-gop-leading.md`) is fixed; XPASS means remove the
+marker. Hardware tests require qsvencc >= r4663 on PATH.

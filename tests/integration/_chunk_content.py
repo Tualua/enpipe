@@ -1,7 +1,10 @@
 """Chunk CONTENT check helpers: first frame of an encoded chunk vs the source.
 
-Why this exists: `qsvencc --seek` counts from `firstpkt->pts` and can silently
-start one GOP late (see .planning/debug/HANDOFF-qsvencc-seek-firstpkt.md).
+Why this exists: `qsvencc --seek` used to count from `firstpkt->pts` and could
+silently start one GOP late (fixed in r4663, see
+.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md); the check still guards
+against seek regressions and the open-GOP leading-frame issue
+(.planning/debug/qsvencc-open-gop-leading.md).
 `--trim`/`--frames` still yield the expected number of frames and rc=0, so the
 frame-count and keyframe-alignment checks stay green while the chunk holds the
 wrong span of the movie. Only comparing pixels catches that.

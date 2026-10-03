@@ -27,8 +27,10 @@ Chunk CONTENT check (`_verify_chunk_first_frames`): the first decoded frame of
 every kept chunk is compared by PSNR with the SOURCE frame S that starts the
 scene (decoded by the ffmpeg next to $ENPIPE_TEST_FFPROBE), plus a negative
 control against source frame S+(K_next-K). It catches `qsvencc --seek` landing
-one GOP late, which keeps frame counts and rc intact (see
-.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md).
+one GOP late (fixed in qsvencc r4663, see
+.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md) and open-GOP leading-frame
+mismatches (see .planning/debug/qsvencc-open-gop-leading.md); both keep frame
+counts and rc intact.
 
 DV RPU verification NEVER uses the mutating dovi_rpu ffmpeg bitstream
 filter to write, and NEVER uses dovi_tool's RPU-extraction subcommand
@@ -86,11 +88,12 @@ from enpipe.shared.qsvencc_version import QSVENCC_METRICS_MIN_REV
 
 pytestmark = pytest.mark.hardware
 
-_FIRSTPKT_SEEK_BUG = (
-    "qsvencc --seek counts from firstpkt->pts and silently lands one GOP late "
-    "(rc=255 in the last GOP) -- upstream bug, see "
-    ".planning/debug/HANDOFF-qsvencc-seek-firstpkt.md; remove this xfail once "
-    "qsvencc is fixed"
+_OPEN_GOP_LEADING = (
+    "chunk content mismatch on an open-GOP (x265 default CRA + leading pictures) "
+    "source: qsvencc seeked to a CRA drops/reorders RASL leading frames, so the "
+    "first chunk frame is not the scene's start frame; under investigation in "
+    ".planning/debug/qsvencc-open-gop-leading.md (the firstpkt seek bug itself "
+    "is fixed in 8.32-vppsync6 r4663); remove this xfail once fixed"
 )
 
 
@@ -689,8 +692,9 @@ def _verify_chunk_first_frames(
     )
     assert not errors, (
         f"chunk content mismatch on {src.name} (frame counts may still match -- "
-        f"suspect qsvencc --seek firstpkt bug, see "
-        f".planning/debug/HANDOFF-qsvencc-seek-firstpkt.md):\n" + "\n".join(errors)
+        f"suspect a qsvencc seek / open-GOP leading-frame issue, see "
+        f".planning/debug/qsvencc-open-gop-leading.md; the firstpkt seek bug is "
+        f"fixed in r4663, see .planning/debug/HANDOFF-qsvencc-seek-firstpkt.md):\n" + "\n".join(errors)
     )
     return disc_count
 
@@ -978,15 +982,14 @@ def test_dv(tmp_path: Path) -> None:
     _run_dv_case(tmp_path, fixture, "dv")
 
 
-def _make_firstpkt_bug_source(dst: Path) -> None:
+def _make_open_gop_source(dst: Path) -> None:
     """12 s 1280x720 10-bit HEVC mp4 (software x265): keyframes every 48 frames
     (0,48,96,144,192,240), B-frames on, four visibly different MOVING scenes
     of 70/80/70/68 frames -> cuts at 70, 150 and 220, all mid-GOP. (x265 builds
-    open GOPs by default; a scene starting exactly on a keyframe then loses its
-    leading pictures when qsvencc lands on the next keyframe, which shows up as
-    a frame-count error rather than silent corruption, so it is avoided here.) mp4 rather than TS: a TS start_time of ~0.083 s breaks
-    the pipeline's own keyframe table before encoding, while mp4 (start_time 0)
-    still reproduces the qsvencc firstpkt seek bug."""
+    open GOPs by default -- no open-gop=0 in x265-params -- and that is what
+    the test exercises; a scene starting exactly on a keyframe is avoided here.)
+    mp4 rather than TS: a TS start_time of ~0.083 s breaks the pipeline's own
+    keyframe table before encoding, while mp4 has start_time 0."""
     rate = "24000/1001"
     size = "1280x720"
     sources = [
@@ -1018,18 +1021,21 @@ def _make_firstpkt_bug_source(dst: Path) -> None:
     )
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=_FIRSTPKT_SEEK_BUG)
-def test_chunk_content_firstpkt_seek_bug(tmp_path: Path) -> None:
-    """Reproduces the qsvencc --seek firstpkt bug: the encode succeeds and the
-    frame counts match, but chunk content comes from the next GOP. Only the
-    content check fails (AssertionError) -- precondition problems and encode
-    failures use pytest.fail() and are NOT masked by the xfail. XPASS (strict)
-    means the upstream fix landed: remove the xfail."""
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason=_OPEN_GOP_LEADING)
+def test_chunk_content_open_gop(tmp_path: Path) -> None:
+    """Reproduces the open-GOP leading-frame content mismatch: the encode
+    succeeds and the frame counts match, only the content check fails
+    (AssertionError) -- precondition problems and encode failures use
+    pytest.fail() and are NOT masked by the xfail. XPASS (strict) means the
+    open-GOP issue is fixed: remove the xfail.
+
+    Historically this test was written for the firstpkt seek bug, fixed in
+    qsvencc r4663; it kept failing because its source is open-GOP."""
     if not _encoder_available("libx265"):
         pytest.skip("libx265 encoder not available in this ffmpeg build")
 
     src = tmp_path / "syn.mp4"
-    _make_firstpkt_bug_source(src)
+    _make_open_gop_source(src)
 
     _run_cli(["detect", str(src), "--jobs", "2"])
     scenes_path = src.with_name(src.name + ".scenes")
@@ -1073,15 +1079,13 @@ def test_chunk_content_firstpkt_seek_bug(tmp_path: Path) -> None:
         pytest.fail("negative control never discriminated -- check is vacuous")
 
 
-@pytest.mark.xfail(
-    strict=True, raises=(pytest.fail.Exception, AssertionError), reason=_FIRSTPKT_SEEK_BUG
-)
 def test_dv_profile5(tmp_path: Path) -> None:
     """DV profile 5 (IPTPQc2 base layer, bl_signal_compatibility_id 0) source
     -> AV1 profile 10.0. Guards against the output being flagged as 10.1
     (HDR10-compatible), which a profile 5 base layer is not.
 
-    Strict xfail: the last chunk dies with rc=255 (qsvencc firstpkt seek bug)."""
+    Relies on the `--seek` fix of qsvencc >= r4663 (8.32-vppsync6): the last
+    chunk lands in the source's last GOP."""
     fixture = _fixture("dv-p5.mkv")
     if fixture is None:
         pytest.skip(
