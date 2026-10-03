@@ -53,9 +53,14 @@ def chunk_command(src: Path, seek: str, trim: str, out: Path,
 # qsvencc печатает (в stderr):
 #  ssim/psnr: SSIM YUV: <Y> (<Ydb>), <U> (..), <V> (..), All: <all> (<alldb>), (Frames: N)
 #  ssim/psnr: PSNR YUV: <Y>, <U>, <V>, Avg: <avg>, (Frames: N)
+# `inf` законен: плоскость восстановлена без потерь (PSNR=inf), а при SSIM=1
+# дБ-значение бесконечно. `nan` печатали старые сборки (r4634) — парсим его как
+# float('nan'), чтобы он ЯВНО всплыл в CSV/итоге, а не превратился в пустое поле.
+_NUM = r"(?:[\d.]+|inf|nan)"
 _SSIM_RE = re.compile(
-    r"SSIM\s+YUV:\s*([\d.]+)\s*\([\d.]+\),.*?All:\s*([\d.]+)\s*\(([\d.]+)\)", re.I)
-_PSNR_RE = re.compile(r"PSNR\s+YUV:\s*([\d.]+),.*?Avg:\s*([\d.]+)", re.I)
+    rf"SSIM\s+YUV:\s*({_NUM})\s*\({_NUM}\),.*?All:\s*({_NUM})\s*\(({_NUM})\)",
+    re.I)
+_PSNR_RE = re.compile(rf"PSNR\s+YUV:\s*({_NUM}),.*?Avg:\s*({_NUM})", re.I)
 
 
 def parse_metrics(output: str) -> dict:

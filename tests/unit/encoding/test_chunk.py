@@ -7,6 +7,7 @@ never monkeypatch.setenv after import."""
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from enpipe.encoding import chunk
@@ -73,3 +74,44 @@ def test_chunk_command_pins_qsv_backend():
         assert cmd.count("--backend") == 1
         assert cmd[cmd.index("--backend") + 1] == "qsv"
         assert cmd.index("--backend") < cmd.index("--avhw")
+
+
+# --- parse_metrics: inf/nan в выводе qsvencc --- #
+
+_SSIM_INF = ("ssim/psnr: SSIM YUV: 1.000000 (inf), 1.000000 (inf), 1.000000 (inf), "
+             "All: 1.000000 (inf), (Frames: 240)")
+_PSNR_INF = ("ssim/psnr: PSNR YUV: inf, 65.724102, inf, Avg: 73.505614, "
+             "(Frames: 240)")
+_SSIM_OK = ("ssim/psnr: SSIM YUV: 0.999532 (33.293074), 0.999602 (33.999615), "
+            "0.999450 (32.599071), All: 0.999530 (33.276445), (Frames: 240)")
+_PSNR_OK = ("ssim/psnr: PSNR YUV: 58.912875, 57.636023, 56.542279, "
+            "Avg: 58.201504, (Frames: 240)")
+
+
+def test_parse_metrics_inf_lines():
+    m = parse_metrics(_SSIM_INF + "\n" + _PSNR_INF)
+    assert m["ssim_y"] == 1.0 and m["ssim_all"] == 1.0
+    assert math.isinf(m["ssim_db"])
+    assert math.isinf(m["psnr_y"])
+    assert m["psnr_avg"] == 73.505614
+
+
+def test_parse_metrics_regular_lines():
+    m = parse_metrics(_SSIM_OK + "\n" + _PSNR_OK)
+    assert m == {"ssim_y": 0.999532, "ssim_all": 0.999530, "ssim_db": 33.276445,
+                 "psnr_y": 58.912875, "psnr_avg": 58.201504}
+
+
+def test_parse_metrics_nan_in_db_fields():
+    line = ("ssim/psnr: SSIM YUV: 1.047548 (nan), 1.0 (nan), 1.0 (nan), "
+            "All: 1.047548 (nan), (Frames: 10)")
+    m = parse_metrics(line)
+    assert m["ssim_all"] == 1.047548
+    assert math.isnan(m["ssim_db"])
+
+
+def test_parse_metrics_nan_in_values_and_mixed_case():
+    m = parse_metrics("SSIM YUV: NaN (Inf), 1 (1), 1 (1), All: nan (nan), (Frames: 1)\n"
+                      "PSNR YUV: Inf, 1, 1, Avg: NaN, (Frames: 1)")
+    assert math.isnan(m["ssim_y"]) and math.isnan(m["ssim_all"])
+    assert math.isinf(m["psnr_y"]) and math.isnan(m["psnr_avg"])
