@@ -99,7 +99,7 @@ streams: List[dict] = json.loads(...)
 ## Error Handling
 
 **Fatal errors on main thread:**
-- Use `die(msg: str)` from `enpipe.shared.logging` to exit with an error message. This is the only path to `sys.exit()` (`src/enpipe/shared/logging.py:27-28`).
+- Use `die(msg: str)` from `enpipe.shared.logging` to exit with an error message. It is the error-exit path (`src/enpipe/shared/logging.py:27-28`); the only other `SystemExit` is the quiet Ctrl-C exit `SystemExit(130)` in `src/enpipe/cli/main.py:247`.
 - Example: `die(f"не найден qsvencc")` in `src/enpipe/cli/main.py:92`.
 
 **Background/worker thread errors:**
@@ -167,7 +167,7 @@ die("ffmpeg not found")
 - Module-level worker functions are defined at module scope (not closures/lambdas) because they must be picklable if used with `ProcessPoolExecutor` in the future.
 
 **Ordered output from unordered completion:**
-- Results keyed by index in a dict, flushed to output stream only when the next expected index becomes available. This is the "high-water mark" pattern: see `src/enpipe/encoding/pipeline.py:240-250`, `_flush_appends()` closure.
+- Results keyed by index in a dict, flushed to output stream only when the next expected index becomes available. This is the "high-water mark" pattern: see the `flush_appends()` closure at `src/enpipe/encoding/pipeline.py:237` and the pure helper `contiguous_run()` at `src/enpipe/encoding/pipeline.py:45`.
 
 **Parallel side-work:**
 - Background/parallel side-work (audio encode while video chunks encode in parallel) is started via a dedicated single-worker pool (`ThreadPoolExecutor(max_workers=1)`) rather than sharing the main chunk-encoding pool. This keeps resource accounting explicit per concern.

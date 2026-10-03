@@ -107,7 +107,7 @@
 **Shared Utilities:**
 - Purpose: Leaf modules with no inter-package dependencies (keep layers acyclic): logging/die, subprocess wrapper, batch processing, qsvencc version checking.
 - Location: `src/enpipe/shared/`
-- Contains: `logging.py` (elapsed-time-prefixed log, step context manager, die/exit), `proc.py` (subprocess.run wrapper), `batch.py` (batch file iteration and error handling), `qsvencc_version.py` (runtime check for fixed qsvencc r4634+).
+- Contains: `logging.py` (elapsed-time-prefixed log, step context manager, die/exit), `proc.py` (subprocess.run wrapper), `batch.py` (batch file iteration and error handling), `qsvencc_version.py` (runtime check for fixed qsvencc: `QSVENCC_MIN_REV = 4634`; `QSVENCC_METRICS_MIN_REV = 4658` gates the metrics path in the COR-02 lock and hardware tier).
 - Depends on: none.
 - Used by: all layers.
 
@@ -237,7 +237,7 @@ class Scene:
 - Responsibilities: Parse detect-specific CLI args, build `DetectionConfig`, call `detect_scenes()`, format and write `<video>.scenes`.
 
 **`enpipe encode <video> <scenes> [options]`**:
-- Location: `src/enpipe/cli/main.py:run_encode` (line 107)
+- Location: `src/enpipe/encoding/pipeline.py:run_encode` (line 107)
 - Triggers: Manual CLI invocation (or `enpipe run` internal call).
 - Responsibilities: Full encode pipeline (described in Data Flow above); tool-availability preflight; qsvencc version check (fail-fast gate).
 
@@ -248,7 +248,7 @@ class Scene:
 
 ## Architectural Constraints
 
-- **Threading model**: Both detection and encoding use `ThreadPoolExecutor` for concurrency, not multiprocessing. For encoding, this is safe because GPU/qsvencc work dominates; the GIL is not a bottleneck. For parallel detection, the codebase **documents** (`src/enpipe/detection/parallel.py:99-100`) that the PySceneDetect CPU-bound detector "serializes in threads" and needs real processes to bypass the GIL, but the current implementation uses `ThreadPoolExecutor` for both boundary-finding and segment workers—this is **not a correctness bug** (it still runs correctly, just slower than optimal for parallelism), but represents latent inefficiency. Workers are kept at module scope (not closures) to prepare for future ProcessPoolExecutor migration.
+- **Threading model**: Both detection and encoding use `ThreadPoolExecutor` for concurrency, not multiprocessing. For encoding, this is safe because GPU/qsvencc work dominates; the GIL is not a bottleneck. For parallel detection, `ThreadPoolExecutor` was kept deliberately after measurement (DEBT-03, `scratch/profiling_debt03.py`; rationale in the comment at `src/enpipe/detection/parallel.py:99-110`) — the old "needs processes to bypass the GIL" claim was removed as contradicted by the numbers. Workers are kept at module scope (not closures) to prepare for future ProcessPoolExecutor migration.
 
 - **Global mutable state**: `_START = time.monotonic()` at module import in `src/enpipe/shared/logging.py:31`. Used by `log()` for elapsed-time prefixes. No other module-level mutable singletons.
 
@@ -260,7 +260,7 @@ class Scene:
 
 - **Hardware coupling**: The entire toolchain assumes Intel Arc GPU with QSV/VA-API support (iHD driver). `--no-qsv` software-decode fallback exists for debugging but only covers the detection stage. No fallback AV1 encoder exists; `qsvencc` is a hard external-tool dependency (attempted qsvencc absence is caught by preflight check before any long-running work).
 
-- **Cyclic import prevention**: `detect_scenes` and `detect_scenes_parallel` import each other (deferred inside function bodies), and `detection.py` imports `parallel.py` lazily to break the cycle. Same pattern used for `encoding/keyframes.py` and `mkv/ebml.py` to keep the dependency DAG acyclic.
+- **Cyclic import prevention**: `detect_scenes` and `detect_scenes_parallel` import each other (deferred inside function bodies), broken by a deferred `from .parallel import detect_scenes_parallel` inside `detect_scenes` (`src/enpipe/detection/detect.py:85`). `encoding/keyframes.py` → `mkv/ebml.py` is a plain one-way import (ebml is pure, imports nothing from enpipe).
 
 ## Anti-Patterns
 
@@ -296,7 +296,7 @@ class Scene:
 **Strategy**: Fail-fast on preflight checks (tool availability, qsvencc version, source file existence); collect and report batch errors; drain-then-die for parallel chunk failures.
 
 **Patterns**:
-- **Preflight**: `shutil.which()` loop checks qsvencc/ffprobe/ffmpeg/mkvmerge before any real work (`src/enpipe/encoding/pipeline.py:108`). `ensure_qsvencc_fixed()` verifies qsvencc version ≥ r4634 (fixes #D-11 frame corruption bug).
+- **Preflight**: `shutil.which()` loop checks qsvencc/ffprobe/ffmpeg/mkvmerge before any real work (`src/enpipe/encoding/pipeline.py:108`). `ensure_qsvencc_fixed()` verifies qsvencc version ≥ r4634 (upstream fix 45003f1 for cross-session frame corruption); the pinned build is the Tualua fork r4658.
 - **Background thread errors**: `encode_audio()` returns `(bool, Optional[str])` (success, error message) instead of raising, because it runs in a background thread. The main thread calls `.result()` on the future and checks the error tuple, then calls `die()` if needed—keeping error handling on the main thread.
 - **Batch-vs-immediate failure**: In parallel chunk encoding, all in-flight futures complete even if one fails. Errors are collected in an `errors` list, capped at 10, and reported once before calling `die()` (drain-then-die). This gives users visibility into all failures, not just the first one.
 - **Cleanup on error**: `try/finally` blocks in `QsvPipeStream` ensure `close()` (force-kill subprocess) is always called on early exit or exception.
