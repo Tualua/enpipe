@@ -134,3 +134,12 @@ Plans:
 
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.6: Источники с ненулевым start_time (MPEG-TS/m2ts) в enpipe (BACKLOG)
+
+**Goal:** [Captured for future planning] Найдено планировщиком quick 261003-j55 (2026-10-03, A380): у HEVC в MPEG-TS `start_time`≈0.083 с, `keyframe_table_ffprobe` считает первый keyframe кадром 2 и encode падает через `die` до кодирования; кроме того enpipe передаёт в `qsvencc --seek` абсолютный pts, а qsvencc трактует `--seek` относительно начала потока. Нужно: нормализовать keyframe-таблицу и seek к началу потока (start_time/первый kf), покрыть тестом на TS/m2ts. Связано с апстрим-багом qsvencc firstpkt-seek (`.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md`): TS-источники затронуты им сильнее всего (сдвиг 0.25 с на синтетике).
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
