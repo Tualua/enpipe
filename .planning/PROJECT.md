@@ -18,6 +18,8 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 **Phase 6 GATE complete (2026-07-23) — v1.2 premise PROVEN:** the milestone's load-bearing gate passed on real Arc A380 hardware — ffmpeg `av1_qsv` is **immune** to the cross-process frame corruption (320 concurrent sessions across JOBS 3/5/8, **0 corrupt frames, 0 failed starts**), while `qsvencc` corrupts in the identical harness (96 frames, control non-vacuous). D-12 verdict = **PROCEED** at full JOBS (no cap). ENV-01 hard-assert self-check landed in the devcontainer; the COR-01 concurrency-immunity harness + hardware-gated pytest are committed. Evidence: `.planning/debug/scene-chunk-frame-mismatch.md` (`## ФАЗА 6 (GATE)`). Documented residual: the gate evidence was captured on a side-loaded ffmpeg 8.1, not a canonical rebuilt image (`06-HUMAN-UAT.md` tracks the clean-rebuild re-confirmation). The ffmpeg path remains a proven, parked alternative (backlog 999.1).
 
+**Phase 8 complete (2026-10-03) — COR-02 lock hardened:** the concurrency lock now uses a byte-identity criterion (sha256 vs an isolated reference), verifies packets == decoded == scene frames, checks the qsvencc triad on every session and reference, and runs both metrics variants (`--psnr --ssim` on/off). Hardware evidence on A380: 640-session stress matrix (JOBS 3/5/8 × 20 × 2) and the lock — 0 byte mismatches, 0 METRICS_FAILED; non-vacuity re-proven on r4604 (3 byte mismatches). qsvencc is now pinned to the fork release Tualua/QSVEnc `8.32-vppsync4` (r4658: upstream 8.32 + proposed fixes #319/#320 for the metrics VPP sync and the silent 236/240 frame drop on flush) until an official 8.33+ carries them (backlog 999.4). The runtime image moved to ubuntu:24.04 + Intel PPA with OpenCL; verified on the NAS host under rootless Podman.
+
 ## Current Milestone: v1.2 Concurrent-encode correctness
 
 **Goal:** Eliminate the concurrent-encode silent frame corruption — restoring full-speed parallel encoding with correct output. **Re-scoped 2026-10-02:** originally planned as a migration of the default encoder to ffmpeg `av1_qsv`; since the corruption was fixed upstream in qsvencc (`45003f1`), v1.2 now adopts the fixed qsvencc instead and keeps it as the sole encoder (which also keeps DV/HDR10+ handling untouched — the reason qsvencc was chosen originally).
@@ -144,4 +146,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-02 — Phase 7 hardware gate passed; corruption debt closed (45003f1, r4634)*
+*Last updated: 2026-10-03 — Phase 8 complete; COR-02 lock hardened, qsvencc pinned to 8.32-vppsync4 (r4658)*
