@@ -1,226 +1,316 @@
+<!-- refreshed: 2026-10-03 -->
 # Architecture
 
-**Analysis Date:** 2026-07-08
+**Analysis Date:** 2026-10-03
 
-**Scope note:** This repository is in an early/pre-implementation state. It contains two Python scripts inherited from a prior project (`legacy/`), a Russian-language design document (`PIPELINE_DESIGN.md`) describing an *intended* streaming/pipelined architecture, and a devcontainer for an Intel Arc GPU media-encoding toolchain. **No orchestrator, package, or `src/` tree exists yet.** This document describes the architecture of the existing `legacy/` scripts as-is, and separately describes the architecture proposed in `PIPELINE_DESIGN.md` that has **not** been implemented (status explicitly recorded in the design doc as "Спроектировано... НЕ реализовано" — "Designed... NOT implemented").
-
----
-
-## System Overview (Existing — `legacy/` scripts)
-
-The existing code is two independent, sequentially-run CLI scripts connected only by a shared intermediate file format (`*.scenes` text log). There is no orchestrator process; a human (or external shell script) runs step 1, then step 2.
+## System Overview
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│  Step 1: Scene Detection (batch, CLI)                        │
-│  `legacy/scene_detection.py`                                 │
-│                                                                │
-│  ffmpeg (QSV decode + GPU downscale) → rawvideo bgr24 pipe    │
-│      → QsvPipeStream (VideoStream impl) → PySceneDetect       │
-│      AdaptiveDetector → List[Scene]                           │
-└───────────────────────────┬───────────────────────────────────┘
-                             │ writes
-                             ▼
-                  `<video>.scenes` (text file: "scene NNNN frames [S, E) ...")
-                             │ read by
-                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Step 2: Scene-aware AV1 Encoding (batch, CLI)                │
-│  `legacy/encode_scenes.py`                                    │
-│                                                                │
-│  read_scenes() → per-scene qsvencc chunk jobs (ThreadPool)    │
-│      → ordered "high-water" append into `movie.obu`           │
-│      → parallel audio encode (ffmpeg, separate thread)        │
-│      → mkvmerge final mux (video + audio + source subs/       │
-│        chapters/attachments)                                  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                       enpipe CLI (argparse)                          │
+│               `enpipe detect` / `enpipe encode` / `enpipe run`       │
+│                  `src/enpipe/cli/main.py:build_parser`               │
+└───────────┬──────────────────────────┬──────────────────┬────────────┘
+            │                          │                  │
+            ▼                          ▼                  ▼
+      ┌──────────────┐          ┌──────────────┐   ┌───────────────┐
+      │  Detection   │          │  Encoding    │   │  Orchestration
+      │  Pipeline    │          │  Pipeline    │   │  (Sequential) │
+      │ run_detect() │          │ run_encode() │   │run_pipeline() │
+      └──────────────┘          └──────────────┘   └───────────────┘
+            │                          │                  │
+            ▼                          ▼                  ▼
+      ┌──────────────────────────────────────────────────────────────┐
+      │           Scene Detection Layer (QSV + PySceneDetect)        │
+      │   `src/enpipe/detection/detect.py:detect_scenes()`           │
+      │   - Sequential: AdaptiveDetector over QsvPipeStream           │
+      │   - Parallel: Segment-boundaries + per-segment detect jobs   │
+      └──────────────┬───────────────────────────────────────────────┘
+                     │ → `<video>.scenes` (text log)
+                     ▼
+      ┌──────────────────────────────────────────────────────────────┐
+      │           Encoding Layer (AV1 QSV + Orchestration)           │
+      │   `src/enpipe/encoding/pipeline.py:run_encode()`             │
+      │   - Read scenes → keyframe table (EBML fast-path)            │
+      │   - Parallel chunk encode (ThreadPoolExecutor)               │
+      │   - High-water-mark ordered append (flush_appends)           │
+      │   - Parallel audio encode                                    │
+      └──────────────┬─────────────────────────────────────────────┬─┘
+                     │                                             │
+         [per-chunk] │                                    movie.obu │
+              chunk  │                                             │
+              .obu   │                                             │
+                     └─────────────────┬───────────────────────────┘
+                                       ▼
+      ┌──────────────────────────────────────────────────────────────┐
+      │              Mux Layer (mkvmerge + Finalization)             │
+      │   `src/enpipe/encoding/pipeline.py:run_encode()` tail       │
+      │   - Assemble: video (movie.obu) + audio + subs/chapters     │
+      │   - Preserve metadata: HDR10/HDR10+/DV, timestamps           │
+      └──────────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+            Output: `<video>.av1.mkv`
 ```
-
-Both scripts are standalone `if __name__ == "__main__"` CLI entry points with `argparse`; there is no shared library layer, no package `__init__.py`, and no test suite in the repo.
-
-## System Overview (Proposed — `PIPELINE_DESIGN.md`, NOT implemented)
-
-The design document proposes fusing the two batch steps into a single streaming producer/consumer process using an in-process `queue.Queue`, so encoding of early scenes can start while detection is still running on the tail of the file.
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    main() — single process                   │
-├─────────────────────────────────────────────────────────────┤
-│  One-time probes: probe_fps, keyframe_table (mkv Cues),       │
-│  detect_hdr → hdr_flags                                       │
-│  audio_future = pool.submit(encode_audio, ...)  (as today)    │
-│  q = queue.Queue(maxsize=8)   ← scene buffer + backpressure   │
-├──────────────────────────┬─────────────────────────────────────┤
-│  PRODUCER (thread)       │  CONSUMER (main thread) +          │
-│  detect_scenes_streaming │  ThreadPoolExecutor(JOBS)           │
-│  (new fn, jobs=1,        │  while scene := q.get():            │
-│  sequential, emits Scene │      ex.submit(encode_chunk, ...)   │
-│  per SceneManager        │  ordered high-water append/flush    │
-│  callback) → q.put()     │  (identical to encode_scenes.py     │
-│  blocks when queue full  │  today) → chunk deleted after flush │
-└──────────────────────────┴─────────────────────────────────────┘
-         │                              │
-         └────────────► producer.join() → all futures done →
-                          next_append == N → count_frames →
-                          audio_future.result() → CSV → mkvmerge
-```
-
-**Interface:** in-process `queue.Queue`, deliberately *not* a growing `.scenes` file that the encoder tails — this gives free backpressure, shared exception propagation, no half-line races, and no extra disk I/O (disk is the bottleneck resource on the reference hardware). The existing file-based mode (`<video>.scenes`) remains for offline/manual runs — the batch path becomes "producer = drain `read_scenes()[lo:hi]` into the queue + sentinel," i.e. a special case of the streaming path.
-
-**Verdict recorded in the design doc (as of 2026-07-08, unchanged since authoring):** on the reference hardware (spinning-disk ZFS pool + Arc A380 GPU), the pipelined design's Amdahl ceiling is only ~10-18% because encoding is 85-90% of total wall time and is the one non-overlappable block. Disk seek contention from overlapping the sequential detect read with the seek-heavy encode read pattern is projected to erase most or all of that gain (realistic range: -5% to ~0%). **Recommendation in the doc is NOT to build the pipeline on current hardware**; sequential `detect jobs=4 → encode jobs=4` is the recommended production path. The pipeline is only judged worthwhile if the source moves to SSD/NVMe or the file is already warm in ZFS ARC cache (~7-10% gain there). This is a build/no-build engineering decision, not a completed migration — treat any future implementation as a new phase against this baseline document, not as existing behavior.
-
----
 
 ## Component Responsibilities
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
-| `probe_source` | ffprobe-based width/height/frame_rate/duration extraction | `legacy/scene_detection.py:115` |
-| `QsvPipeStream` | `VideoStream` adapter: owns an `ffmpeg` subprocess piping raw BGR24 frames (QSV decode + GPU downscale) to PySceneDetect; sequential-read only, `seek(0)` = process restart | `legacy/scene_detection.py:175` |
-| `detect_scenes` / `_detect_relative` | Runs `AdaptiveDetector` via `SceneManager` over a `QsvPipeStream`, returns `List[Scene]` | `legacy/scene_detection.py:436`, `legacy/scene_detection.py:471` |
-| `detect_scenes_parallel` + `find_boundary` / `_segment_worker` | Splits a file into `jobs` segments at real detected cut boundaries (found via short parallel pre-passes), detects each segment independently in a `ProcessPoolExecutor`-style worker, then stitches results | `legacy/scene_detection.py:582` |
-| `keyframes_in_window` | ffprobe-based fast keyframe lookup in a narrow time window (used only during parallel boundary-finding) | `legacy/scene_detection.py:498` |
-| CLI entry (`scene_detection.py __main__`) | argparse wrapper; writes `<video>.scenes` text file | `legacy/scene_detection.py:647` |
-| `read_scenes` | Parses `<video>.scenes` text log into `(start_frame, end_frame)` tuples | `legacy/encode_scenes.py:99` |
-| `keyframe_table_cues` / `keyframe_table_ffprobe` / `keyframe_table` | Fast-path: parse mkv Cues index via hand-rolled EBML reader for a keyframe table; fallback: full ffprobe packet scan | `legacy/encode_scenes.py:130`-`301` |
-| `detect_hdr` | ffprobe-based detection of HDR10/HDR10+/Dolby Vision side data → qsvencc flag list | `legacy/encode_scenes.py:332` |
-| `chunk_command` | Builds the `qsvencc` CLI command for one scene chunk (AV1, seek+trim, HDR flags, optional PSNR/SSIM) | `legacy/encode_scenes.py:354` |
-| `encode_chunk` | Runs one `qsvencc` chunk subprocess, verifies frame count via `count_frames`, parses SSIM/PSNR from stderr | `legacy/encode_scenes.py:402` |
-| `encode_audio` | ffmpeg-based audio encode/copy per preset rules (lossless→FLAC, other→Opus, already-target→copy); runs in a background thread parallel to video chunking | `legacy/encode_scenes.py:423` |
-| `write_metrics_csv` | Writes per-scene + frame-weighted-total SSIM/PSNR/size CSV | `legacy/encode_scenes.py:481` |
-| `main()` (encode_scenes.py) | Orchestrates: read scenes → build chunk tasks → `ThreadPoolExecutor(JOBS)` encode → ordered "high-water" append into `movie.obu` → wait audio → CSV → `mkvmerge` final mux → cleanup | `legacy/encode_scenes.py:515` |
+| CLI dispatcher | Argparse wrapper; route `detect`/`encode`/`run` subcommands | `src/enpipe/cli/main.py` |
+| Scene detection | FFprobe/ffmpeg pipe + PySceneDetect; sequential or parallel split-and-merge | `src/enpipe/detection/detect.py`, `src/enpipe/detection/parallel.py` |
+| QSV video stream | Custom `VideoStream` adapter: ffmpeg subprocess (QSV decode + GPU downscale, raw BGR24 pipe) | `src/enpipe/detection/stream.py` |
+| Keyframe table builder | EBML/Cues index parser (fast mkv path) + ffprobe fallback; binary search for nearest keyframe | `src/enpipe/encoding/keyframes.py`, `src/enpipe/mkv/ebml.py` |
+| Chunk command builder | Assemble qsvencc CLI command (seek/trim/HDR flags/metrics) | `src/enpipe/encoding/chunk.py:chunk_command` |
+| Chunk encoder | Subprocess orchestration, frame-count verification, PSNR/SSIM parsing | `src/enpipe/encoding/chunk.py:encode_chunk` |
+| Parallel chunk orchestration | `ThreadPoolExecutor` job submission, high-water-mark ordered append (`flush_appends`), per-scene frame-count validation | `src/enpipe/encoding/pipeline.py:run_encode` (lines 220–287) |
+| Audio encoder | Parallel background thread: encode/copy audio via ffmpeg preset rules | `src/enpipe/encoding/audio.py` |
+| CSV metrics writer | Per-scene + frame-weighted-total SSIM/PSNR/bitrate table | `src/enpipe/encoding/metrics.py` |
+| Pipeline orchestrator | Sequential `detect_scenes` → `run_encode` (no overlap; designed for fast-path skip if output exists) | `src/enpipe/cli/main.py:run_pipeline` |
+| Scene log I/O | Text format parsing: `scene NNNN frames [S, E) T0 .. T1` | `src/enpipe/encoding/scenes_io.py` |
+| HDR/DV detection | Ffprobe side-data inspection → qsvencc flag list (`--dolby-vision-rpu`, `--masteringdisplaydata`, etc.) | `src/enpipe/encoding/hdr.py` |
 
 ## Pattern Overview
 
-**Overall:** Two-stage batch CLI pipeline connected via an intermediate file, each stage internally using a **producer pool + ordered consumer** concurrency pattern (`ThreadPoolExecutor` + `as_completed`, with monotonic "high-water mark" reassembly to preserve output order despite out-of-order task completion).
+**Overall:** Two-stage batch pipeline with load-bearing correctness invariants.
 
 **Key Characteristics:**
-- Process-per-tool-invocation: every external tool (`ffmpeg`, `ffprobe`, `qsvencc`, `mkvmerge`) is invoked as a subprocess; there is no persistent daemon or long-lived server component.
-- GPU work (decode, downscale, encode) is delegated entirely to Intel Quick Sync Video via `ffmpeg -hwaccel qsv` and the external `qsvencc` binary; Python-side CPU work is deliberately minimized (small-frame scene-cut metrics only).
-- Scene-boundary-aware chunked encoding: each detected scene becomes an independently encodable AV1 chunk seeked to the nearest source keyframe, so concatenation of raw `.obu` chunks (`cat`-equivalent via `shutil.copyfileobj`) is bit-exact without re-muxing tools.
-- Correctness-by-construction claims (e.g., "chunk boundaries land exactly on keyframes," "DV RPU survives cat because per-frame metadata is preserved") are the load-bearing invariants of the whole design; changing seek/trim math or the mkv Cues parser risks silently corrupting output.
-- No object-oriented service layer — the codebase is function-oriented with `dataclass(frozen=True)` value objects (`DetectionConfig`, `SourceInfo`, `Scene`).
+- **No persistent daemon** — every subprocess (ffmpeg, ffprobe, qsvencc, mkvmerge) is invoked via `subprocess.run` and awaited immediately or collected in a thread pool.
+- **GPU-centric** — Intel Arc QSV used for decode (with GPU downscale for detector) and AV1 encode; Python-side CPU work deliberately minimized.
+- **Scene-boundary-aware chunking** — each scene becomes an independently seekable AV1 chunk, keyed to source keyframes; chunks concatenate bit-exactly via raw `.obu` file append.
+- **Strict frame-count parity** — at encode start (per-chunk), after concatenation (full `movie.obu`), and before mux, frame counts are verified against expected values; any mismatch is fatal.
+- **High-water-mark ordered append** — parallel chunk encodes finish out-of-order; results are buffered in a `ready: Dict[int, int]` map keyed by scene index, flushed to the output stream only when all earlier scenes are complete. This pattern is reused by both the current batch encoder and the (unimplemented) planned streaming orchestrator.
 
 ## Layers
 
-**Detection layer** (`legacy/scene_detection.py`):
-- Purpose: Convert a source video into an ordered list of `Scene(index, start_frame, end_frame, start_sec, end_sec)` records.
-- Location: `legacy/scene_detection.py`
-- Contains: ffprobe wrapper, custom `VideoStream` subclass wrapping an `ffmpeg` subprocess pipe, PySceneDetect `AdaptiveDetector` integration, sequential and parallel (segmented) detection entry points, CLI.
-- Depends on: `ffmpeg`/`ffprobe` binaries, `scenedetect` (PySceneDetect) package, `numpy`.
-- Used by: `legacy/encode_scenes.py` only indirectly, via the `<video>.scenes` text file it writes — there is no direct Python import between the two scripts today.
+**Detection Layer:**
+- Purpose: Convert source video into an ordered list of `Scene(index, start_frame, end_frame, start_sec, end_sec)` records.
+- Location: `src/enpipe/detection/`
+- Contains: ffprobe wrapper (`probe_source`), custom `VideoStream` subclass (`QsvPipeStream`) wrapping an ffmpeg subprocess pipe, PySceneDetect `AdaptiveDetector` integration, sequential (`detect_scenes`) and parallel (`detect_scenes_parallel`) entry points, CLI orchestration (`run_detect`).
+- Depends on: `ffmpeg`/`ffprobe` binaries, PySceneDetect 0.7 package, numpy.
+- Used by: `src/enpipe/encoding/pipeline.py` indirectly via the `<video>.scenes` text file; `src/enpipe/cli/main.py` orchestration path.
 
-**Encoding layer** (`legacy/encode_scenes.py`):
+**Encoding Layer:**
 - Purpose: Turn a video + scene list into a final muxed AV1 `.mkv` with re-encoded/copied audio and preserved HDR/DV metadata.
-- Location: `legacy/encode_scenes.py`
-- Contains: scene-log parser, mkv Cues EBML parser (custom, hand-rolled), HDR/DV detection, per-scene chunk command builder, threaded chunk-encode + ordered-append orchestration, audio encode, CSV metrics writer, final mux via `mkvmerge`, CLI.
-- Depends on: `ffmpeg`/`ffprobe`/`qsvencc`/`mkvmerge` binaries; the `<video>.scenes` file format produced by the detection layer.
+- Location: `src/enpipe/encoding/`
+- Contains: scene-log parser, keyframe-table builder (EBML fast-path + ffprobe fallback), HDR/DV detection, per-scene chunk command builder, threaded chunk-encode with ordered-append orchestration, parallel audio encode, CSV metrics writer, final mux via mkvmerge, CLI orchestration (`run_encode`).
+- Depends on: `ffmpeg`/`ffprobe`/`qsvencc`/`mkvmerge` binaries; the `<video>.scenes` text file format produced by the detection layer.
 - Used by: nothing else in-repo; it is the terminal stage.
 
-**(Proposed, not implemented) Orchestration layer:** `PIPELINE_DESIGN.md` describes a `main()` that would own both stages via an in-process queue, plus a new `detect_scenes_streaming()` generator function to be added "next to `detect_scenes`" in `scene_detection.py`, and a refactor of `encode_scenes.py`'s `main()` (lines 542-645 in the current file) to accept a queue-fed consumer instead of a pre-materialized list. None of this exists in code yet.
+**EBML/Matroska Module:**
+- Purpose: Hand-rolled, pure (no I/O) binary parser for EBML/Matroska structure navigation and Cues (keyframe index) extraction.
+- Location: `src/enpipe/mkv/ebml.py`
+- Contains: EBML variable-length integer parsing (`_ebml_num`, `_eid`, `_esz`), SeekHead traversal, Info (TimestampScale) extraction, Tracks (video track number) extraction, Cues body parsing.
+- Depends on: none (pure bytes-in, tuples-out).
+- Used by: `src/enpipe/encoding/keyframes.py` (thin I/O wrapper).
+
+**Shared Utilities:**
+- Purpose: Leaf modules with no inter-package dependencies (keep layers acyclic): logging/die, subprocess wrapper, batch processing, qsvencc version checking.
+- Location: `src/enpipe/shared/`
+- Contains: `logging.py` (elapsed-time-prefixed log, step context manager, die/exit), `proc.py` (subprocess.run wrapper), `batch.py` (batch file iteration and error handling), `qsvencc_version.py` (runtime check for fixed qsvencc r4634+).
+- Depends on: none.
+- Used by: all layers.
 
 ## Data Flow
 
-### Primary Path (Existing, sequential two-script run)
+### Primary Path: `enpipe run <video>`
 
-1. User runs `python3 scene_detection.py video.mkv` → `probe_source` (`legacy/scene_detection.py:115`) → `QsvPipeStream` spawns `ffmpeg` decode+downscale pipe (`legacy/scene_detection.py:263`) → `SceneManager.detect_scenes` drives `AdaptiveDetector` frame-by-frame → `detect_scenes` builds `List[Scene]` (`legacy/scene_detection.py:471`) → CLI writes `video.mkv.scenes` (`legacy/scene_detection.py:683`).
-2. User runs `python3 encode_scenes.py video.mkv video.mkv.scenes` → `read_scenes` parses the log (`legacy/encode_scenes.py:99`) → `probe_fps` + `keyframe_table` (Cues-index fast path) + `detect_hdr` run once (`legacy/encode_scenes.py:515-562`).
-3. Audio encode is kicked off immediately on a background thread (`audio_pool.submit(encode_audio, ...)`, `legacy/encode_scenes.py:574`), running concurrently with video chunk encoding (CPU/ffmpeg work overlapping GPU/qsvencc work).
-4. For each scene, `main()` computes `kf_before` + `fmt_seek` + `trim` and builds a `qsvencc` command per chunk (`legacy/encode_scenes.py:581-589`).
-5. `ThreadPoolExecutor(max_workers=args.jobs)` runs `encode_chunk` for all scenes concurrently; as each completes (`as_completed`, order not guaranteed), the "high-water mark" `flush_appends()` writes any run of contiguous-by-index completed chunks into `movie.obu` and deletes the source chunk file (`legacy/encode_scenes.py:608-645`).
-6. After all chunks complete and frame-count is verified (`count_frames` sanity check against `total_expect`), the code waits for the audio future, writes the metrics CSV, and invokes `mkvmerge` to produce the final `.mkv` (video + audio + source subs/chapters/attachments unless `--from/--to` partial mode) (`legacy/encode_scenes.py:659-724`).
+1. **CLI entry** (`src/enpipe/cli/main.py:run_pipeline`, line 77)
+   - which-preflight: check qsvencc/ffprobe/ffmpeg/mkvmerge availability
+   - `ensure_qsvencc_fixed()` (fail-fast gate before long detect phase)
+   - Parse video path; apply `-o`/`--out-dir`/`--scenes` rules
 
-**State Management:** All state is local to a single script invocation — in-memory dicts/lists (`chunk_paths`, `meta`, `ready`, `rows`) keyed by scene index, plus files on disk (`workdir/chunk_*.obu`, `workdir/movie.obu`, `workdir/audio.mka`) that are deleted after use unless `--keep` is passed. There is no database, no persistent job queue, and no cross-invocation state beyond the `<video>.scenes` text file and the final output `.mkv`.
+2. **Scene detection** (`src/enpipe/detection/pipeline.py:run_detect`, line 29)
+   - Build `DetectionConfig` from CLI args
+   - Call `detect_scenes(video, config, jobs=args.detect_jobs, show_progress=True)`
+   - Dispatch: if `jobs > 1`, call `detect_scenes_parallel` (segment boundaries + parallel per-segment detection)
+   - Sequential fallback: `QsvPipeStream(video, config)` → `AdaptiveDetector` via `SceneManager` → `_build_scenes` → `List[Scene]`
+   - Write `<video>.scenes` text log (one scene per line: `scene NNNN frames [S, E) T0 .. T1`)
 
-### (Proposed) Streaming Path — `PIPELINE_DESIGN.md`
+3. **Encoding orchestration** (`src/enpipe/encoding/pipeline.py:run_encode`, line 107)
+   - Read `<video>.scenes` text log via `read_scenes()` → `List[(start_frame, end_frame)]`
+   - Probe FPS via `probe_fps()` (ffprobe)
+   - Build keyframe table via `keyframe_table()` (EBML fast-path or ffprobe fallback)
+   - Detect HDR metadata via `detect_hdr()` (ffprobe side-data)
+   - **Parallel phase start**: 
+     - Audio encode in background thread (`ThreadPoolExecutor(max_workers=1)`, `encode_audio()`)
+     - For each scene, build task tuple `(scene_index, qsvencc_command, output_path, expected_frames)`
+   - **Chunk encoding loop** (`ThreadPoolExecutor(max_workers=args.jobs)`, line 248):
+     - Submit all tasks to executor
+     - For each completed task (via `as_completed`):
+       - `encode_chunk()`: run qsvencc, verify frame count, parse PSNR/SSIM from stderr
+       - Store result in `ready[scene_index] = frame_count`
+       - Call `flush_appends()`: write all contiguous ready chunks to `movie.obu` (high-water-mark pattern)
+       - Delete chunk file if not `--keep`
+   - **Post-encode validation** (line 288):
+     - `count_frames(movie.obu)` must equal `sum(scene.frame_count for scene in scenes)`
+     - If not: fatal error (drain-then-die: all remaining futures are allowed to complete before exit)
+   - **Audio join** (line 303): wait for background audio encode future; fail if error
+   - **Metrics CSV** (line 315): if `--no-metrics` not set, write per-scene table + frame-weighted-total line
+   - **Final mux** (line 329): `mkvmerge -o output.mkv movie.obu audio.mka [source subs/chapters]`
+   - **Cleanup** (line 341): delete chunk workdir if not `--keep`
 
-1. `detect_scenes_streaming()` (new, sketched but not implemented) would run `SceneManager.detect_scenes(..., callback=_on_cut)` on a background thread, translating each PySceneDetect cut callback into a `Scene` yielded through a `queue.Queue`-backed generator, with a final EOF-triggered scene and `stream.finish()` return-code check.
-2. An orchestrator `main()` (not implemented) would read from this generator into a bounded `queue.Queue(maxsize=8)`, providing backpressure so detection cannot race far ahead of encoding on contended disk I/O.
-3. The encoder side's `main()` would be refactored so its scene-reader thread pulls from the queue instead of a pre-read list, submitting `qsvencc` chunk jobs as scenes arrive; the existing ordered high-water append/flush consumer logic is explicitly stated to be reused "verbatim."
-4. This is a **design proposal only** — see `PIPELINE_DESIGN.md` "Статус реализации" section, which explicitly states the streaming detector, the encoder's streaming consumer refactor, and the orchestrator queue are all "Спроектировано... НЕ реализовано" (designed, not implemented), and recommends implementing it only if the source moves to SSD/NVMe.
+### Parallel Detection Path: `detect_scenes_parallel()`
+
+**Boundary-finding phase** (`src/enpipe/detection/parallel.py`, lines 120–160):
+- Divide timeline into `jobs` segments at uniform time/frame points
+- For each segment, `find_boundary()`: probe for nearest real scene cut via quick ffprobe window scan + short AdaptiveDetector run
+- Collect boundaries; sanitize (sort, dedupe, clamp to [0, total_frames])
+
+**Per-segment detection** (lines 160–180):
+- For each segment `[start_frame, end_frame)`, spawn `_segment_worker()`:
+  - Create `QsvPipeStream` (segment mode: `seek_sec`/`to_sec` cropping)
+  - Run `_detect_relative()` to get scene-boundary tuples relative to segment start
+  - Adjust back to absolute frame numbers
+- Collect all relative results
+- Merge results: sort, dedupe adjacent boundaries, rebuild `List[Scene]`
+
+**Guarantee**: Output is frame-count-identical to sequential `detect_scenes(..., jobs=1)` by construction (boundaries are set at real cuts, so each segment's AdaptiveDetector sees the same context it would in a full pass).
 
 ## Key Abstractions
 
-**`Scene` (frozen dataclass):**
-- Purpose: Represents one detected scene as a half-open frame interval `[start_frame, end_frame)` plus derived second-based timestamps.
-- Examples: `legacy/scene_detection.py:95`
-- Pattern: Immutable value object; `frame_count` computed property.
+### `Scene` (Immutable Value Object)
 
-**`DetectionConfig` (frozen dataclass):**
-- Purpose: All tunables for scene detection (analysis width, QSV on/off, `AdaptiveDetector` thresholds, min scene length in frames or seconds, ffmpeg/ffprobe binary paths).
-- Examples: `legacy/scene_detection.py:62`
-- Pattern: Single config object threaded through every detection function instead of individual keyword args.
+**Purpose**: Represents one detected scene as a half-open frame interval `[start_frame, end_frame)` plus derived second-based timestamps.
 
-**`QsvPipeStream` (VideoStream subclass):**
-- Purpose: Adapts an `ffmpeg` subprocess (QSV decode + GPU downscale, raw BGR24 over stdout pipe) to PySceneDetect's `VideoStream` interface contract (`read`, `reset`, `seek`, frame/position properties).
-- Examples: `legacy/scene_detection.py:175`
-- Pattern: Adapter pattern; deliberately non-seekable (`is_seekable` False) except `seek(0)` which restarts the subprocess; supports a "segment mode" (`seek_sec`/`to_sec`) used only by the parallel-detection segment splitter.
+**Examples**: `src/enpipe/detection/config.py:59`
 
-**Keyframe table `List[Tuple[frame:int, pts_time:float]]`:**
-- Purpose: Maps every source keyframe to its exact frame number and PTS time, used to compute the nearest-keyframe `--seek` point for each scene chunk in the encoder.
-- Examples: `legacy/encode_scenes.py:152` (`keyframe_table_cues`, fast EBML parse of mkv Cues), `legacy/encode_scenes.py:265` (`keyframe_table_ffprobe`, slow full-file fallback), `kf_before` binary search at `legacy/encode_scenes.py:303`.
-- Pattern: Precomputed lookup table, read once per run, queried per-scene.
+**Pattern**: `@dataclass(frozen=True)` with computed property `frame_count`.
 
-**"High-water mark" ordered append:**
-- Purpose: Reassemble out-of-order parallel chunk-encode completions into strictly-ordered output without buffering all chunks in memory.
-- Examples: `flush_appends()` closure at `legacy/encode_scenes.py:608`, using `next_append` counter and a `ready: Dict[int, int]` map.
-- Pattern: Same pattern is explicitly slated for reuse unchanged by the proposed streaming consumer in `PIPELINE_DESIGN.md`.
+```python
+@dataclass(frozen=True)
+class Scene:
+    index: int
+    start_frame: int
+    end_frame: int
+    start_sec: float
+    end_sec: float
+    
+    @property
+    def frame_count(self) -> int:
+        return self.end_frame - self.start_frame
+```
+
+### `DetectionConfig` (Immutable Config Object)
+
+**Purpose**: All tunables for scene detection (analysis width, QSV on/off, AdaptiveDetector thresholds, min scene length, ffmpeg/ffprobe binary paths).
+
+**Examples**: `src/enpipe/detection/config.py:26`
+
+**Pattern**: Single frozen dataclass threaded through every detection function instead of individual keyword args. Enables testability (fixture-driven) and parity checking (swappable configs).
+
+### `QsvPipeStream` (Adapter Pattern)
+
+**Purpose**: Adapts an `ffmpeg` subprocess (QSV decode + GPU downscale, raw BGR24 over stdout pipe) to PySceneDetect's `VideoStream` interface contract.
+
+**Examples**: `src/enpipe/detection/stream.py:175`
+
+**Pattern**: Adapter pattern; deliberately non-seekable (`is_seekable = False`) except `seek(0)` (restarts subprocess). Supports "segment mode" (`seek_sec`/`to_sec` crop window) used only by parallel detection. Stderr written to `SpooledTemporaryFile` (not `PIPE`) to avoid stdout/stderr deadlock on chattiness.
+
+### Keyframe Table (`List[Tuple[int, float]]`)
+
+**Purpose**: Maps every source keyframe to exact frame number and PTS time; used to compute the nearest-keyframe `--seek` point for each scene chunk.
+
+**Examples**: `src/enpipe/encoding/keyframes.py:76` (main entry point), `src/enpipe/mkv/ebml.py` (EBML parser).
+
+**Pattern**: Precomputed at encode start, read once per run, queried per-scene via binary search (`kf_before` in `compute_chunk_seek_trim`). Fast-path: EBML Cues-index parse (mkv files, milliseconds). Fallback: ffprobe full-file packet scan (slow, I/O-bound, needed for non-mkv or corrupted Cues).
+
+### High-Water-Mark Ordered Append (`flush_appends()`)
+
+**Purpose**: Reassemble out-of-order parallel chunk-encode completions into strictly-ordered output without buffering all chunks in memory.
+
+**Examples**: `src/enpipe/encoding/pipeline.py:237` (flush_appends closure), `contiguous_run` helper at line 45.
+
+**Pattern**: `next_append` counter tracks the index of the next chunk to write; `ready: Dict[int, int]` holds frame counts of finished chunks keyed by index. After each chunk completes, call `flush_appends()`: write all chunks from `next_append` onwards that are in `ready` (contiguous run). This pattern is **load-bearing** (same implementation reused by the unimplemented streaming orchestrator per `PIPELINE_DESIGN.md:149-151`).
+
+### HDR/DV Metadata Preservation
+
+**Purpose**: Detect and propagate HDR10, HDR10+, and Dolby Vision metadata through per-chunk encoding.
+
+**Pattern**: `detect_hdr()` inspects ffprobe side-data → builds qsvencc flag list (`--dolby-vision-rpu copy`, `--masteringdisplaydata`, `--contentlightlevel`, etc.). These flags are baked into every `chunk_command()`. Per-frame metadata (DV RPU, mastering data) is preserved because `qsvencc` with these flags copies it frame-by-frame, and concatenation (`cat` of .obu chunks) is lossless for frame-level side data.
 
 ## Entry Points
 
-**`legacy/scene_detection.py` (CLI, `__main__` block):**
-- Location: `legacy/scene_detection.py:647`
-- Triggers: Manual `python3 scene_detection.py <input> [options]` invocation.
-- Responsibilities: Parse CLI args (analysis width, threshold, min-scene-len, QSV on/off, jobs), run `detect_scenes`, write `<video>.scenes` text log.
+**`enpipe detect <video> [options]`**:
+- Location: `src/enpipe/cli/main.py:run_detect`
+- Triggers: Manual CLI invocation (or `enpipe run` internal call).
+- Responsibilities: Parse detect-specific CLI args, build `DetectionConfig`, call `detect_scenes()`, format and write `<video>.scenes`.
 
-**`legacy/encode_scenes.py` (CLI, `main()` + `__main__` guard):**
-- Location: `legacy/encode_scenes.py:515`, guard at `legacy/encode_scenes.py:727`
-- Triggers: Manual `python3 encode_scenes.py <video> <scenes-log> [options]` invocation, or environment variables (`ICQ`, `QPMAX`, `GOP_LEN`, `DV_PROFILE`, `JOBS`, `FLAC_LEVEL`, `AUDIO_COPY`).
-- Responsibilities: Full encode pipeline orchestration described in Data Flow above; tool-availability preflight check (`shutil.which` for `qsvencc`/`ffprobe`/`ffmpeg`/`mkvmerge`) before doing any work (`legacy/encode_scenes.py:532`).
+**`enpipe encode <video> <scenes> [options]`**:
+- Location: `src/enpipe/cli/main.py:run_encode` (line 107)
+- Triggers: Manual CLI invocation (or `enpipe run` internal call).
+- Responsibilities: Full encode pipeline (described in Data Flow above); tool-availability preflight; qsvencc version check (fail-fast gate).
 
-**(Proposed) Unified orchestrator `main()`:** Described in `PIPELINE_DESIGN.md` as a single process combining both stages via threads + queue; no file or function exists for this yet.
+**`enpipe run <video> [options]`**:
+- Location: `src/enpipe/cli/main.py:run_pipeline` (line 77)
+- Triggers: Manual CLI invocation; meant for one-shot end-to-end usage.
+- Responsibilities: which-preflight, qsvencc version check, orchestrate sequential `detect_scenes` → `run_encode` for single file or batch directory recursion.
 
 ## Architectural Constraints
 
-- **Threading:** Both scripts use `ThreadPoolExecutor` for concurrency, not multiprocessing, for the *encode* side — encoding work is dominated by external `qsvencc` subprocess time, so Python's GIL is not a bottleneck. The *parallel scene detection* path (`detect_scenes_parallel`, `legacy/scene_detection.py:582`) explicitly notes that PySceneDetect's CPU-bound detector "serializes in threads" and needs real OS processes for parallelism — see the `_boundary_worker`/`_segment_worker` module-level function comment at `legacy/scene_detection.py:567` ("Настоящий параллелизм в обход GIL... в потоках сериализуется, в процессах — нет"), though the current `detect_scenes_parallel` implementation actually uses `ThreadPoolExecutor(max_workers=jobs)` for both boundary-finding and segment workers (`legacy/scene_detection.py:596`, `:614`) rather than a `ProcessPoolExecutor` — the module-level worker functions are structured to be process-pool-compatible (no closures/lambdas) but are not currently invoked through a process pool. This is a latent inconsistency between the comment's stated intent and the actual executor used.
-- **Global state:** `_START = time.monotonic()` module-level timestamp in `legacy/encode_scenes.py:73`, used by the `log()`/`step()` helpers for elapsed-time-prefixed logging. No other module-level mutable state.
-- **Non-seekable video stream:** `QsvPipeStream.is_seekable` is `False`; only `seek(0)` (full process restart) is supported. Any code path requiring arbitrary seeks on this stream type will raise `SeekError` (`legacy/scene_detection.py:367`).
-- **Frame-number is the primary time coordinate, not wall-clock seconds:** For VFR sources, second-based timestamps (`frame/avg_fps`) are explicitly documented as approximate and can drift from real PTS; frame numbers are the source of truth for scene boundaries and are carried through to the encoder unchanged (`legacy/scene_detection.py:24-26`).
-- **Stderr-to-tempfile, not PIPE:** `QsvPipeStream` writes ffmpeg stderr to a `SpooledTemporaryFile` rather than a `subprocess.PIPE`, specifically to avoid a documented deadlock risk (chatty stderr filling the 64KB pipe buffer while the consumer blocks on stdout) — `legacy/scene_detection.py:210-214`.
-- **Hardware coupling:** The entire toolchain assumes an Intel Arc GPU with QSV/VA-API support (`iHD` driver), reflected in `.devcontainer/Dockerfile` and `.devcontainer/devcontainer.json` (`--device=/dev/dri`). Scripts have a `--no-qsv`/`use_qsv=False` software-decode fallback for debugging, but no equivalent fallback exists for the `qsvencc` AV1 encode step (hard external-tool dependency, no alternative encoder path in code).
+- **Threading model**: Both detection and encoding use `ThreadPoolExecutor` for concurrency, not multiprocessing. For encoding, this is safe because GPU/qsvencc work dominates; the GIL is not a bottleneck. For parallel detection, the codebase **documents** (`src/enpipe/detection/parallel.py:99-100`) that the PySceneDetect CPU-bound detector "serializes in threads" and needs real processes to bypass the GIL, but the current implementation uses `ThreadPoolExecutor` for both boundary-finding and segment workers—this is **not a correctness bug** (it still runs correctly, just slower than optimal for parallelism), but represents latent inefficiency. Workers are kept at module scope (not closures) to prepare for future ProcessPoolExecutor migration.
+
+- **Global mutable state**: `_START = time.monotonic()` at module import in `src/enpipe/shared/logging.py:31`. Used by `log()` for elapsed-time prefixes. No other module-level mutable singletons.
+
+- **Non-seekable video stream**: `QsvPipeStream.is_seekable = False`; only `seek(0)` (full process restart) is supported. Segment-mode seeking (`seek_sec`/`to_sec`) is simulated via ffmpeg `-ss` / `-to` flags passed to the subprocess, not via the VideoStream interface.
+
+- **Frame number is the primary time coordinate**: For VFR sources, second-based timestamps (`frame / avg_fps`) are explicitly approximate and can drift from real PTS. Frame numbers are the source of truth for scene boundaries and carried unchanged through to the encoder. Encoded chunk frame counts are validated against expected values (derived from scene frame ranges).
+
+- **Stderr-to-tempfile, not PIPE**: `QsvPipeStream` writes ffmpeg stderr to `SpooledTemporaryFile` rather than `subprocess.PIPE`, specifically to avoid a documented deadlock risk: ffmpeg's chatty stderr can fill the 64KB pipe buffer while the consumer blocks on stdout waiting for frame data (pipe deadlock). This is a known correctness workaround preserved from legacy code.
+
+- **Hardware coupling**: The entire toolchain assumes Intel Arc GPU with QSV/VA-API support (iHD driver). `--no-qsv` software-decode fallback exists for debugging but only covers the detection stage. No fallback AV1 encoder exists; `qsvencc` is a hard external-tool dependency (attempted qsvencc absence is caught by preflight check before any long-running work).
+
+- **Cyclic import prevention**: `detect_scenes` and `detect_scenes_parallel` import each other (deferred inside function bodies), and `detection.py` imports `parallel.py` lazily to break the cycle. Same pattern used for `encoding/keyframes.py` and `mkv/ebml.py` to keep the dependency DAG acyclic.
 
 ## Anti-Patterns
 
-### Hand-rolled binary format parsing embedded in the encoding script
+### Hand-rolled Binary Format Parsing Embedded in Production Code
 
-**What happens:** `legacy/encode_scenes.py` contains a full hand-written EBML/Matroska parser (`_ebml_num`, `_eid`, `_esz`, `keyframe_table_cues`, lines `130`-`262`) to read the mkv `Cues` index directly from raw bytes, rather than shelling out to `mkvinfo`/`ffprobe` for this data.
-**Why it's wrong:** This is significant unencapsulated complexity (130+ lines of manual byte-offset arithmetic) mixed into a top-level orchestration script with no unit tests and no separate module boundary. Any Matroska structural edge case (segments split across multiple SeekHeads, unusual EBML lacing) risks silently returning `None` (safe fallback to slow ffprobe path) or, worse, a wrong-but-parseable table.
-**Do this instead:** If this parser is kept, it should be isolated into its own module with a dedicated test corpus of real mkv headers; the current mitigation (falling back to `keyframe_table_ffprobe` whenever anything looks off — `legacy/encode_scenes.py:294-300`) is reasonable but only covers *detected* failures, not silent wrong-answer cases.
+**What happens**: EBML/Matroska Cues-index parsing (`src/enpipe/mkv/ebml.py`) is implemented as hand-written variable-length-integer parsing and element-tree traversal, without relying on a third-party mkv library.
 
-### Untested, unvalidated-against-real-media code marked as production-ready
+**Why it's wrong**: Binary format parsing is fragile; even small typos (off-by-one in size calculations, wrong endianness, incorrect element ID constants) can silently corrupt interpretation of metadata.
 
-**What happens:** The module docstring for `legacy/scene_detection.py` states outright: "Модуль не прогонялся на реальном видео — ждёт интеграционного теста на NAS" ("This module has not been run against real video — awaiting an integration test on the NAS"), line `30`.
-**Why it's wrong:** There is no test suite anywhere in the repository (no `tests/` directory, no `pytest`/`unittest` files), so this is not merely a documentation note but reflects the actual verification state of the code that is otherwise written with production-level defensiveness (error handling, edge cases, detailed comments).
-**Do this instead:** Any future phase touching this code should add integration tests (at minimum, a regression test comparing `detect_scenes_parallel` output against sequential `detect_scenes` on a real sample file) before relying on it in an automated pipeline. `PIPELINE_DESIGN.md` line 131 independently calls out an equivalent required regression test for the not-yet-built streaming detector.
+**How it's mitigated (not removed entirely)**: 
+1. **Isolation**: Parsing logic is in a pure module (`enpipe.mkv.ebml`) with no I/O or subprocess calls. All test fixtures are byte strings, not real files.
+2. **Comprehensive test suite**: `tests/unit/mkv/test_ebml.py` covers the parser with synthetic Matroska structures + edge cases (truncated elements, missing Cues, structural anomalies).
+3. **Fallback path**: If Cues parsing fails or returns None, the encoder automatically falls back to `keyframe_table_ffprobe()` (slow but correct full-file scan). Thus, a parsing bug only risks performance regression, not data corruption.
+4. **Validity checks**: Return types and boundary checks on every parsing step; the parser **never raises**, only returns None on any structural anomaly, triggering fallback.
+
+**Do this instead**: Use a proper mkv library (e.g., pymkv, matroska-python) if available and with acceptable dependency footprint. Current implementation is justified because the hand-rolled parser is lightweight (pure bytes-in), thoroughly tested, and has a bulletproof fallback.
+
+### Silent Frame-Count Mismatches Due to Seek/Trim Math
+
+**What happens**: Chunk seek-time and trim-duration calculations (`compute_chunk_seek_trim`, `src/enpipe/encoding/keyframes.py:103`) use floating-point floor/ceil rounding to align to millisecond boundaries (ffmpeg `-ss` / `-t` granularity). Rounding errors can cause off-by-one frame discrepancies between expected and actual chunk output.
+
+**Why it's wrong**: Incorrect frame counts at mux time could silently result in missing or duplicated frames in the final output, breaking parity with the source.
+
+**How it's mitigated**:
+1. **Explicit rounding**: Seek times are floored to milliseconds (discard sub-ms precision), not truncated arbitrarily. Rationale documented in-code (`src/enpipe/encoding/keyframes.py:316-326`): "floor_ms" ensures consistency between sequential and parallel detection, and between single-file and chunked encoding.
+2. **Post-hoc verification**: After every chunk encodes, frame count is verified via `count_frames()` (ffprobe packet count). If actual ≠ expected, the chunk is marked as failed; failed chunks prevent mux completion (drain-then-die).
+3. **End-to-end validation**: After concatenation of all chunks, `count_frames(movie.obu)` is verified against the sum of all scene frame ranges. Any mismatch is fatal before mux.
+
+**Do this instead**: This is the correct pattern. No better alternative exists without re-implementing ffmpeg's internal seek logic (not tractable).
 
 ## Error Handling
 
-**Strategy:** Fail-fast with `sys.exit` via a `die()` helper in the encoder (`legacy/encode_scenes.py:62`), and custom exception types in the detector (`SceneDetectionError(RuntimeError)`, `legacy/scene_detection.py:53`). Subprocess failures are checked via return codes (`subprocess.CalledProcessError` handling in `probe_source`, explicit `returncode != 0` checks after `qsvencc`/`mkvmerge`/ffmpeg runs) rather than allowing silent partial output.
+**Strategy**: Fail-fast on preflight checks (tool availability, qsvencc version, source file existence); collect and report batch errors; drain-then-die for parallel chunk failures.
 
-**Patterns:**
-- Preflight tool-availability checks before starting any real work (`shutil.which` loop, `legacy/encode_scenes.py:532`).
-- "Drain-then-die": if any parallel chunk-encode job errors, the loop still drains all remaining futures (via `as_completed`) before calling `die()` with an aggregated error list, because in-flight `qsvencc` processes cannot be cleanly cancelled (`legacy/encode_scenes.py:626-657`, documented explicitly in `PIPELINE_DESIGN.md` line 167 as "drain-then-die, т.к. запущенные qsvencc чисто не отменить").
-- Post-hoc frame-count verification as a correctness guard: both `encode_chunk` (per-chunk) and the final concatenated `movie.obu` are checked against expected frame counts via `count_frames` (ffprobe packet count), and any mismatch is a hard `die()` (`legacy/encode_scenes.py:415`, `:662`).
-- Background-thread errors are captured as return values, not raised: `encode_audio` explicitly returns `(bool, Optional[str])` rather than raising, with a comment explaining that raising from a background thread would surface incorrectly (`legacy/encode_scenes.py:426-427`).
+**Patterns**:
+- **Preflight**: `shutil.which()` loop checks qsvencc/ffprobe/ffmpeg/mkvmerge before any real work (`src/enpipe/encoding/pipeline.py:108`). `ensure_qsvencc_fixed()` verifies qsvencc version ≥ r4634 (fixes #D-11 frame corruption bug).
+- **Background thread errors**: `encode_audio()` returns `(bool, Optional[str])` (success, error message) instead of raising, because it runs in a background thread. The main thread calls `.result()` on the future and checks the error tuple, then calls `die()` if needed—keeping error handling on the main thread.
+- **Batch-vs-immediate failure**: In parallel chunk encoding, all in-flight futures complete even if one fails. Errors are collected in an `errors` list, capped at 10, and reported once before calling `die()` (drain-then-die). This gives users visibility into all failures, not just the first one.
+- **Cleanup on error**: `try/finally` blocks in `QsvPipeStream` ensure `close()` (force-kill subprocess) is always called on early exit or exception.
 
 ## Cross-Cutting Concerns
 
-**Logging:** Custom `log()`/`step()` context-manager helpers print timestamped (`[{elapsed:8.1f}s]`), unbuffered (`flush=True`) lines to stdout; no logging framework, no log levels, no log file output (`legacy/encode_scenes.py:76-88`). `scene_detection.py`'s CLI has no equivalent logging helper — it only prints a final summary line.
+**Logging**: Elapsed time prefix (time since startup), unbuffered output. Implemented in `src/enpipe/shared/logging.py`. `log()` for status messages, `step()` context manager for time-tracked operations (prints `✔ name — Xs` only on success).
 
-**Validation:** Extensive defensive validation of external-tool output (ffprobe JSON parsing with explicit fallback chains for frame rate, frame-count cross-checks after every encode step, mkv Cues parser falls back safely on any structural anomaly) but no input schema validation library — all hand-written.
+**Validation**: Frame-count verification at encode start, per-chunk, and post-concatenation. FFprobe availability is assumed (hard requirement). Scene boundary detection uses PySceneDetect's `AdaptiveDetector` with configurable threshold and min-scene-length.
 
-**Authentication:** Not applicable — this is a local CLI media-processing toolchain with no network service, no auth boundary, and no multi-user concerns.
+**Authentication**: None (local/NAS toolchain; no network or user identity).
+
+**Batch processing**: `iter_input_videos()` discovers video files in a directory (with `--recursive` flag); `run_batch()` processes each with error isolation (per-file skip reasons logged, batch proceeds). Output path collision detection: if two input files would write to the same output file, the second is skipped (correctness-first: no silent data loss).
 
 ---
 
-*Architecture analysis: 2026-07-08*
+*Architecture analysis: 2026-10-03*

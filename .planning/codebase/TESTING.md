@@ -1,55 +1,402 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-07-08
+**Analysis Date:** 2026-10-03
 
-## Current State: No Automated Tests Exist
+## Test Framework
 
-A repo-wide search for test files/frameworks turned up nothing:
-- No `test_*.py`, `*_test.py`, `tests/` directory, or `conftest.py` anywhere in the repository.
-- No `pytest.ini`, `pyproject.toml` `[tool.pytest]` section, `tox.ini`, or any other test-runner config.
-- No CI configuration (no `.github/workflows/`, no other CI config) that would run tests.
-- `.gitignore` includes standard Python test/coverage artifacts (`.pytest_cache/`, `.coverage`, `htmlcov/`, `.tox/`, `.hypothesis/`) suggesting `pytest` + `coverage` is the anticipated future toolchain, but none of these tools are installed or configured yet (`.devcontainer/post-create.sh` only installs `scenedetect[opencv-headless]` and `numpy`, no `pytest`).
-- `legacy/scene_detection.py`'s own module docstring admits this directly: **"Модуль не прогонялся на реальном видео — ждёт интеграционного теста на NAS."** ("This module has not been run against real video — awaiting an integration test on the NAS.") — `legacy/scene_detection.py:30`.
+**Runner:**
+- pytest 9.1.1 (`pyproject.toml:[project.dev]`)
+- Config: `pyproject.toml:[tool.pytest.ini_options]`
 
-**Practical implication for anyone extending this codebase:** there is no existing test harness, fixtures, or mocking convention to follow. Any testing work is greenfield. The sections below describe (a) the *planned* test that is explicitly specified but not implemented, and (b) the de facto verification strategy actually used today (manual/runtime self-checks baked into the pipeline scripts themselves), since that is the closest thing to "testing patterns" this codebase currently has.
+**Assertion Library:**
+- pytest's built-in assertions
 
-## Planned Test (Specified, Not Implemented)
+**Subprocess Mocking:**
+- pytest-subprocess 1.6.0 (`pyproject.toml:[project.dev]`) — hooks `Popen` at the syscall level, exercises the real call surface via `enpipe.shared.proc.run()` and `popen()`.
+- pytest-mock 3.15.1 — `monkeypatch` fixture for module-level constants and function substitution.
 
-`PIPELINE_DESIGN.md` prescribes exactly one test, as a **mandatory precondition** for implementing the streaming scene-detection refactor it designs — it is explicitly called out as `(обязателен)` ("mandatory"):
+**Run Commands:**
+```bash
+uv run pytest                    # Run all fast tests (excludes hardware, default via -m "not hardware")
+uv run pytest -m hardware        # Run hardware-gated tests only (requires Intel Arc + real media)
+uv run pytest -v                 # Verbose output (show each test name)
+uv run pytest tests/unit/        # Run only unit tests (pure logic, no subprocess)
+uv run pytest tests/subprocess/  # Run only mocked subprocess tests
+```
 
-> **Регресс-тест (обязателен):** `list(detect_scenes_streaming(f)) == detect_scenes(f, jobs=1)`
-> по парам `(start_frame, end_frame)` — щит против будущих изменений PySceneDetect.
-> (`PIPELINE_DESIGN.md:131-132`)
+## Test File Organization
 
-Translation/intent: a regression test asserting that the (not-yet-implemented) streaming detector `detect_scenes_streaming()` produces exactly the same `(start_frame, end_frame)` pairs as the existing batch `detect_scenes(path, jobs=1)`, guarding against future PySceneDetect internals changes silently breaking the streaming callback assumption (`AdaptiveDetector.post_process` returning `[]`, discussed at `PIPELINE_DESIGN.md:75-78`).
+**Location pattern:**
+- Mirrors `src/enpipe/` structure: `tests/unit/detection/`, `tests/unit/encoding/`, `tests/unit/cli/`, etc.
+- Mocked subprocess tests live under `tests/subprocess/` with identical mirroring.
+- Hardware-gated integration tests live in `tests/integration/`.
+- Shared fixtures: `tests/fixtures/` (media files, helpers, conftest.py for fast tier).
 
-**Status:** `detect_scenes_streaming()` itself does not exist yet in `legacy/scene_detection.py` (only the design sketch at `PIPELINE_DESIGN.md:88-129` exists). Per `PIPELINE_DESIGN.md:219-229` ("Статус реализации"), both the streaming detector and its regression test are "спроектировано (готово к коду), НЕ реализовано" — designed and ready to code, but not implemented — and the design doc's own verdict is **not to build this** on current hardware (see TL;DR at the top of the file), so this test may never be written unless the hardware/storage situation changes (SSD/NVMe source, per `PIPELINE_DESIGN.md:227-229`).
+**Naming:**
+- `test_<function>_<scenario>.py` — e.g., `test_chunk.py`, `test_detect.py`, `test_pipeline_ordering.py`.
+- Test functions: `test_<function>_<condition>()` — e.g., `test_chunk_command_includes_seek_and_trim()`, `test_parse_metrics_extracts_ssim_and_psnr()`.
 
-**If implementing this test:** it would need a real (or fixture) video file and both PySceneDetect and the QSV/ffmpeg toolchain available — i.e. it is an integration test, not a unit test, given the current architecture (no mocking seams exist between `detect_scenes()` and subprocess/ffmpeg/PySceneDetect).
+**Directory structure:**
+```
+tests/
+├── unit/              # TEST-01: pure logic, no subprocess
+│   ├── cli/
+│   ├── detection/
+│   ├── encoding/
+│   ├── mkv/
+│   ├── shared/
+│   └── conftest.py    # Autouse fixtures: _stub_qsvencc_gate
+├── subprocess/        # TEST-02: mocked subprocess via pytest-subprocess
+│   ├── detection/
+│   └── encoding/
+├── integration/       # TEST-04: hardware-gated, real QSV + real media
+│   ├── test_hardware_real_media.py
+│   ├── test_ebml_cross_validation.py
+│   ├── test_parallel_regression.py
+│   ├── test_concurrency_immunity.py
+│   ├── test_qsvencc_triad_parse.py
+│   ├── test_harness_gates.py
+│   ├── _concurrency_harness.py  # Helper module (underscore-prefixed, not a test)
+│   └── pytestmark = pytest.mark.hardware  # All tests in this module marked hardware
+└── fixtures/
+    └── media/         # Test media files (real or synthesized)
+```
 
-## De Facto Verification Strategy (What Exists Today Instead of Tests)
+## Test Structure
 
-In the absence of automated tests, `legacy/encode_scenes.py` relies heavily on **runtime self-checks with hard failure** (`die()`) at multiple pipeline stages, functioning as inline invariant assertions rather than pre-run tests:
+**TEST-01: Pure Logic Tests**
 
-- **Per-chunk frame-count verification:** after every `qsvencc` chunk encode, `encode_chunk()` re-probes the output with `count_frames()` and compares against the expected frame count for that scene; mismatch is reported as a per-chunk error, not silently ignored (`legacy/encode_scenes.py:410-417`).
-- **Post-concatenation frame-count verification:** after all chunks are streamed together into `movie.obu`, the total frame count is re-counted and compared against `total_expect` (`sum(e - s for s, e in scenes)`); mismatch calls `die()` (`legacy/encode_scenes.py:660-664`).
-- **Full-file consistency check:** for non-partial runs, the final frame count is additionally compared against the last scene's `end_frame` from the scene log, logging a warning (not a hard failure) if they disagree — a softer sanity check for a symptom that "shouldn't happen" (`legacy/encode_scenes.py:665-667`).
-- **Ordered-append integrity check:** `next_append != len(tasks)` after the encode loop indicates the "high-water mark" flush left a gap (a chunk failed silently or a race occurred) and is treated as fatal (`legacy/encode_scenes.py:656-657`).
-- **Preflight tool availability check:** `main()` checks `shutil.which(tool)` for `qsvencc`, `ffprobe`, `ffmpeg`, `mkvmerge` before doing any work, failing fast with `die()` rather than partway through a long-running job (`legacy/encode_scenes.py:532-534`).
-- `legacy/scene_detection.py`'s module docstring documents specific manual verification already performed against the PySceneDetect 0.7 source (not automated, but recorded as engineering evidence): "Проверено против PySceneDetect 0.7 (API VideoStream отличается от 0.6.x...)" (`legacy/scene_detection.py:28-29`), and separately notes chunk-boundary correctness was validated empirically: "SSIM 0.9999 к trim-от-0" for seek+trim chunk boundaries (`legacy/encode_scenes.py:11-12`) — i.e. accuracy claims in this codebase are currently backed by one-off manual SSIM comparisons run outside any test suite, not by repeatable automated tests.
+Location: `tests/unit/**/*.py`
 
-**If you add tests to this codebase, prioritize covering these existing runtime invariants as real unit/integration tests** (frame-count arithmetic in `count_frames`/`total_expect` handling, the high-water-mark `flush_appends()` ordering logic, `kf_before()`'s binary search, and `_sanitize_boundaries()`/boundary-merging logic in the parallel detector) — these are the parts of the codebase with the most non-obvious numeric/ordering logic and currently zero coverage.
+Example: `tests/unit/encoding/test_chunk.py`
 
-## Recommended Test Framework (Not Yet Adopted)
+```python
+"""TEST-01: pure-logic tests for enpipe.encoding.chunk — chunk_command (a
+pure argv builder that calls no subprocess despite being a TEST-02-listed
+target per D-11; RESEARCH.md's Anti-Pattern note says test it directly, no
+fp fixture needed) and parse_metrics. Env-const overrides use
+monkeypatch.setattr on the already-imported module object (Pattern 4),
+never monkeypatch.setenv after import."""
 
-No framework has been chosen or installed. Given the Python/stdlib-heavy style of this codebase and the `.gitignore` already anticipating `pytest`/coverage artifacts, **`pytest`** is the natural fit if/when tests are introduced:
-- Pure-logic helpers with no subprocess/GPU dependency are unit-testable today with no refactoring: `kf_before()`, `fmt_seek()`, `_min_scene_len()`, `_sanitize_boundaries()`, `parse_metrics()`, `write_metrics_csv()` (metrics math), `read_scenes()` (regex parsing), and the standalone EBML integer parsers `_ebml_num()`/`_eid()`/`_esz()` in `legacy/encode_scenes.py`.
-- Functions that shell out to `ffmpeg`/`ffprobe`/`qsvencc`/`mkvmerge` (`probe_source`, `detect_hdr`, `encode_chunk`, `encode_audio`, `keyframe_table_ffprobe`) have no dependency-injection seam today (no client abstraction — `subprocess.run`/`Popen` calls are inline). Testing these would require either `subprocess` mocking (`unittest.mock.patch("subprocess.run")`) or real fixture media files; no existing convention favors one over the other yet.
+from __future__ import annotations
+
+from pathlib import Path
+from enpipe.encoding.chunk import chunk_command, parse_metrics
+
+def test_chunk_command_includes_seek_and_trim():
+    cmd = chunk_command(Path("in.mkv"), "00:00:02.000", "0:47",
+                         Path("out.obu"), hdr_flags=[], metrics=False)
+    assert "--seek" in cmd
+    assert cmd[cmd.index("--seek") + 1] == "00:00:02.000"
+```
+
+**Patterns:**
+- Direct imports of pure functions and dataclasses with no process invocation.
+- Synthetic inputs (dataclasses, tuples, simple dicts).
+- Monkeypatch of module-level constants (never `monkeypatch.setenv` after import):
+  ```python
+  def test_chunk_command_uses_custom_icq_via_monkeypatch(monkeypatch):
+      monkeypatch.setattr(chunk, "ICQ", 30)  # Override module-level ICQ
+      cmd = chunk_command(...)
+      assert "--icq" in cmd
+  ```
+
+**TEST-02: Mocked Subprocess Tests**
+
+Location: `tests/subprocess/**/*.py`
+
+Example: `tests/subprocess/encoding/test_chunk.py`
+
+```python
+"""TEST-02: mocked subprocess-boundary tests for enpipe.encoding.chunk —
+count_frames and encode_chunk, using pytest-subprocess's `fp` fixture (D-09).
+chunk_command itself is pure (no subprocess) and is covered directly in
+tests/unit/encoding/test_chunk.py per RESEARCH.md's Anti-Pattern note."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from enpipe.encoding.chunk import count_frames, encode_chunk
+
+def test_count_frames_parses_packet_count(fp):
+    """fp is the pytest-subprocess fixture that intercepts Popen/run calls."""
+    fp.register(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", ...],
+        stdout="48\n"
+    )
+    assert count_frames(Path("chunk.obu")) == 48
+
+def test_encode_chunk_returns_error_tuple_on_qsvencc_failure_never_raises(fp, tmp_path):
+    """Worker functions return (success, error_msg) instead of raising."""
+    out = tmp_path / "chunk_00001.obu"
+    cmd = ["qsvencc", "-i", "in.mkv", "-o", str(out)]
+    fp.register(cmd, returncode=1, stderr="qsvencc: device busy\n")
+    
+    idx, got, err, elapsed, info = encode_chunk((1, cmd, out, 48))
+    assert idx == 1
+    assert got == 0
+    assert err is not None and "device busy" in err
+```
+
+**Patterns:**
+- `fp` fixture from pytest-subprocess registers expected commands and their responses.
+- Commands must match exactly (argv list).
+- Assertions verify return tuples from worker functions, never exceptions (exception = test failure).
+- `tmp_path` fixture for temporary directories (pytest built-in).
+
+**TEST-04: Hardware-Gated Integration Tests**
+
+Location: `tests/integration/**/*.py`
+
+Example: `tests/integration/test_hardware_real_media.py`
+
+```python
+"""TEST-04: hardware-gated end-to-end validation of the `enpipe` CLI
+(detect -> encode -> mux) against real media on real Intel Arc QSV
+hardware — the milestone capstone. SDR and synthetic HDR10 sources are
+generated in-test and genuinely encoded on this devcontainer's Arc GPU;
+HDR10+/genuine Dolby Vision are fixture-gated (D-06) because dynamic
+metadata / real RPU content cannot be reliably synthesized in-sandbox."""
+
+from __future__ import annotations
+
+import pytest
+
+# Register marker at module level
+pytestmark = pytest.mark.hardware
+
+def test_sdr(request):
+    """Real QSV encode of synthetic SDR source."""
+    # Create synthetic source video (ffmpeg, no GPU)
+    # Run enpipe detect -> encode -> mux (real GPU)
+    # Verify frame counts, keyframe alignment, output format
+    ...
+
+@pytest.mark.parametrize("metrics", [True, False])
+def test_sdr_with_metrics(metrics):
+    """Parametrized test: run with and without --psnr/--ssim."""
+    # Same test logic, different metrics capture path
+    ...
+
+@pytest.mark.skip(reason="HDR10+ metadata requires real source, cannot synthesize")
+def test_hdr10_plus():
+    """Skipped fixture: real Dolby Vision sources are outside scope."""
+    ...
+```
+
+**Patterns:**
+- Module-level `pytestmark = pytest.mark.hardware` registers all tests in the module.
+- Parametrize over variants: metrics on/off, SDR vs HDR10, etc.
+- `@pytest.mark.skip()` for tests blocked by environment (real media not available).
+- Synthetic source generation via ffmpeg (no GPU needed for that step).
+- Real enpipe CLI invocation with subprocess (not mocked).
+
+## Test Tiers
+
+| Tier | Marker | Location | What It Tests | Speed | Hardware |
+|------|--------|----------|---------------|-------|----------|
+| TEST-01 | (none) | `tests/unit/` | Pure logic: math, parsing, dataclass construction | ~1s total | No |
+| TEST-02 | (none) | `tests/subprocess/` | Subprocess boundary: argv building, stdout parsing, mocking seams | ~2s total | No |
+| TEST-04 | `hardware` | `tests/integration/` | End-to-end CLI on real media with real QSV hardware | ~30-60s per test | **Yes** |
+
+**Default run (fast tier):**
+```bash
+uv run pytest  # = pytest -m "not hardware"
+```
+Runs TEST-01 + TEST-02, excludes TEST-04. Takes ~3 seconds total.
+
+**Hardware tier (full validation):**
+```bash
+uv run pytest -m hardware  # or just: uv run pytest -m hardware
+```
+Requires Intel Arc GPU and `/dev/dri/renderD128` passthrough. Takes ~30+ seconds per hardware test.
+
+## Pytest Configuration
+
+**Markers:**
+```toml
+[tool.pytest.ini_options]
+markers = [
+    "hardware: requires real QSV hardware and real media; excluded by default (Phase 4 adds the first test)",
+]
+addopts = "-m \"not hardware\" --import-mode=importlib --strict-markers"
+```
+
+**Import mode:**
+- `--import-mode=importlib` (not the default "prepend"): allows `tests/unit/encoding/test_chunk.py` and `tests/subprocess/encoding/test_chunk.py` to coexist with identical basenames. Each is resolved by its own path, not by global uniqueness.
+
+**Strict markers:**
+- `--strict-markers`: typos in marker names (e.g., `@pytest.mark.hardwre`) fail loudly instead of silently selecting zero tests.
+
+## Common Patterns
+
+### Monkeypatch (pytest built-in fixture)
+
+**Override module-level constants:**
+```python
+def test_chunk_command_uses_custom_icq_via_monkeypatch(monkeypatch):
+    monkeypatch.setattr(chunk, "ICQ", 30)  # Patch the already-imported module
+    cmd = chunk_command(...)
+    assert cmd[cmd.index("--icq") + 1] == "30"
+```
+
+Never use `monkeypatch.setenv()` after importing the module (env var is read at import time).
+
+**Stub shared gates for fast tier:**
+```python
+# tests/unit/conftest.py (autouse=True)
+@pytest.fixture(autouse=True)
+def _stub_qsvencc_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the qsvencc version gate for fast tier (no binary)."""
+    def _ok() -> int:
+        return QSVENCC_MIN_REV
+    monkeypatch.setattr(enc_pipeline, "ensure_qsvencc_fixed", _ok)
+    monkeypatch.setattr(cli_main, "ensure_qsvencc_fixed", _ok)
+```
+
+### pytest-subprocess (fp fixture)
+
+**Register expected command and response:**
+```python
+def test_count_frames_parses_packet_count(fp):
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", ..., "chunk.obu"]
+    fp.register(cmd, stdout="48\n")  # Exact argv match required
+    assert count_frames(Path("chunk.obu")) == 48
+```
+
+**Register multiple related commands:**
+```python
+def test_encode_chunk_success(fp, tmp_path):
+    out = tmp_path / "chunk_00000.obu"
+    out.write_bytes(b"\x00" * 100)
+    
+    qsvencc_cmd = ["qsvencc", "-i", "in.mkv", "-o", str(out)]
+    fp.register(qsvencc_cmd, stdout="", stderr="")
+    
+    ffprobe_cmd = ["ffprobe", "-v", "error", ..., str(out)]
+    fp.register(ffprobe_cmd, stdout="48\n")
+    
+    idx, got, err, elapsed, info = encode_chunk((0, qsvencc_cmd, out, 48))
+    assert (idx, got, err) == (0, 48, None)
+```
+
+### Parametrize (pytest built-in)
+
+**Multiple variants of the same test:**
+```python
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("VIDEOMETRIC: Failed to copy input surface", True),
+        ("Failed to finish video quality metric", True),
+        ("allocVA: error", False),  # Not a metrics-only error
+    ],
+)
+def test_is_metrics_failure(text, expected):
+    assert harness.is_metrics_failure(text) is expected
+```
+
+### Async Testing (Not Currently Used)
+
+No async code in the pipeline (everything is subprocess-based). If async is introduced later, use pytest-asyncio:
+```python
+@pytest.mark.asyncio
+async def test_something_async():
+    result = await some_async_function()
+    assert result == expected
+```
+
+### Fixtures for Shared Test Helpers
+
+**Helper module with custom fixtures:**
+```python
+# tests/unit/mkv/__init__.py
+# (empty package marker)
+
+# tests/unit/mkv/_ebml_builder.py
+from pathlib import Path
+
+def build_minimal_mkv(path: Path) -> None:
+    """Construct a minimal Matroska file for EBML parsing tests."""
+    # Build EBML structure
+    ...
+```
+
+**Use in tests:**
+```python
+# tests/unit/mkv/test_ebml.py
+from pathlib import Path
+from ._ebml_builder import build_minimal_mkv
+
+def test_keyframe_table_reads_cues(tmp_path):
+    mkv = tmp_path / "test.mkv"
+    build_minimal_mkv(mkv)
+    table = keyframe_table_cues(mkv)
+    assert len(table) > 0
+```
+
+## Error Handling in Tests
+
+**Worker functions return (success, error_msg) — never raise:**
+```python
+def test_encode_audio_returns_tuple_on_error(fp):
+    """Verify worker function returns error tuple, not exception."""
+    fp.register(["ffmpeg", ...], returncode=1, stderr="ffmpeg: codec not found")
+    success, err_msg = encode_audio(Path("in.mkv"), Path("out.mka"))
+    assert success is False
+    assert err_msg is not None
+    # If this test raises an exception, it's a failure
+```
+
+**Main thread errors use die() — catch exit:**
+```python
+def test_cli_dies_on_missing_tool(monkeypatch):
+    """Verify die() is called when tool not found."""
+    monkeypatch.setenv("PATH", "")  # Hide all tools
+    
+    with pytest.raises(SystemExit) as exc_info:
+        run_pipeline(args)  # Should call die() -> sys.exit(...)
+    
+    assert exc_info.value.code.startswith("encode_scenes:")
+```
 
 ## Coverage
 
-**Requirements:** None enforced — no coverage tool configured, no coverage target documented anywhere.
+**Requirements:** None enforced (no minimum coverage threshold).
+
+**Current status:** Comprehensive fast tier (TEST-01 + TEST-02) and basic hardware tier (TEST-04) cover:
+- Pure logic: `_min_scene_len()`, `_build_scenes()`, `parse_metrics()`, `write_metrics_csv()`, `keyframe_table_cues()` EBML parsing.
+- Subprocess boundary: ffprobe argv, ffmpeg argv, qsvencc chunk command building, metrics parsing from stderr.
+- Integration: end-to-end CLI on synthetic HDR10 source, real frame counts, keyframe alignment.
+
+**View Coverage (if added):**
+```bash
+# Install coverage tool
+uv pip install coverage
+
+# Run tests with coverage
+coverage run -m pytest
+coverage report
+coverage html  # Generate htmlcov/index.html
+```
+
+## Where to Add New Tests
+
+**New pure-logic function in `src/enpipe/encoding/chunk.py`:**
+- Add test in `tests/unit/encoding/test_chunk.py` alongside existing TEST-01 tests for the same module.
+- No subprocess involved = pure `assert` statements.
+
+**New function that calls ffmpeg/ffprobe/qsvencc:**
+- Add mocked test in `tests/subprocess/encoding/test_chunk.py` (or new file if a new module).
+- Use `fp.register(cmd, ...)` to mock the subprocess call.
+- Test both success and error cases (return tuples).
+
+**New end-to-end CLI feature:**
+- Add parametrized test in `tests/integration/test_hardware_real_media.py`.
+- Mark with `@pytest.mark.hardware`.
+- Generate or use fixture media; invoke real `enpipe` CLI subprocess.
+- Verify final frame counts and output format.
 
 ---
 
-*Testing analysis: 2026-07-08*
+*Testing analysis: 2026-10-03*

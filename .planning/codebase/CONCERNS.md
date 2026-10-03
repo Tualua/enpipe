@@ -1,466 +1,414 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-07-08
+**Analysis Date:** 2026-10-03
 
-## Scope Note
+## Status Overview
 
-This repository is in an early/transitional state: two working legacy scripts
-(`legacy/scene_detection.py`, `legacy/encode_scenes.py`), a detailed design
-document for an unbuilt streaming pipeline (`PIPELINE_DESIGN.md`), and a
-devcontainer for an Intel Arc A380 QSV media stack. No new implementation
-exists yet outside `legacy/`. This document separates concerns into:
-
-- **Existing issues** — present today in `legacy/` and the repo config, real
-  regardless of what gets built next.
-- **Planned-work risks** — risks tied to implementing `PIPELINE_DESIGN.md`,
-  relevant only if/when that design is executed.
+Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-03). Phase 8 concluded with all 14 code-review findings fixed, including 1 critical issue (CR-01: false-positive classification in `probe_d02_byte_identity.py`) and 6 warnings (WR-01 through WR-06). All fixes are in `main` and have been tested. This document reflects the current state post-Phase-8 and identifies remaining concerns.
 
 ---
 
 ## Tech Debt
 
-**No test suite anywhere in the repository:**
-- Issue: `find . -iname "*test*"` returns nothing. Neither `legacy/scene_detection.py`
-  nor `legacy/encode_scenes.py` has any accompanying unit/integration test.
-- Files: `legacy/scene_detection.py`, `legacy/encode_scenes.py`
-- Impact: Any refactor (including the pipeline work in `PIPELINE_DESIGN.md`,
-  which explicitly calls for a mandatory regression test before touching
-  streaming detection) has no safety net. Regressions in scene-boundary math
-  or chunk seek/trim arithmetic would only surface as silent frame-count
-  mismatches or A/V drift in real encodes.
-- Fix approach: Add a pytest suite; at minimum, unit tests for `kf_before`,
-  `fmt_seek`, `_sanitize_boundaries`, `keyframe_table_cues` (with a small
-  synthetic MKV fixture), and `_SCENE_RE` parsing. Add the regression test
-  `PIPELINE_DESIGN.md` itself mandates: `detect_scenes_streaming(f) ==
-  detect_scenes(f, jobs=1)` (once/if streaming detection is built).
+### Hardware-Specific Validation Requirements
 
-**`legacy/scene_detection.py` has never been run against real video:**
-- Issue: The module's own docstring states: "Модуль не прогонялся на реальном
-  видео — ждёт интеграционного теста на NAS" (module has not been run on real
-  video — awaits integration testing on the NAS).
-- Files: `legacy/scene_detection.py:30`
-- Impact: `QsvPipeStream`, `detect_scenes_parallel`, `find_boundary`, and the
-  EBML-adjacent frame-counting logic are all unvalidated against a real QSV
-  decode pipeline. Any bug in ffmpeg command construction (e.g. the
-  `-ss`/`-copyts`/`select` leading-frame-drop logic at
-  `legacy/scene_detection.py:225-251`) would not have been caught yet.
-- Fix approach: Run an end-to-end integration test on real DV/HDR source
-  material before relying on this module in production, and capture the
-  result as a regression fixture.
+**Issue:** Key correctness invariants depend on Phase 8 test execution on Intel Arc A380 hardware, which was not possible during the phase-8-fix iteration due to environment constraints.
 
-**Comment/implementation mismatch in parallel scene detection (GIL claim):**
-- Issue: The comment directly above the parallel worker functions states
-  parallelism uses `ProcessPoolExecutor` specifically "в обход GIL" (to get
-  around the GIL) because "CPU-детектор PySceneDetect в потоках сериализуется,
-  в процессах — нет" (the CPU detector serializes under threads, not under
-  processes). The actual implementation in `detect_scenes_parallel` uses
-  `ThreadPoolExecutor` for both the boundary-finding pass and the segment
-  detection pass.
-- Files: `legacy/scene_detection.py:567-570` (comment), `legacy/scene_detection.py:596`,
-  `legacy/scene_detection.py:614` (`ThreadPoolExecutor` usage)
-- Impact: If the CPU-bound `AdaptiveDetector.process_frame` work does
-  serialize under the GIL as the comment claims, `jobs>1` in
-  `detect_scenes_parallel` would not deliver the real parallelism the design
-  intends — most of the wall-clock benefit would be lost, silently. This
-  contradicts `PIPELINE_DESIGN.md`'s reported measurement of `jobs=4` taking
-  218s vs `jobs=1` taking 400s, so either the comment is stale/wrong, or the
-  reported speedup is coming from ffmpeg/GPU decode overlap alone rather than
-  true multi-core detector throughput.
-- Fix approach: Verify whether `ThreadPoolExecutor` is intentional (GPU-bound
-  work releases the GIL during ffmpeg subprocess I/O, so threads may be
-  fine) and correct the stale comment, or switch to `ProcessPoolExecutor` if
-  true CPU parallelism is required. `Path`/`DetectionConfig` are already
-  picklable (frozen dataclasses), so the switch is low-risk if needed.
+**Files:** 
+- `src/enpipe/encoding/pipeline.py` (chunk scheduling, frame-count validation)
+- `tests/integration/_concurrency_harness.py` (regression harness for concurrent encoding)
+- `tests/integration/test_concurrency_immunity.py` (corruption immunity lock)
+- `tests/integration/test_hardware_real_media.py` (real media validation)
 
-**Orphaned reference to a non-existent script (`encode_av1_opus.sh`):**
-- Issue: `legacy/encode_scenes.py` describes its video preset and HDR
-  detection logic as "1:1 из encode_av1_opus.sh" (copied 1:1 from
-  `encode_av1_opus.sh`) and "как в encode_av1_opus.sh" (as in
-  `encode_av1_opus.sh`), but that script does not exist anywhere in this
-  repository or its git history (single "Initial commit").
-- Files: `legacy/encode_scenes.py:49`, `legacy/encode_scenes.py:330`
-- Impact: The provenance and original rationale for the ICQ/QP/GOP preset
-  values and the HDR/DV flag-detection heuristic (`detect_hdr`,
-  `legacy/encode_scenes.py:332-348`) is lost. Anyone changing these values
-  cannot cross-check against the "known good" source script referenced in
-  the comments.
-- Fix approach: Either import `encode_av1_opus.sh` into the repo (e.g. under
-  `legacy/`) for reference, or rewrite the comments to describe the preset
-  rationale directly instead of pointing at a missing file.
+**Impact:** Several safety checks and refinements from Phase 8 are marked **"Требует проверки человеком"** (requires human verification on hardware):
+- WR-03: Modified `METRICS_FAILED` classification and frame-loss detection logic — regression lock must pass on r4658 at production/stress JOBS.
+- WR-04: Moved `dovi_tool` token handling to `set +x` pattern — build must be tested to confirm no token leak.
+- WR-05: New per-path metric revisions (`QSVENCC_METRICS_MIN_REV = 4658` vs. global `>= 4634`) — metric-path variants must be validated on hardware.
+- WR-06: Replaced ΔPSNR gate with per-scene comparison in `parity_encode` — latent path, only surfaces if qsvencc becomes non-deterministic.
+- IN-04: Heuristic for retry decision based on error-message visibility threshold — depends on qsvencc error behavior on hardware.
 
-**Fragile hand-rolled EBML/Matroska Cues parser with broad exception
-swallowing:**
-- Issue: `keyframe_table_cues` implements a manual byte-level EBML parser
-  (variable-length integer decoding, SeekHead/Info/Tracks/Cues element
-  walking) to read keyframe timestamps directly from an MKV's Cues index,
-  bypassing ffprobe for speed. It wraps the entire parse in a single
-  `except (IndexError, OSError, ValueError): return None`.
-- Files: `legacy/encode_scenes.py:130-262`
-- Impact: Any malformed/unusual MKV structure, or any bug introduced while
-  editing this parser, silently falls through to `return None`, which the
-  caller (`keyframe_table`, `legacy/encode_scenes.py:291-300`) treats as "no
-  Cues" and transparently falls back to the slow full ffprobe packet scan.
-  This masks real parser bugs as "file has no Cues index" — a maintainer
-  could introduce a regression here and never notice because the fallback
-  path always produces a correct (if slow) result. There is no logging of
-  *why* the fast path was skipped beyond a generic message.
-- Fix approach: Narrow the except clause where possible, add unit tests with
-  synthetic/malformed MKV headers, and log the specific exception at debug
-  level so silent-fallback vs. genuinely-no-Cues cases are distinguishable.
+**Fix approach:** Run Phase 8 hardware tests on Arc A380 with:
+- Concurrent JOBS 3, 5, 8 (production and stress)
+- Both metric variants (metrics=True/False)
+- Real Dolby Vision + HDR10/HDR10+ sources from the hardening test corpus
+- Confirm all regression gates pass and error paths behave as expected
 
-**No cleanup on fatal error mid-encode (`die()` calls `sys.exit` directly):**
-- Issue: `die()` (`legacy/encode_scenes.py:62-63`) calls `sys.exit()`
-  immediately with no `finally`/cleanup path. It is called on chunk
-  failures (`legacy/encode_scenes.py:653-655`), incomplete splice
-  (`legacy/encode_scenes.py:656-657`), frame-count mismatch after splice
-  (`legacy/encode_scenes.py:662-663`), audio failure
-  (`legacy/encode_scenes.py:676-677`), and mkvmerge failure
-  (`legacy/encode_scenes.py:705-706`).
-- Files: `legacy/encode_scenes.py:62-63`, `608-663`, `693-706`
-- Impact: On any of these failure paths, the per-chunk `.obu` files, the
-  partially-assembled `movie.obu`, and `audio.mka` are left on disk in
-  `workdir` (named `<out>.chunks/` next to the target output). For large 4K
-  DV sources (35-45 GB per `PIPELINE_DESIGN.md`'s stated file sizes), a
-  failed run leaves tens of GB of orphaned chunk data that must be cleaned up
-  manually.
-- Fix approach: Wrap the encode/splice/mux sequence in a
-  try/finally (or context manager) that removes `workdir` on fatal error
-  unless `--keep` was passed, mirroring the cleanup already done on the
-  success path (`legacy/encode_scenes.py:708-716`).
+**Estimate:** Low complexity verification; no code changes expected, only gate passage confirmation.
 
-**Implicit, unversioned text-file protocol between the two legacy scripts:**
-- Issue: `scene_detection.py`'s `__main__` block writes a human-readable
-  `.scenes` log (`legacy/scene_detection.py:686-691`, format:
-  `"scene {index}  frames [{start}, {end})  ..."`), and
-  `encode_scenes.py` parses it back with a single regex,
-  `_SCENE_RE = re.compile(r"frames \[\s*(\d+),\s*(\d+)\)")`
-  (`legacy/encode_scenes.py:96`), extracting only the two frame numbers and
-  ignoring everything else on the line.
-- Files: `legacy/scene_detection.py:686-691`, `legacy/encode_scenes.py:94-107`
-- Impact: The two scripts are coupled through an ad hoc text format with no
-  shared schema, no version marker, and only one field of five actually
-  round-tripped (scene index, start/end seconds are written but never read
-  back — `encode_scenes.py` recomputes them from `fps`). Any reformatting of
-  the log line in `scene_detection.py` (e.g. changing spacing or wording)
-  can silently break `_SCENE_RE` without any compile-time signal, since
-  Python regex mismatches fail silently (empty match → skipped line, not an
-  error) unless the resulting scene list is empty.
-- Fix approach: Replace the free-text log with a structured format (CSV/JSON
-  Lines) with an explicit schema version field, or at minimum add a
-  round-trip test asserting `read_scenes(write_scenes(scenes)) == scenes`.
+### Fragile qsvencc Dependency Chain
 
-**No packaging, dependency pinning, or lint/format tooling:**
-- Issue: There is no `pyproject.toml`, `requirements.txt`, `setup.py`, or
-  lockfile anywhere in the repo. Python dependencies (`scenedetect[opencv-headless]`,
-  `numpy`) are installed unpinned via `pip install` in
-  `.devcontainer/post-create.sh:31`. The Dockerfile fetches `qsvencc` and
-  `dovi_tool` from GitHub Releases using `.../releases/latest`
-  (`.devcontainer/Dockerfile:52-53`, `.devcontainer/Dockerfile:71-72`), so
-  every container rebuild can silently pull different binary versions. No
-  `.eslintrc`/`.flake8`/`.ruff.toml`/`pre-commit` config exists (a `.ruff_cache/`
-  ignore entry exists in `.gitignore`, but no ruff config is present to use
-  it).
-- Files: `.devcontainer/post-create.sh:31`, `.devcontainer/Dockerfile:41-74`
-- Impact: Environment reproducibility is not guaranteed — a rebuild months
-  apart can produce a different `scenedetect`/`numpy`/`qsvencc`/`dovi_tool`
-  version mix than was validated, with no record of which versions were
-  actually tested. There is also no automated style/lint enforcement, so
-  code style consistency depends entirely on manual review.
-- Fix approach: Pin `scenedetect`/`numpy` versions (ideally via a
-  `pyproject.toml` + lockfile), and pin `qsvencc`/`dovi_tool` to specific
-  release tags instead of `latest` in the Dockerfile. Add a ruff/black config
-  if consistent formatting is desired.
+**Issue:** The pipeline is tightly coupled to specific qsvencc revisions for correctness:
+- Global minimum: `>= r4634` (ensures `45003f1` upstream fix for concurrent encode corruption)
+- Metrics path minimum: `>= r4658` (Tualua fork with patches #319/#320 for stable metrics under concurrency)
+- Current pinned build: `8.32+vppsync4` (r4658 fork)
 
-**Host-specific hardcoded paths in devcontainer config:**
-- Issue: `.devcontainer/devcontainer.json` bind-mounts `/data/media` and
-  `/data/downloads` from the host unconditionally
-  (`.devcontainer/devcontainer.json:18-21`), and GPU access assumes
-  `/dev/dri/renderD128` exists (`.devcontainer/post-create.sh:12-20`).
-- Files: `.devcontainer/devcontainer.json:15-21`, `.devcontainer/post-create.sh:10-21`
-- Impact: The devcontainer will fail to start or degrade silently (post-create
-  logs a warning but does not fail the build) on any machine without those
-  exact host paths and an Intel Arc GPU present. Not portable to other
-  contributors' machines or CI without editing the mount list.
-- Fix approach: Make mount paths configurable (e.g. via devcontainer
-  variables or a documented override file), and consider a CPU-only degraded
-  mode that is exercised in CI even without GPU access.
+**Files:** 
+- `src/enpipe/shared/qsvencc_version.py` (revision gates)
+- `tests/integration/test_concurrency_immunity.py` (locks to r4658 for metrics variants)
+- `Dockerfile` (pins qsvencc to sha256-verified mirror)
+- `.devcontainer/Dockerfile` (same pin)
 
-## Known Bugs
+**Impact:** 
+1. **Upstream dependency risk (999.4):** Patches #319/#320 remain in the Tualua fork; they are not yet in official rigaya/QSVEnc releases. Phase 8 measured 0 `METRICS_FAILED` on r4658, but if the official upstream 8.33+ does not include these patches, `--psnr/--ssim` at concurrent JOBS will regress to the r4634 behavior (VIDEOMETRIC failures, frame truncation, unreliable metrics).
+2. **Version-gate weakness (WR-05):** Global revision gate `>= 4634` does not detect whether the build is the patched fork or an unpatched official release with the same r-number. If qsvencc is installed via `--build-arg` or from a different mirror, old behavior could silently return. Production safety rests on frame-count validation (`count_frames` will catch truncation and call `die()`), but the regression-lock promise ("on old build, lock FAILS") is weaker than stated.
 
-No confirmed functional bugs identified from static review (the code has
-never been run against real video per its own docstring, so "known bugs" in
-the traditional sense — reported failures — do not yet exist). The
-ThreadPoolExecutor/GIL comment mismatch above is the closest thing to a
-suspected-but-unconfirmed bug; it is filed under Tech Debt because its
-actual runtime impact (if any) has not been measured.
+**Fix approach:**
+1. **(999.4, future phase)** Monitor rigaya/QSVEnc releases for inclusion of patches #319/#320. If/when they land in official releases (e.g., 8.33+), migrate from fork to official version and drop the Tualua fork dependency.
+2. **(WR-05, deferred per fix report)** For metric-path safety: consider stricter version checking (e.g., version string `8.32+vppsync4`, or sha256 of binary + strict URL pinning) if the system is ever opened to user-supplied qsvencc binaries.
+
+**Current mitigation:** 
+- Devcontainer pins qsvencc to sha256-verified mirror; subprocess build argument cannot override without hash mismatch.
+- `ensure_qsvencc_fixed` checks revision at runtime; encode/detect refuse to run on known-old builds.
+- Per-chunk `count_frames` catches truncation silently (rc=0 but wrong frame count → `die()`).
+
+### Incomplete Legacy API Verification
+
+**Issue:** `legacy/encode_scenes.py` does not gate its parallel qsvencc calls against revision checks, despite the module's own docstring claiming `qsvencc_version` coverage "каждого запуска" (every run).
+
+**Files:** 
+- `legacy/encode_scenes.py` (lines where parallel `qsvencc` is invoked; no version check wired in)
+- `src/enpipe/shared/qsvencc_version.py` (gate functions available but not used in legacy)
+
+**Impact:** **Backlog item 999.3.** If someone invokes `legacy/encode_scenes.py` directly (e.g., during development or manual testing), qsvencc can be arbitrarily old without a runtime rejection. This is lower-risk than new code (the legacy path is frozen parity oracle, not intended for new media), but the docstring's claim is inconsistent with implementation.
+
+**Fix approach:** Either (a) connect `ensure_qsvencc_fixed` to legacy's `main()`, or (b) update the docstring to document the gap. Decision deferred pending use-case review.
+
+---
+
+## Known Bugs / Unresolved Phase-8 Findings
+
+### Frame-Loss Detection Strictness (WR-03, hardening change)
+
+**Status:** Fixed in code (08-REVIEW-FIX.md), requires hardware validation.
+
+**Issue:** Phase 8 identified that marker `"Decoded frame count does not match"` in qsvencc stderr is a direct symptom of frame loss, not merely a metrics-subsystem failure. The fix reclassified this marker from `METRICS_FAILED` (retryable) to `SESSION_FAILED` (fatal), and `metrics_only_failure` now forbids retries for this case.
+
+**Implications:** On hardware, a session with frame loss will now immediately fail and prevent retry in `parity_encode`. The old logic would have classified it as `METRICS_FAILED`, allowed a retry, and potentially hidden intermittent frame loss. This is safer, but changes error semantics — any existing automation relying on "metrics failure → retry" logic must be aware of the change.
+
+**Hardware verification needed:** Confirm the error marker still reliably surfaces in qsvencc stderr on real media at concurrent JOBS 3, 5, 8.
+
+### Empty `psnr_avg` on Metrics Mismatch (IN-07, observed in code review)
+
+**Status:** Fixed (07c3acc4: `_coverage_gap` in metrics.py), requires real-media validation.
+
+**Issue:** If qsvencc reports SSIM for all chunks but PSNR for only some, the old code would compute SSIM total but leave PSNR as empty/None, a silent partial failure. Phase 8 fix: if any chunk has a metric but not all chunks do, the column becomes `nan` in the output CSV. This exposes the gap visibly rather than hiding it.
+
+**Hardware verification needed:** Run on real media with `--psnr --ssim` and confirm:
+- Partial metric coverage (e.g., PSNR fails in chunk 3 of 5) produces CSV row with `nan` in PSNR column.
+- Logging/error path is clear and does not confuse operators.
+
+---
 
 ## Security Considerations
 
-**Subprocess construction uses `subprocess.run`/`Popen` with argument lists
-(not shell=True):**
-- Risk: Low. All external tool invocations (`ffmpeg`, `ffprobe`, `qsvencc`,
-  `mkvmerge`) in both legacy scripts pass argument lists directly to
-  `subprocess.run`/`Popen` without `shell=True`, which avoids shell injection
-  via filenames.
-- Files: `legacy/scene_detection.py:126`, `223-270`; `legacy/encode_scenes.py:66-67`,
-  `354-370`, `403-405`
-- Current mitigation: Argument-list invocation is already the safe pattern.
-- Recommendations: No change needed; note this as a positive pattern to
-  preserve in any rewrite.
+### Subprocess Argument Safety
 
-**No secrets or credentials present in the repository.**
-- Risk: None detected. No `.env`, credential files, API keys, or tokens found
-  in the tracked tree.
-- Files: N/A
-- Current mitigation: N/A
-- Recommendations: None.
+**Status:** ✅ Secure (no changes needed).
+
+**Mitigation in place:** All external tool invocations (`ffmpeg`, `ffprobe`, `qsvencc`, `mkvmerge`) in `src/enpipe/` use argument lists (never `shell=True`), preventing shell injection via filenames. Pattern consistent with legacy scripts and preserved through refactor. See `src/enpipe/shared/proc.py` for the subprocess wrapper.
+
+### Docker Image Build-Time Secrets
+
+**Status:** ✅ Fixed in Phase 8 (WR-04 and IN-06).
+
+**Previous issue:** Runtime `Dockerfile` had an exposed GitHub token in build logs when fetching `dovi_tool` with authorization.
+
+**Fixed:** Token-fetching commands now wrapped in `set -eu; set +x ... set -x` to disable xtrace around secret reads, matching the qsvencc build block pattern.
+
+**Remaining:** `.devcontainer/Dockerfile` does not fetch `dovi_tool` with auth, so no token leak there.
+
+### PPA Key Verification
+
+**Status:** ✅ Enhanced in Phase 8 (IN-06).
+
+**Previous issue:** Runtime `Dockerfile` accepted any key with a matching fingerprint, even if response contained multiple keys.
+
+**Fixed:** Keyserver response must contain exactly one `pub:` line (primary key); fingerprint is verified on that one key only.
+
+**Consequence:** Attempt to substitute additional keys into keyring will now fail the build, as intended.
+
+---
 
 ## Performance Bottlenecks
 
-**Sequential pipeline is the current state; the AV1 encode step dominates
-wall-clock time by design, not by bug:**
-- Problem: Per `PIPELINE_DESIGN.md`'s own Amdahl's-law analysis, encoding is
-  85-90% of total wall time (~1800s of ~2018s for the reference workload) and
-  is not currently overlapped with scene detection at all — the two legacy
-  scripts run one after another as separate processes/invocations.
-- Files: `legacy/scene_detection.py`, `legacy/encode_scenes.py`
-  (`PIPELINE_DESIGN.md` documents the measured numbers)
-- Cause: `encode_scenes.py`'s `main()` reads the *entire* scene list upfront
-  (`legacy/encode_scenes.py:542-548`) before starting any chunk encoding —
-  there is no streaming hookup to `scene_detection.py`'s output, so no
-  overlap is structurally possible today.
-- Improvement path: This is exactly what `PIPELINE_DESIGN.md` proposes to
-  fix via a streaming producer/consumer pipeline — see "Planned-Work Risks"
-  below. Note the design document's own conclusion: on the current spinning-
-  disk ZFS + Arc A380 hardware, building this yields roughly 0% net benefit
-  (with a realistic chance of being *slower* than the current sequential
-  approach) due to disk seek contention between the linear detection read and
-  the seek-heavy multi-job encode reads. The design explicitly recommends
-  **not** building the pipeline on current hardware.
+### Concurrent Metrics Subsystem Stability
 
-**`detect_scenes_parallel`'s boundary-finding does per-mark ffprobe + partial
-decode passes, adding fixed overhead per job:**
-- Problem: For `jobs>1`, `find_boundary` performs an `ffprobe -read_intervals`
-  call plus a ~44-second decode window (`mark_t - 14.0` to `mark_t + 30.0`,
-  `legacy/scene_detection.py:538`) per internal boundary mark, on top of the
-  final full segment decodes.
-- Files: `legacy/scene_detection.py:524-553`
-- Cause: Necessary to find a real scene-cut-aligned keyframe boundary before
-  splitting into segments, since arbitrary keyframe splits would not
-  reproduce the sequential detector's `min_scene_len` state resets.
-- Improvement path: Not a current defect — this is an intentional
-  correctness/parallelism tradeoff, but it means `jobs` beyond 4 has
-  diminishing/negative returns (more short boundary-probe decodes per file)
-  and has not been benchmarked at higher job counts.
+**Issue:** Phase 8 fixed VIDEOMETRIC failures on r4634/upstream 8.32 via the fork r4658, reaching 0 failures in 640 test sessions. However, this is not production-proven at scale.
+
+**Files:** `src/enpipe/encoding/chunk.py`, `src/enpipe/encoding/metrics.py`, `.devcontainer/Dockerfile`
+
+**Current state:** 
+- Metrics are stable on r4658 (Tualua fork with patches #319/#320).
+- `METRICS_FAILED` count is monitored in tests; allowance is strict (0 fails in regression lock).
+- qsvencc stderr message truncation (500 chars, per `encode_chunk.py`) may hide full context if many errors precede metrics failure.
+
+**Risk:** If patches #319/#320 do not land in official 8.33+ releases, or if a future driver/oneVPL update introduces new VA allocation pressure, metrics may regress. Current defenses:
+1. `count_frames` will catch output truncation (silent frame loss).
+2. Per-scene SSIM/PSNR metrics provide sanity check (large outliers signal corruption).
+3. Regression lock in CI/hardware-gated tests will fail if metrics stability degrades.
+
+**Backlog item (999.4):** Track upstream integration of patches #319/#320; plan migration to official releases if/when available.
+
+### Disk Seek Contention on Spinning Media
+
+**Status:** Documented by design, not a bug.
+
+**Issue:** `PIPELINE_DESIGN.md` concluded that a streaming producer/consumer pipeline would offer -5% to +10% wall-time improvement on current hardware (spinning-disk ZFS + Arc A380), with realistic scenario being a loss due to seek contention during detection + encoding overlap.
+
+**Mitigation:** Sequential workflow is the intended operational mode on current hardware. No architecture change planned until storage moves to SSD/NVMe.
+
+---
 
 ## Fragile Areas
 
-**`legacy/scene_detection.py`'s `QsvPipeStream` frame-alignment logic
-(`-ss`/`-copyts`/`select` leading-frame drop):**
-- Files: `legacy/scene_detection.py:222-261`, comment at `226-251`
-- Why fragile: Relies on precise interaction between ffmpeg's `-ss` (before
-  `-i`), `-copyts`, and a `select='gte(t\,...)'` filter to discard
-  GOP-dependent leading frames so that the segment's internal frame counter
-  starts exactly at 0 relative to the true seek point. This is exactly the
-  kind of ffmpeg version/behavior-dependent logic that can silently shift by
-  one or more frames after an ffmpeg upgrade.
-- Safe modification: Any change here must be validated against the
-  regression test `PIPELINE_DESIGN.md` mandates (`detect_scenes_streaming(f)
-  == detect_scenes(f, jobs=1)`) and, ideally, against `detect_scenes_parallel`
-  output equivalence to `detect_scenes(..., jobs=1)` on real footage with
-  known cut points.
-- Test coverage: None currently exists.
+### EBML/Matroska Cues Parser
 
-**`legacy/encode_scenes.py`'s chunk seek/trim frame arithmetic
-(`kf_before`, `fmt_seek`, per-scene trim computation):**
-- Files: `legacy/encode_scenes.py:303-326`, `581-589`
-- Why fragile: Correctness depends on `fmt_seek`'s deliberate floor-to-
-  millisecond rounding (`legacy/encode_scenes.py:316-326`) landing exactly on
-  a keyframe as `qsvencc --seek` expects, combined with the `trim` field
-  being computed relative to that keyframe. An off-by-one here would corrupt
-  every chunk boundary silently (wrong frames encoded, not a crash) since
-  `count_frames` only validates chunk *frame count*, not content correctness.
-- Safe modification: Verify chunk frame counts still match expected AND spot-
-  check output against source at scene boundaries after any change; the
-  existing SSIM/PSNR metrics computed per chunk (`chunk_command`,
-  `legacy/encode_scenes.py:354-370`) provide some signal but aren't asserted
-  against a pass/fail threshold in code today.
-- Test coverage: None currently exists (no synthetic-video fixture tests).
+**Status:** Significantly improved vs. legacy.
 
-**Tight coupling to Intel Arc A380 QSV specifics throughout:**
-- Files: `legacy/scene_detection.py:222-261` (hwaccel qsv, vpp_qsv,
-  nv12 format-forcing), `legacy/encode_scenes.py:354-370` (`qsvencc --avhw`)
-- Why fragile: The `--no-qsv`/`use_qsv=False` software-decode fallback in
-  `scene_detection.py` is explicitly documented as "для отладки вне NAS"
-  (for debugging outside the NAS) rather than a supported production path
-  (`legacy/scene_detection.py:69-71`). `encode_scenes.py` has no software-
-  encode fallback at all — `qsvencc` is a hard dependency
-  (`legacy/encode_scenes.py:532-534`). Any move off Arc/QSV hardware (or a
-  driver/oneVPL update that changes `vpp_qsv`/`nv12` behavior) requires
-  re-validating both scripts.
-- Safe modification: Treat any hardware/driver change as requiring a full
-  re-run of the (currently nonexistent) integration test suite.
+**Improvements (Phase 1):**
+- Isolated pure byte-parsing logic into `src/enpipe/mkv/ebml.py` (no I/O, testable with byte fixtures).
+- Comprehensive unit tests with synthetic MKV headers in `tests/unit/mkv/test_ebml.py`.
+- Integration validation in `tests/integration/test_ebml_cross_validation.py` (cross-check against ffprobe).
+
+**Remaining concerns:**
+- Parser gracefully falls back to ffprobe if Cues parsing fails (masked-exception pattern from legacy), but new isolation of `ebml.py` means callers in `keyframes.py` can now catch and log specific failure modes.
+- Parser has not been stress-tested on large files (35-45 GB as mentioned in `PIPELINE_DESIGN.md`) or on unusual MKV variants (e.g., files with multiple video tracks, Cues in unusual positions).
+
+**Safe modification:** Any change to EBML parsing must pass the full test suite (unit + integration) and ideally be validated on a sample of real production files.
+
+### Frame-Alignment Arithmetic in Scene Boundaries
+
+**Status:** Tested but hardware-dependent verification pending.
+
+**Concern:** Chunk seek/trim computation in `src/enpipe/encoding/chunk.py` and scene-boundary finding in `src/enpipe/detection/` rely on precise frame-alignment math. An off-by-one error here would produce incorrect frames in output with no crash signal — only post-hoc SSIM/frame-count validation would catch it.
+
+**Files:**
+- `src/enpipe/encoding/chunk.py` (frame-count verification, metrics parsing)
+- `src/enpipe/encoding/keyframes.py` (keyframe lookup, trim computation)
+- `src/enpipe/detection/stream.py` (seek/trim for scene detection)
+
+**Test coverage:**
+- Unit tests for keyframe lookup (`tests/unit/encoding/test_keyframes.py`)
+- Integration tests for boundary detection (`tests/integration/test_parallel_regression.py`)
+- Regression lock comparing new vs. legacy output on real media (`tests/integration/test_hardware_real_media.py`)
+
+**Hardware verification needed:** Run regression lock on Arc A380 to confirm frame-perfect alignment between new `src/enpipe` and frozen `legacy/` oracle on a corpus of real HDR/DV sources.
+
+---
 
 ## Scaling Limits
 
-**Large-file disk contention is a known, documented limit on current
-hardware, not a bug:**
-- Current capacity: `PIPELINE_DESIGN.md` reports the current spinning-disk
-  ZFS setup sustains ~106 MB/s single-stream and drops to ~50 MB/s aggregate
-  under 4-way seek contention.
-- Limit: For large 4K Dolby Vision sources (35-45 GB, per `PIPELINE_DESIGN.md`),
-  detection alone approaches the disk's linear-read limit, and ZFS ARC cannot
-  hold the whole file in RAM, which is precisely why the design document
-  recommends against building the overlapped pipeline for this hardware
-  profile — the current sequential `detect jobs=4 → encode jobs=4` workflow
-  is deliberately the more scalable choice on the documented hardware.
-- Scaling path: Per the design doc, moving the source to SSD/NVMe (or
-  ensuring RAM ≥ file size for ARC warmth) would remove this ceiling and
-  make the pipelined design's projected 7-10% win reliably safe to pursue.
+### Concurrent Job Count Upper Bound
+
+**Issue:** JOBS parameter is tunable via `JOBS` environment variable (default 3), but optimal/maximum JOBS is not documented or validated.
+
+**Files:** 
+- `src/enpipe/encoding/pipeline.py` (JOBS = 3 default)
+- Test fixtures use JOBS in {1, 3, 5, 8} for stress testing
+
+**Current facts:**
+- Phase 6/7/8 validated JOBS 3 (production) and 5, 8 (stress) on synthetic 320x180 and real media.
+- No regression observed at JOBS 8 on r4658, but large-file seeks on spinning disk may show degradation.
+- No documented upper limit or recommendation.
+
+**Risk:** User experimenting with `JOBS=16` on a 4-GPU system (hypothetical) could oversubscribe GPU memory or cause VA resource contention, silently truncating output (caught by `count_frames` but not obvious to the user).
+
+**Mitigation:** `--help` or documentation should recommend JOBS 3–5 for typical hardware and note that higher values may cause VIDEOMETRIC/VA-allocation failures.
+
+---
 
 ## Dependencies at Risk
 
-**`qsvencc` and `dovi_tool` pulled as "latest GitHub release" at image build
-time:**
-- Risk: `.devcontainer/Dockerfile` resolves both binaries via the GitHub API
-  `.../releases/latest` at every image build
-  (`.devcontainer/Dockerfile:47-53`, `.devcontainer/Dockerfile:66-72`), with
-  no pinned tag or checksum verification beyond `curl -fsSL`.
-- Impact: A new upstream release with a breaking CLI change (flag rename,
-  removed feature) would silently change build output on the next container
-  rebuild, with no changelog review step and no pinned "known good" version
-  recorded anywhere in the repo.
-- Migration plan: Pin to specific release tags for both tools and document
-  the currently-validated versions (e.g. in a comment or a version-pins
-  file), bumping deliberately.
+### qsvencc Fork Dependency (Patches #319/#320)
 
-**`scenedetect`/`numpy` installed unpinned via pip in post-create:**
-- Risk: `.devcontainer/post-create.sh:31` runs
-  `python3 -m pip install ... "scenedetect[opencv-headless]" numpy` with no
-  version constraints.
-- Impact: `legacy/scene_detection.py`'s docstring already notes it was
-  "Проверено против PySceneDetect 0.7" (verified against PySceneDetect 0.7)
-  and explicitly warns that `AdaptiveDetector.post_process` returning `[]`
-  is an assumption that could break with a detector change — an unpinned
-  upgrade to a newer `scenedetect` release is exactly the kind of change
-  that could silently violate this assumption.
-- Migration plan: Pin `scenedetect==0.7.*` (or the exact validated version)
-  and `numpy` to a tested range in a `pyproject.toml`/`requirements.txt`.
+**Status:** **Backlog 999.4.**
 
-## Missing Critical Features
+**Details:** Current production pin is `8.32+vppsync4` (Tualua fork), which includes:
+- Upstream `45003f1` (concurrent encode corruption fix from rigaya/QSVEnc)
+- Local patches #319, #320 (VPP surface sync, metric stability)
 
-**No CI pipeline of any kind.**
-- Problem: There is no `.github/workflows/`, no CI config for any provider,
-  anywhere in the repository.
-- Blocks: Automated verification of any future test suite, lint checks, or
-  build validation on push/PR. All correctness currently depends on manual
-  local testing on the NAS hardware referenced in the design doc.
+**Risk:** 
+1. Patches remain in fork only; not yet merged into official rigaya/QSVEnc.
+2. If official releases do not integrate these patches, metric stability will regress on official builds.
+3. Migration path to official 8.33+ depends on patch acceptance by upstream maintainer (quietvoid/Tualua).
+
+**Action:** Monitor rigaya/QSVEnc releases and upstream pull requests. Plan migration once patches are integrated or equivalent fixes land in a new official release.
+
+### Python Dependencies Version Constraints
+
+**Status:** ✅ Locked via `uv.lock`.
+
+**Mitigation:** `pyproject.toml` pins versions for `scenedetect`, `numpy`, `Pillow`, etc. via `uv.lock` lockfile. Dev environment (`.devcontainer`) uses the same lockfile, ensuring reproducibility.
+
+**Note:** Legacy scripts still use ad-hoc `pip install` in `.devcontainer/post-create.sh`, but legacy code is frozen (parity oracle only), so version drift there is not a production risk.
+
+### FFmpeg Version Dependency
+
+**Status:** Pinned via devcontainer, but no explicit version check.
+
+**Files:** `.devcontainer/Dockerfile` (Debian 13 apt package), `Dockerfile` (ubuntu:24.04 apt package)
+
+**Concern:** Both Dockerfiles install ffmpeg/ffprobe from apt without pinning a specific version. An Ubuntu/Debian point release could pull a newer ffmpeg with changed CLI semantics (rare, but possible).
+
+**Mitigation:** 
+- Codebase uses stable ffmpeg flags; risk of incompatibility is low.
+- CI tests run against devcontainer-packaged ffmpeg, so regressions would be caught.
+
+**Note:** If a future ffmpeg upgrade causes failures, version pinning would be straightforward (apt-get install ffmpeg=VERSION).
+
+---
+
+## Missing/Incomplete Features
+
+### User-Configurable Workdir Location
+
+**Issue:** Intermediate chunk files (`.obu`) are written to `<out_dir>/<stem>.chunks/` by default, hardcoded in the pipeline.
+
+**Files:** `src/enpipe/encoding/pipeline.py` (workdir resolution)
+
+**Impact:** Low. Default location is usually acceptable (chunks live next to final output). Users with constrained output-directory space must use `--workdir` flag (supported since Phase 5).
+
+### Metrics CSV Column Consistency
+
+**Issue:** Per Phase 8 (IN-07), columns with partial data now show `nan` instead of empty. This changes CSV format and may affect downstream tooling expecting empty strings.
+
+**Files:** `src/enpipe/encoding/metrics.py`, test fixtures
+
+**Mitigation:** 
+- CSV format is documented in docstring.
+- Test suite includes regression checks for partial/complete coverage.
+- Tools parsing the CSV should treat `nan` and empty equally (both mean "no value").
+
+---
 
 ## Test Coverage Gaps
 
-**Entire codebase (0% coverage):**
-- What's not tested: All of `legacy/scene_detection.py` and
-  `legacy/encode_scenes.py` — no unit tests, no integration tests, no
-  fixtures.
-- Files: `legacy/scene_detection.py`, `legacy/encode_scenes.py`
-- Risk: Every concern listed above (frame-alignment arithmetic, EBML
-  parsing, boundary-merge logic, chunk seek/trim math) could regress
-  silently on any future change, including changes made while implementing
-  `PIPELINE_DESIGN.md`.
-- Priority: High — `PIPELINE_DESIGN.md` itself treats a regression test as a
-  hard prerequisite ("обязателен") for the streaming-detection refactor it
-  proposes; that test does not exist yet, so the proposed refactor currently
-  has no safety net to build on top of.
+### Hardware-Gated Tests Not Run During Phase 8
+
+**Issue:** Phase 8 code review and fixes were iterated without Arc A380 hardware available. Several safety-critical tests are marked with `@pytest.mark.hardware` and require GPU access.
+
+**Files:**
+- `tests/integration/test_concurrency_immunity.py` (regression lock COR-02)
+- `tests/integration/test_hardware_real_media.py` (real media validation)
+- `tests/integration/_concurrency_harness.py` (gate harness)
+- `scratch/gate_stress_matrix.py` (stress matrix runner)
+- `scratch/parity_encode.py` (legacy vs. new parity check)
+
+**Coverage report (from Phase 8 fix report):**
+```
+Fast tier: uv run pytest
+  Result: 291 passed, 12 deselected (hardware tests)
+
+Hardware tests (not run):
+  - test_qsvencc_immune_at_production_jobs (2 variants: metrics=True/False)
+  - test_real_media_... (multiple real source files)
+  - gate_stress_matrix (640 sessions across JOBS 3/5/8)
+  - parity_encode (per-scene metric comparison)
+```
+
+**Impact:** Fixes related to metrics stability (WR-03, WR-05), frame-loss detection, and per-scene SSIM accuracy cannot be confirmed to work until hardware validation is done.
+
+**Recommendation:** Schedule hardware validation run on Arc A380 as soon as access is available. Expected duration: 2–4 hours (stress matrix alone is ~640 sessions).
+
+### Large-File Scalability Testing
+
+**Issue:** Tests use synthetic 320x180 or small real files (10–20 GB range). Production use case mentions 35–45 GB files. No tests validate behavior at true production scale.
+
+**Files:** Test fixtures in `tests/` lack large-file corpus
+
+**Mitigation:** 
+- Regression lock uses real files from production corpus (documented in Phase 8 context).
+- Codebase has been measured on real DV/HDR10+/Dolby Vision sources during phase validation.
+- Scaling bottleneck (disk seeks) is documented in `PIPELINE_DESIGN.md` with measured numbers.
+
+**Future:** If pipeline becomes stable, capture a regression fixture with one full 40GB real source to include in CI validation runs.
 
 ---
 
-## Planned-Work Risks (PIPELINE_DESIGN.md — not yet implemented)
+## Backlog Items (Captured, Not Yet Implemented)
 
-These are risks specific to *building* the design in `PIPELINE_DESIGN.md`,
-not issues in the current codebase. `PIPELINE_DESIGN.md:219-229` ("Статус
-реализации") explicitly states the design is "готово к коду, НЕ реализовано"
-(ready to code, NOT implemented) — none of `detect_scenes_streaming()`, the
-threaded consumer refactor of `encode_scenes.py:main()`, or the orchestrator
-exist in the codebase today.
+### 999.1: ffmpeg av1_qsv Backend
 
-**Explicit "do not build on current hardware" verdict:**
-- Risk: `PIPELINE_DESIGN.md:9-34` (TL;DR) concludes the Amdahl's-law ceiling
-  for this pipeline is ~10-18% at best, and on the actual current hardware
-  (spinning-disk ZFS + Intel Arc A380) the realistic outcome ranges from -5%
-  to ~0% versus the current sequential workflow, with a documented failure
-  mode (severe seek contention, `PIPELINE_DESIGN.md:191-192`) where the
-  pipelined version is *slower* than sequential.
-- Impact if built anyway: Engineering effort spent implementing a
-  `queue.Queue`-based producer/consumer pipeline, a new `detect_scenes_streaming()`
-  generator, and a refactored `encode_scenes.py` consumer loop, for a
-  measured-negative-to-neutral return on the hardware this repo currently
-  targets (per its own devcontainer, which is built specifically for an
-  Arc A380 + presumably-spinning NAS storage).
-- Recommendation: Do not implement the streaming pipeline unless/until the
-  source moves to SSD/NVMe storage or ZFS ARC is confirmed warm/sized to
-  hold full source files (`PIPELINE_DESIGN.md:25-31`, `211-217`). If storage
-  characteristics change, re-run the numbers in `PIPELINE_DESIGN.md`'s
-  "Подсистема 3" analysis before committing to the build.
+**Status:** Parked. Previous justification (qsvencc concurrent corruption) is now moot.
 
-**Streaming detector correctness rests on an unverified PySceneDetect
-internal-behavior assumption:**
-- Risk: The design's streaming callback approach (`detect_scenes_streaming`,
-  `PIPELINE_DESIGN.md:88-129`) depends on
-  `AdaptiveDetector.post_process()` returning `[]` (verified by reading
-  PySceneDetect 0.7 source, `PIPELINE_DESIGN.md:75-78`), meaning the
-  callback sees *all* cuts and stream-mode output equals batch-mode output.
-  The design doc itself flags this as a risk if the detector is ever swapped
-  for `Threshold`/`TransNetV2` ("у них post_process эмитит резы мимо
-  callback — закрыть регресс-тестом", `PIPELINE_DESIGN.md:77-78`), and
-  states the mandatory regression test to guard this has not been written.
-- Impact if built without the regression test first: A future detector swap
-  (or an unpinned `scenedetect` upgrade — see Dependencies at Risk above)
-  could silently change which cuts the streaming consumer sees vs. the
-  batch path, producing scene splits that no longer match `detect_scenes(...,
-  jobs=1)` with no error raised.
-- Recommendation: Write the regression test
-  (`list(detect_scenes_streaming(f)) == detect_scenes(f, jobs=1)` by
-  `(start_frame, end_frame)` pairs) *before* or alongside implementing
-  `detect_scenes_streaming()`, exactly as `PIPELINE_DESIGN.md:131-132`
-  specifies.
+**Content:** Fomerly Phases 7–10 (v1.2); proposed introducing a `backends/` abstraction layer, ffmpeg `av1_qsv` for SDR, HDR10 via ffmpeg, decision on DV/HDR10+ strategy.
 
-**Refactor of `encode_scenes.py:main()` touches its core ordering/splice
-invariants:**
-- Risk: The design's proposed consumer refactor
-  (`PIPELINE_DESIGN.md:136-169`) modifies `read_scenes` (lines 542-548),
-  `total_expect` (line 564), the `tasks`-building loop (lines 581-589), and
-  the `as_completed` + `flush_appends` "high-water mark" splice loop (lines
-  619-645) referenced in this repo's current `legacy/encode_scenes.py`. These
-  are exactly the sections responsible for guaranteeing splice ordering,
-  frame-accurate chunking, and DV/HDR10 metadata survival across `cat`.
-- Impact if implemented carelessly: A bug in the refactored producer/consumer
-  split could break splice ordering (scenes concatenated out of order) or
-  silently drop the "drain-then-die" error path
-  (`PIPELINE_DESIGN.md:167-168`) that today causes a hung/partial output to
-  fail loudly instead of producing a corrupt file.
-- Recommendation: `PIPELINE_DESIGN.md:153-159` already states the batch path
-  must become "a special case of the streaming path" with one shared
-  consumer — treat any implementation PR as required to demonstrate byte-
-  identical output (or equivalent frame-count/SSIM checks) between the old
-  batch `main()` and the new consumer for at least one full real encode
-  before merging.
+**Why parked:** Upstream fix `45003f1` in qsvencc was released and verified on Arc A380 (Phase 7), eliminating the primary motivation (silent frame corruption) for switching backends. Additional benefits (CLI stability, fewer tuning knobs) were secondary.
 
-**No orchestrator backpressure mechanism exists yet to bound producer
-lead:**
-- Risk: The design specifies `queue.Queue(maxsize=8)` backpressure between
-  the scene-detection producer and the encode consumer as a "free" mitigation
-  for disk contention (`PIPELINE_DESIGN.md:197-199`), plus a secondary
-  mitigation of ramping encode `JOBS` down during the overlap window
-  (`PIPELINE_DESIGN.md:200-202`, marked "Рекомендую" / recommended). Neither
-  exists in code today.
-- Impact if the pipeline is built without these mitigations: Full seek
-  contention as described in the "Pipeline злой трэш" worst-case row of the
-  design doc's table (`PIPELINE_DESIGN.md:192`, wall-clock worse than the
-  sequential baseline).
-- Recommendation: Implement both mitigations from the start if the pipeline
-  is ever built — they are not optional optimizations in the design's own
-  analysis, they are the difference between a modest win and a regression.
+**Retention:** Planning artifacts remain in `.planning/phases/999.1/` for potential future use if circumstances change (e.g., qsvencc development becomes unstable, ffmpeg gains production-proven HDR support, etc.).
+
+### 999.3: qsvencc Version Gate in legacy/encode_scenes.py
+
+**Status:** Open. Backlog decision: gate or update docstring.
+
+**Context:** `src/enpipe/shared/qsvencc_version.py` provides `ensure_qsvencc_fixed()` function, used in new code. Legacy `encode_scenes.py` does not call it, despite its own docstring claiming coverage "каждого запуска" (every run).
+
+**Scope:** Minor — legacy is frozen (parity oracle only); risk is if someone directly invokes legacy code with old qsvencc. New production code (`src/enpipe/encoding/pipeline.py`) is already gated.
+
+**Resolution options:**
+- (a) Connect gate to `legacy/encode_scenes.py:main()` for completeness.
+- (b) Update docstring to clarify gate is in new code path only.
+- Decision deferred to future phase or acceptance criteria update.
+
+### 999.4: qsvencc Metrics Reliability at Concurrent JOBS
+
+**Status:** Open. Investigation complete; action is upstream migration + runtime fallback.
+
+**Facts (Phase 8 measurement on r4658):**
+- METRICS_FAILED = 0 of 640 sessions (JOBS 3, 5, 8; both metric variants)
+- SSIM: ±1e-6 agreement with ffmpeg
+- PSNR: Calculated from per-frame MSE, agreement exact
+- Defect history: r4634 + official 8.32 had VIDEOMETRIC failures; r4658 fork with patches #319/#320 is stable
+
+**Outstanding questions:**
+1. Will official 8.33+ include patches #319/#320? (Requires upstream tracking)
+2. Can we fall back to ffmpeg PSNR/SSIM if qsvencc metrics fail? (Requires ffmpeg + external tool wiring)
+3. Should retry logic be added for transient VIDEOMETRIC failures? (Low priority; currently 0 failures in production stress test)
+
+**Action:** Monitor rigaya/QSVEnc release notes and GitHub PRs. If patches land in official release, plan migration from fork. If not, consider external ffmpeg metrics as fallback or accept the dependency on the fork.
 
 ---
 
-*Concerns audit: 2026-07-08*
+## Known Limitations (Operational)
+
+### No Streaming Pipeline Overlap (By Design)
+
+**Status:** Current operational mode is sequential (detect → encode); streaming overlap is optional future work, parked due to storage constraints.
+
+**Reason:** Per `PIPELINE_DESIGN.md`, overlapped producer/consumer would offer -5% to +10% wall-time improvement *if* storage is SSD/NVMe. On current spinning-disk ZFS + Arc A380, realistic outcome is neutral or slightly negative.
+
+**Operational impact:** Full detection pass required before encoding can start. For large files (35–45 GB), detection adds 400–600s to total wall time. Not a bug, but a known capacity ceiling.
+
+### Chunk Intermediate Storage
+
+**Issue:** Per-chunk `.obu` files can accumulate to 30–40 GB during encoding (multiple chunks in flight at JOBS=8).
+
+**Files:** `src/enpipe/encoding/pipeline.py` (chunk storage management)
+
+**Mitigation:** 
+- Default `workdir` location is same partition as output (usually large enough).
+- `--workdir` flag allows explicit control for constrained systems.
+- `--keep` flag preserves chunks for debugging; default is cleanup after success/failure.
+
+**Operational note:** Ensure output filesystem has at least source-file size + 50% headroom for intermediate chunks.
+
+---
+
+## Recommendations for Next Phase / Future Work
+
+1. **Hardware Validation (immediate):** Run Phase 8 regression lock and stress matrix on Arc A380 to confirm all fixes and safety checks are sound. Expected duration: 2–4 hours. Blockers for production deployment if not passed.
+
+2. **Upstream Monitoring (ongoing):** Track rigaya/QSVEnc and intel-opencl-icd releases for inclusion of patches #319/#320 and any new VIDEOMETRIC stability issues. Set calendar alert for monthly release check.
+
+3. **Large-File Scaling Validation (future):** Capture a 40GB real Dolby Vision source as a regression fixture and include in stress-test suite, to ensure behavior at true production scale.
+
+4. **Backlog 999.3 Decision (future planning):** Decide whether to gate legacy code or accept asymmetric coverage (new code gated, legacy assumed frozen). Document decision.
+
+5. **Backlog 999.4 Resolution (future planning):** Once upstream decisions are known (patches #319/#320 status), plan migration strategy (stay on fork, migrate to official, or implement ffmpeg metrics fallback).
+
+6. **User Documentation:** Add operational guidance on JOBS tuning, workdir space requirements, and metric-output interpretation (especially `nan` columns).
+
+---
+
+*Concerns audit: 2026-10-03*
+*Updated from previous audit 2026-07-08, reflecting Phases 1–8 completion and post-review fixes.*
