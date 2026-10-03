@@ -71,10 +71,12 @@ DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpi
 Образ на Ubuntu 24.04 + PPA `kobuk-team/intel-graphics` содержит
 `intel-opencl-icd`, поэтому `--psnr`/`--ssim` работают.
 
-Известная нестабильность: qsvencc иногда падает с
-`VIDEOMETRIC: Failed to copy input surface` / `allocVA` (rc != 0, чанк
-теряется), особенно при параллельных чанках. Это дефект D-12 (в бэклоге), а
-не образа. Обход: повторить прогон или использовать `--no-metrics`.
+На закреплённом форке qsvencc `8.32+vppsync4` (r4658) метрики стабильны:
+в матрице фазы 8 получено 0 отказов `METRICS_FAILED` из 640 конкурентных
+сессий. Отказы `VIDEOMETRIC: Failed to copy input surface` (rc != 0, чанк
+теряется) из дефекта D-12 относятся к r4634 и апстримному 8.32. Если они
+появились снова, значит, в образ попала сборка без патчей #319/#320. Проверьте
+`qsvencc --version`: ожидается `8.32 (r4658)`.
 
 ## Почему `ubuntu:24.04`
 
@@ -100,7 +102,7 @@ docker run --rm --device /dev/dri --entrypoint sh enpipe:ubuntu2404 -c \
 ```
 
 `clinfo -l` должен показать `Intel(R) Arc(TM) A380 Graphics`. Затем короткий
-прогон с метриками (до 3 повторов из-за D-12): сгенерировать 10-секундный
+прогон с метриками: сгенерировать 10-секундный
 `testsrc` через ffmpeg и выполнить `enpipe run s.mkv -o s.av1.mkv --no-audio`.
 Успех: `rc=0` и в `s.av1.mkv.metrics.csv` строка `ИТОГО` с `ssim_all`/`psnr_avg`.
 
@@ -139,7 +141,7 @@ mkdir -p /tmp/enpipe-ck && podman run --rm --device /dev/dri --group-add keep-gr
   сменить путь);
 - venv по-прежнему `/opt/venv`, `ENTRYPOINT ["enpipe"]` и CLI без изменений;
 - `--psnr`/`--ssim` теперь работают, `--no-metrics` больше не обязателен
-  (но см. нестабильность D-12 выше).
+  (на форке r4658 метрики стабильны, см. раздел о метриках выше).
 
 Теги: `latest` и новые semver/sha-теги указывают на образ Ubuntu; образы на
 trixie остаются доступны по прежним semver и `sha-<коммит>` тегам и больше не

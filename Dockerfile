@@ -60,8 +60,9 @@ RUN uv sync --frozen --no-dev --no-editable
 # Почему ubuntu:24.04: ради Intel graphics PPA (kobuk-team) с intel-opencl-icd.
 # Без OpenCL-рантайма VPP-фильтры qsvencc (--psnr/--ssim) не работают, а они
 # включены в пути по умолчанию. glibc 2.39 заодно удовлетворяет .deb qsvencc.
-# Метрики qsvencc на этом стеке нестабильны (VIDEOMETRIC: Failed to copy input
-# surface, известный дефект D-12 в бэклоге) - это не дефект образа.
+# Метрики на закреплённом форке 8.32+vppsync4 (r4658) стабильны: 0 отказов
+# METRICS_FAILED из 640 сессий. Отказы VIDEOMETRIC (D-12) были на r4634 и в
+# апстримном 8.32 и остались в истории.
 # Почему не devcontainer-база: она несёт VS Code Server и dev-обвязку, а в проде
 # нужен только голый Python + медиа-стек.
 FROM ubuntu:24.04
