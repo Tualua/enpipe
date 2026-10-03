@@ -108,3 +108,14 @@ def test_csv_writes_inf_nan_as_text(tmp_path):
     assert data[0]["psnr_avg"] == "inf" and data[0]["ssim_db"] == "inf"
     assert data[1]["psnr_avg"] == "nan"
     assert data[2]["psnr_avg"] == "nan" and data[2]["ssim_db"] == "inf"
+
+
+def test_ssim_db_total_uses_unrounded_ssim(tmp_path):
+    # WR-01: SSIM 0.999996 округляется до 1.0, но ssim_db итога обязан быть
+    # конечным (сжатие с потерями), а не ложным inf.
+    t = _total(tmp_path, [_row(0, 100, 0.999996, 1, 1)])
+    assert math.isfinite(t["ssim_db"])
+    assert abs(t["ssim_db"] - (-10 * math.log10(1 - 0.999996))) < 1e-3
+    # одна сцена: ИТОГО ssim_db совпадает со значением из сцены
+    t = _total(tmp_path, [_row(0, 100, 0.998990, 1, 1)])
+    assert abs(t["ssim_db"] - (-10 * math.log10(1 - 0.998990))) < 1e-4

@@ -32,15 +32,24 @@ def _vals(ordered: list, key: str) -> list:
     return [(r["frames"], r[key]) for r in ordered if r.get(key) is not None]
 
 
-def _wmean(ordered: list, key: str) -> Optional[float]:
-    """Frame-weighted среднее (SSIM); nan в любом чанке -> nan."""
+def _wmean_raw(ordered: list, key: str) -> Optional[float]:
+    """Frame-weighted среднее (SSIM) БЕЗ округления; nan в любом чанке -> nan.
+    Неокруглённое значение нужно для ssim_db итога: -10*log10(1-SSIM) усиливает
+    погрешность округления до 5 знаков (при SSIM >= 0.999995 round даёт ровно
+    1.0 и ложный inf, т.е. «без потерь» для сжатия с потерями)."""
     vals = _vals(ordered, key)
     fr = sum(f for f, _ in vals)
     if not fr:
         return None
     if any(math.isnan(v) for _, v in vals):
         return float("nan")
-    return _round(sum(f * v for f, v in vals) / fr)
+    return sum(f * v for f, v in vals) / fr
+
+
+def _wmean(ordered: list, key: str) -> Optional[float]:
+    """Frame-weighted среднее, округлённое только на выходе."""
+    v = _wmean_raw(ordered, key)
+    return None if v is None else _round(v)
 
 
 def _psnr_total(ordered: list, key: str) -> Optional[float]:
@@ -75,13 +84,15 @@ def write_metrics_csv(path: Path, rows: Dict[int, dict]) -> dict:
               "ssim_all", "ssim_db", "psnr_avg", "ssim_y", "psnr_y"]
     ordered = [rows[i] for i in sorted(rows)]
 
-    ssim_all = _wmean(ordered, "ssim_all")
+    # ssim_db считается из НЕокруглённого SSIM, округление только на выходе.
+    ssim_raw = _wmean_raw(ordered, "ssim_all")
     total = {
         "scene": "ИТОГО",
         "frames": sum(r["frames"] for r in ordered),
         "encode_sec": round(sum(r["encode_sec"] for r in ordered), 1),
         "size_mb": round(sum(r["size_mb"] for r in ordered), 1),
-        "ssim_all": ssim_all, "ssim_db": _ssim_db_total(ssim_all),
+        "ssim_all": None if ssim_raw is None else _round(ssim_raw),
+        "ssim_db": _ssim_db_total(ssim_raw),
         "psnr_avg": _psnr_total(ordered, "psnr_avg"),
         "ssim_y": _wmean(ordered, "ssim_y"),
         "psnr_y": _psnr_total(ordered, "psnr_y"),
