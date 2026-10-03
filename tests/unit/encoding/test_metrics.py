@@ -6,7 +6,7 @@ from __future__ import annotations
 import csv
 import math
 
-from enpipe.encoding.metrics import write_metrics_csv
+from enpipe.encoding.metrics import format_total_line, write_metrics_csv
 
 
 def _row(scene, frames, ssim_all, encode_sec, size_mb, *, psnr_avg=None,
@@ -136,3 +136,50 @@ def test_full_metric_coverage_total_is_finite(tmp_path):
     t = _total(tmp_path, [_row(0, 100, 0.9, 1, 1, psnr_avg=40.0),
                           _row(1, 300, 0.8, 1, 1, psnr_avg=50.0)])
     assert math.isfinite(t["ssim_all"]) and math.isfinite(t["psnr_avg"])
+
+
+# --- format_total_line: строка ИТОГО не должна падать ни при каких метриках --- #
+
+
+def test_format_total_line_full():
+    line = format_total_line({"ssim_all": 0.98765, "psnr_avg": 42.1,
+                              "frames": 74, "size_mb": 12.3})
+    assert "SSIM 0.98765" in line
+    assert "PSNR 42.10dB" in line
+    assert "74 кадров" in line
+    assert "12 MB" in line
+
+
+def test_format_total_line_psnr_missing():
+    line = format_total_line({"ssim_all": 0.99, "psnr_avg": None,
+                              "frames": 10, "size_mb": 1.0})
+    assert "SSIM 0.99000" in line
+    assert "PSNR н/д" in line
+    assert "н/дdB" not in line
+
+
+def test_format_total_line_ssim_missing():
+    line = format_total_line({"ssim_all": None, "psnr_avg": 40.0,
+                              "frames": 10, "size_mb": 1.0})
+    assert line is not None
+    assert "SSIM н/д" in line
+    assert "PSNR 40.00dB" in line
+
+
+def test_format_total_line_no_metrics_returns_none():
+    assert format_total_line({"ssim_all": None, "psnr_avg": None,
+                              "frames": 10, "size_mb": 1.0}) is None
+
+
+def test_format_total_line_nan_inf():
+    line = format_total_line({"ssim_all": math.nan, "psnr_avg": math.inf,
+                              "frames": 10, "size_mb": 1.0})
+    assert "nan" in line
+    assert "inf" in line
+
+
+def test_format_total_line_missing_keys():
+    line = format_total_line({"ssim_all": 0.5})
+    assert "SSIM 0.50000" in line
+    assert "н/д" in line
+    assert format_total_line({}) is None

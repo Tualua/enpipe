@@ -114,3 +114,28 @@ def write_metrics_csv(path: Path, rows: Dict[int, dict]) -> dict:
             w.writerow(r)
         w.writerow(total)
     return total
+
+
+def _fmt(value, spec: str, suffix: str = "") -> str:
+    """Форматирует одно значение; None -> «н/д» (без суффикса)."""
+    if value is None:
+        return "н/д"
+    return format(value, spec) + suffix
+
+
+def format_total_line(total: dict) -> Optional[str]:
+    """Строка лога ИТОГО по словарю из write_metrics_csv.
+
+    Строка печатается после кодирования всех чанков и до mkvmerge, поэтому
+    исключение здесь теряет весь многочасовой прогон. Каждое поле
+    форматируется независимо: None -> «н/д», nan/inf печатаются как есть.
+    Если нет ни SSIM, ни PSNR — возвращает None (печатать нечего).
+    """
+    ssim = total.get("ssim_all")
+    psnr = total.get("psnr_avg")
+    if ssim is None and psnr is None:
+        return None
+    return (f">> ИТОГО (frame-weighted): SSIM {_fmt(ssim, '.5f')} "
+            f"PSNR {_fmt(psnr, '.2f', 'dB')}  | "
+            f"{_fmt(total.get('frames'), 'd')} кадров, "
+            f"{_fmt(total.get('size_mb'), '.0f', ' MB')}")
