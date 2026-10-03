@@ -10,7 +10,12 @@ enpipe.mkv.ebml (D-01/DEBT-01, phase 2)."""
 
 from __future__ import annotations
 
-from enpipe.encoding.keyframes import compute_chunk_seek_trim, fmt_seek, kf_before
+from enpipe.encoding.keyframes import (
+    compute_chunk_seek_trim,
+    count_leading_after_keyframes,
+    fmt_seek,
+    kf_before,
+)
 
 
 def test_kf_before_exact_match():
@@ -55,3 +60,42 @@ def test_compute_chunk_seek_trim_on_keyframe_boundary():
 def test_compute_chunk_seek_trim_off_keyframe_boundary():
     # s=70 is between keyframes 48 and 96 -> kf_before picks 48.
     assert compute_chunk_seek_trim(_SEEK_TRIM_TABLE, 70, 96) == ("00:00:02.000", "22:47")
+
+
+_FPS = 24000 / 1001
+
+
+def test_leading_closed_gop_is_zero():
+    lines = ["1.960000,___", "2.002000,K__", "2.169000,___"]
+    assert count_leading_after_keyframes(lines, {48}, _FPS) == {48: 0}
+
+
+def test_leading_open_gop_counts_packets_before_keyframe_pts():
+    lines = ["2.002000,K__", "1.960000,___", "1.919000,___", "2.169000,___"]
+    assert count_leading_after_keyframes(lines, {48}, _FPS) == {48: 2}
+
+
+def test_leading_unwanted_keyframe_resets_tracking():
+    lines = ["2.002000,K__", "4.004000,K__", "3.960000,___"]
+    assert count_leading_after_keyframes(lines, {48}, _FPS) == {48: 0}
+
+
+def test_leading_two_blocks_each_get_own_count():
+    lines = ["2.002000,K__", "1.960000,___", "4.004000,K__", "3.960000,___",
+             "3.919000,___", "3.877000,___"]
+    assert count_leading_after_keyframes(lines, {48, 96}, _FPS) == {48: 1, 96: 3}
+
+
+def test_leading_repeated_keyframe_takes_max():
+    lines = ["2.002000,K__", "1.960000,___", "2.002000,K__", "1.960000,___",
+             "1.919000,___"]
+    assert count_leading_after_keyframes(lines, {48}, _FPS) == {48: 2}
+
+
+def test_leading_missing_keyframe_absent_from_result():
+    assert count_leading_after_keyframes(["0.000000,K__"], {48}, _FPS) == {}
+
+
+def test_leading_skips_na_and_malformed_lines():
+    lines = ["2.002000,K__", "N/A,___", "garbage", "", "1.960000,___"]
+    assert count_leading_after_keyframes(lines, {48}, _FPS) == {48: 1}
