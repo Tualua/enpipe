@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: ready_to_plan
-stopped_at: Phase 7 context gathered
-last_updated: "2026-10-02T23:38:09.736Z"
+stopped_at: Phase 8 context gathered
+last_updated: "2026-10-03T00:07:25.081Z"
 last_activity: 2026-10-02
 progress:
-  total_phases: 3
+  total_phases: 5
   completed_phases: 2
   total_plans: 12
-  completed_plans: 19
-  percent: 67
+  completed_plans: 8
+  percent: 40
 ---
 
 # Project State
@@ -172,9 +172,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-02T16:31:20.476Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-adopt-fixed-qsvencc-concurrency-regression-lock/07-CONTEXT.md
+Last session: 2026-10-03T00:07:25.068Z
+Stopped at: Phase 8 context gathered
+Resume file: .planning/phases/08-cor02-lock-hardening/08-CONTEXT.md
 </content>
 
 ## Operator Next Steps
