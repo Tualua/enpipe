@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Concurrent-encode correctness
-status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-10-03T07:38:37.661Z"
+status: milestone_complete
+stopped_at: Milestone complete (Phase 8 was final phase)
+last_updated: 2026-10-03T08:09:50.847Z
 last_activity: "2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsync4 (форк Tualua)"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 25
   percent: 33
 ---
 
@@ -21,20 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 08 — cor02-lock-hardening
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 08 (cor02-lock-hardening) — EXECUTING
-Plan: 6 of 6
-Status: Executing Phase 08
-Last activity: 2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsync4 (форк Tualua)
+Phase: 8
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-10-03
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 22
+- Total plans completed: 28
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -49,6 +49,7 @@ Last activity: 2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsyn
 | 5 | 1 | - | - |
 | 06 | 3 | - | - |
 | 7 | 5 | - | - |
+| 8 | 6 | - | - |
 
 **Recent Trend:**
 

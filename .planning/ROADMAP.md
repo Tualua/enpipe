@@ -95,7 +95,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
-| 8. Усиление замка COR-02                            | v1.2      | 6/6 | Complete   | 2026-10-03 |
+| 8. Усиление замка COR-02                            | v1.2      | 6/6 | Complete    | 2026-10-03 |
 
 ## Backlog
 
