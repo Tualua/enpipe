@@ -223,6 +223,8 @@ scratch/*.scenes
 scratch/*.obu
 scratch/*.metrics.csv
 scratch/wd_*/
+scratch/probe_d02_*.log
+scratch/probe_d02_*_mismatch_*
 
 # enpipe gate_stress_matrix.py durable evidence -- copied verbatim into the
 # phase SUMMARY + scene-chunk-frame-mismatch.md, the raw files themselves
