@@ -236,24 +236,49 @@ def reference_paths(workdir: Path, scene: HandoffScene) -> Tuple[Path, Path]:
     )
 
 
-def build_isolated_reference(backend: str, workdir: Path) -> Dict[int, Path]:
-    """Encodes each of the 3 hotspot scenes exactly once, in isolation (no
-    concurrent contention), into `ref_<scene>.obu` -- bit-clean by
-    construction. Runs sequentially on the calling thread (not a
-    ThreadPoolExecutor worker), so a failure here raises loudly rather than
-    returning a (success, error) tuple -- this is setup, not a background
-    worker."""
+REF_MAX_ATTEMPTS_METRICS = 5
+
+
+def build_isolated_reference(
+    backend: str, workdir: Path, metrics: bool = False
+) -> Dict[int, Path]:
+    """Encodes each of the 3 hotspot scenes in isolation (no concurrent
+    contention) into `ref_<scene>.obu` with the SAME argv the sessions of
+    this `metrics` variant use (D-05), and verifies its frame count.
+
+    With metrics=True the metrics subsystem fails sporadically even without
+    contention (measured on hardware), so a reference gets up to
+    REF_MAX_ATTEMPTS_METRICS attempts until rc=0 and the full frame count
+    (D-13); metrics=False gets one attempt. After the last failed attempt a
+    HarnessError lists every reason. Runs sequentially on the calling thread,
+    so failures raise loudly -- this is setup, not a background worker."""
+    attempts = REF_MAX_ATTEMPTS_METRICS if metrics else 1
     refs: Dict[int, Path] = {}
     for scene in HANDOFF_SCENES:
         out, stderr_path = reference_paths(workdir, scene)
-        cmd = _build_command(backend, scene, out)
-        ok, err = run_session(cmd, out, stderr_path)
-        if not ok:
+        reasons: List[str] = []
+        for attempt in range(1, attempts + 1):
+            out.unlink(missing_ok=True)
+            cmd = _build_command(backend, scene, out, metrics=metrics)
+            ok, err = run_session(cmd, out, stderr_path)
+            if not ok:
+                reasons.append(f"attempt {attempt}: {err}")
+                continue
+            try:
+                verify_frames(
+                    out, scene.frames, f"reference scene {scene.scene} metrics={metrics}"
+                )
+            except HarnessError as exc:
+                reasons.append(f"attempt {attempt}: {exc}")
+                continue
+            refs[scene.scene] = out
+            break
+        else:
             raise HarnessError(
                 f"failed to build isolated reference for scene {scene.scene} "
-                f"({backend}): {err}"
+                f"({backend}, metrics={metrics}) after {attempts} attempt(s): "
+                + " | ".join(reasons)
             )
-        refs[scene.scene] = out
     return refs
 
 
@@ -272,6 +297,9 @@ class SessionOutcome:
     status: str
     corrupt_frames: Optional[int]
     error: Optional[str]
+    byte_identical: Optional[bool] = None
+    diag: Optional[str] = None
+    triad_missing: Tuple[str, ...] = ()
 
 
 def run_concurrent(
@@ -280,19 +308,26 @@ def run_concurrent(
     workdir: Path,
     iteration: int,
     refs: Dict[int, Path],
+    metrics: bool = False,
 ) -> List[SessionOutcome]:
     """Launches EXACTLY `jobs` concurrent subprocesses, one scene each,
     cycling HANDOFF_SCENES round-robin (jobs=5 -> 923,928,1129,923,928) so
-    per-process GPU load stays constant across JOBS levels. A session whose
-    subprocess never started successfully (run_session ok=False) is tallied
-    as SESSION_FAILED -- a DISTINCT outcome, NEVER folded into a 0-corrupt
-    count. A session that succeeded but has no matching isolated reference
-    in `refs` is SWEEP_SKIPPED. A succeeded session with a reference is
-    swept via sweep_chunk (which itself raises loudly, not silently, on a
-    ref/test frame-count mismatch -- that propagates out of this function
-    rather than being folded into any of the three outcome categories,
-    since it signals a harness/encoder integrity problem outside the normal
-    corruption-vs-clean-vs-failed-to-start taxonomy)."""
+    per-process GPU load stays constant across JOBS levels, and classifies
+    every session on the main thread:
+
+    - rc != 0 -> METRICS_FAILED if `metrics` and the FULL stderr file carries
+      a metrics-failure marker, else SESSION_FAILED. Neither is ever counted
+      as clean.
+    - rc == 0 without an isolated reference -> SWEEP_SKIPPED (never "clean").
+    - rc == 0 with a reference: the gate is byte equality (D-01), evaluated
+      FIRST. Identical -> frame count verified, byte_identical=True. Different
+      -> byte_identical=False; the frame check and the PSNR sweep run as
+      diagnostics whose errors go to `diag` and never raise.
+
+    HarnessError can escape only for a byte-IDENTICAL session whose frame
+    count check fails (intentional, D-03): see the comment in the branch.
+    The caller must treat it as a measuring-tool failure, not a session
+    outcome."""
     scenes_cycle = [HANDOFF_SCENES[i % len(HANDOFF_SCENES)] for i in range(jobs)]
 
     pending: Dict[int, Tuple[HandoffScene, bool, Optional[str], Path]] = {}
@@ -300,7 +335,7 @@ def run_concurrent(
         futs = {}
         for job_idx, scene in enumerate(scenes_cycle):
             out, stderr_path, _sweep_path = session_paths(workdir, iteration, job_idx, scene)
-            fut = ex.submit(_session_worker, backend, scene, out, stderr_path)
+            fut = ex.submit(_session_worker, backend, scene, out, stderr_path, metrics)
             futs[fut] = (job_idx, scene, out)
         for fut in as_completed(futs):
             job_idx, scene, out = futs[fut]
@@ -310,8 +345,11 @@ def run_concurrent(
     results: List[SessionOutcome] = []
     for job_idx in range(jobs):
         scene, ok, err, out = pending[job_idx]
+        _out, stderr_path, sweep_path = session_paths(workdir, iteration, job_idx, scene)
         if not ok:
-            results.append(SessionOutcome(scene.scene, SESSION_FAILED, None, err))
+            full = stderr_path.read_text() if stderr_path.is_file() else ""
+            status = METRICS_FAILED if metrics and is_metrics_failure(full) else SESSION_FAILED
+            results.append(SessionOutcome(scene.scene, status, None, err))
             continue
         ref = refs.get(scene.scene)
         if ref is None or not ref.is_file():
@@ -320,9 +358,60 @@ def run_concurrent(
                 f"no isolated reference available for scene {scene.scene}",
             ))
             continue
-        _out, _stderr_path, sweep_path = session_paths(workdir, iteration, job_idx, scene)
-        corrupt = sweep_chunk(ref, out, sweep_path)  # raises loudly on frame-count mismatch
-        results.append(SessionOutcome(scene.scene, SESSION_OK, corrupt, None))
+        # The byte gate goes first, before anything that can raise.
+        identical = same_bytes(ref, out)
+        triad_missing = tuple(triad_for(
+            backend, stderr_path.read_text(), out,
+            metrics=metrics, expect_frames=scene.frames,
+        ))
+        label = f"iter{iteration} job{job_idx} scene{scene.scene} metrics={metrics}"
+        if identical:
+            # WHY this raises (intentional, D-03): output identical to the
+            # reference but with a wrong frame count means the measuring tool
+            # (reference, ffprobe or harness) is broken, not that corruption
+            # was found. Such a session may count neither as clean nor as
+            # byte_mismatch; a loud failure cannot produce a false "clean".
+            # The reference is re-verified so the message tells an ffprobe/
+            # disk fault (reference fails now too) from a harness bug.
+            try:
+                verify_frames(out, scene.frames, label)
+            except HarnessError as exc:
+                try:
+                    verify_frames(ref, scene.frames, "reference re-verify")
+                    ref_state = "ok"
+                except HarnessError as ref_exc:
+                    ref_state = str(ref_exc)
+                raise HarnessError(f"{exc}; reference re-verify: {ref_state}") from exc
+            results.append(SessionOutcome(
+                scene.scene, SESSION_OK, 0, None,
+                byte_identical=True, diag=None, triad_missing=triad_missing,
+            ))
+            continue
+        # byte_mismatch. WHY nothing is raised here: real corruption (r4604 in
+        # D-10c, a COR-02 regression) often breaks both the frame count and
+        # the PSNR sweep. Surfacing those as HarnessError would turn the
+        # session into a harness error, the matrix would show 0 mismatches
+        # and the lock would falsely look empty.
+        notes: List[str] = []
+        try:
+            verify_frames(out, scene.frames, label)
+        except HarnessError as exc:
+            notes.append(f"frame check: {exc}")
+        corrupt: Optional[int]
+        try:
+            corrupt = sweep_chunk(ref, out, sweep_path)
+            notes.append(f"sweep: {corrupt} frame(s) < 30 dB")
+        except HarnessError as exc:
+            corrupt = None
+            notes.append(f"sweep: {exc}")
+        diag = (
+            f"byte mismatch: ref sha256={sha256_file(ref)} "
+            f"test sha256={sha256_file(out)}; " + "; ".join(notes)
+        )
+        results.append(SessionOutcome(
+            scene.scene, SESSION_OK, corrupt, None,
+            byte_identical=False, diag=diag, triad_missing=triad_missing,
+        ))
     return results
 
 

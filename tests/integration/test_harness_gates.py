@@ -218,3 +218,228 @@ def test_reference_triad_violations(
     )
     got = harness.reference_triad_violations("qsvencc", tmp_path, refs, True)
     assert got == [(928, "why")]
+
+
+# --- build_isolated_reference: retries (D-13) --------------------------------- #
+
+
+def _patch_ref_build(
+    monkeypatch: pytest.MonkeyPatch,
+    results: List[Tuple[bool, Optional[str]]],
+    verify=None,  # type: ignore[no-untyped-def]
+) -> List[str]:
+    """run_session returns `results` in order (the last one repeats)."""
+    calls: List[str] = []
+
+    def fake_run_session(cmd, out, stderr_path):  # type: ignore[no-untyped-def]
+        calls.append(str(out))
+        i = min(len(calls) - 1, len(results) - 1)
+        ok, err = results[i]
+        if ok:
+            out.write_bytes(b"x")
+        return ok, err
+
+    monkeypatch.setattr(harness, "run_session", fake_run_session)
+    monkeypatch.setattr(harness, "_build_command", lambda *a, **k: ["cmd"])
+    monkeypatch.setattr(harness, "verify_frames", verify or (lambda *a, **k: None))
+    return calls
+
+
+def test_reference_metrics_retries_until_ok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _patch_ref_build(
+        monkeypatch, [(False, "rc=255: a"), (False, "rc=255: b"), (True, None)]
+    )
+    # first scene needs 3 attempts; the others succeed on the repeated last result
+    refs = harness.build_isolated_reference("qsvencc", tmp_path, metrics=True)
+    assert set(refs) == {s.scene for s in harness.HANDOFF_SCENES}
+    first = str(tmp_path / f"ref_{harness.HANDOFF_SCENES[0].scene}.obu")
+    assert calls.count(first) == 3
+
+
+def test_reference_metrics_five_failures_list_all_reasons(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _patch_ref_build(monkeypatch, [(False, "rc=255: boom")])
+    with pytest.raises(harness.HarnessError) as ei:
+        harness.build_isolated_reference("qsvencc", tmp_path, metrics=True)
+    assert len(calls) == harness.REF_MAX_ATTEMPTS_METRICS == 5
+    assert str(ei.value).count("boom") == 5
+
+
+def test_reference_no_metrics_single_attempt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _patch_ref_build(monkeypatch, [(False, "rc=1: x")])
+    with pytest.raises(harness.HarnessError):
+        harness.build_isolated_reference("qsvencc", tmp_path, metrics=False)
+    assert len(calls) == 1
+
+
+def test_reference_verify_failure_counts_as_failed_attempt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    n = {"v": 0}
+
+    def verify(obu, expect, label):  # type: ignore[no-untyped-def]
+        n["v"] += 1
+        if n["v"] == 1:
+            raise harness.HarnessError("frames bad")
+
+    calls = _patch_ref_build(monkeypatch, [(True, None)], verify=verify)
+    refs = harness.build_isolated_reference("qsvencc", tmp_path, metrics=True)
+    assert len(refs) == 3
+    assert len(calls) == 4  # one retry for the first scene
+
+
+# --- run_concurrent classification -------------------------------------------- #
+
+
+class _Env:
+    """Fake worker + references for run_concurrent (jobs=3: 923, 928, 1129)."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        self.tmp = tmp_path
+        self.calls: List[str] = []
+        self.rc: dict = {}  # scene -> (ok, err, stderr_text)
+        self.data: dict = {}  # scene -> bytes of the session output
+        self.verify_exc: dict = {}  # (label-substring) -> exc
+        self.sweep_exc: Optional[Exception] = None
+        self.sweep_called = 0
+        self.refs = {}
+        for sc in harness.HANDOFF_SCENES:
+            ref, _ = harness.reference_paths(tmp_path, sc)
+            ref.write_bytes(b"ref-" + str(sc.scene).encode())
+            self.refs[sc.scene] = ref
+        monkeypatch.setattr(harness, "_session_worker", self._worker)
+        monkeypatch.setattr(harness, "verify_frames", self._verify)
+        monkeypatch.setattr(harness, "sweep_chunk", self._sweep)
+        monkeypatch.setattr(harness, "triad_for", self._triad)
+        orig = harness.same_bytes
+
+        def spy(a, b):  # type: ignore[no-untyped-def]
+            self.calls.append("same_bytes")
+            return orig(a, b)
+
+        monkeypatch.setattr(harness, "same_bytes", spy)
+
+    def _worker(self, backend, scene, out, stderr_path, metrics=False):  # type: ignore[no-untyped-def]
+        ok, err, text = self.rc.get(scene.scene, (True, None, ""))
+        stderr_path.write_text(text)
+        if ok:
+            out.write_bytes(self.data.get(scene.scene, b"ref-" + str(scene.scene).encode()))
+        return ok, err
+
+    def _verify(self, obu, expect, label):  # type: ignore[no-untyped-def]
+        self.calls.append("verify_frames")
+        for key, exc in self.verify_exc.items():
+            if key in label:
+                raise exc
+
+    def _sweep(self, ref, test, log):  # type: ignore[no-untyped-def]
+        self.sweep_called += 1
+        self.calls.append("sweep_chunk")
+        if self.sweep_exc:
+            raise self.sweep_exc
+        return 7
+
+    def _triad(self, backend, log, obu, *, metrics, expect_frames):  # type: ignore[no-untyped-def]
+        return ["leg missing"] if "TRIADBAD" in log else []
+
+    def run(self, metrics: bool = True, refs=None):  # type: ignore[no-untyped-def]
+        return harness.run_concurrent(
+            "qsvencc", 3, self.tmp, 0, self.refs if refs is None else refs, metrics=metrics
+        )
+
+
+@pytest.fixture
+def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Env:
+    return _Env(monkeypatch, tmp_path)
+
+
+def _by_scene(outcomes):  # type: ignore[no-untyped-def]
+    return {o.scene: o for o in outcomes}
+
+
+def test_metrics_marker_with_metrics_on_is_metrics_failed(env: _Env) -> None:
+    env.rc[923] = (False, "rc=255: tail", "VIDEOMETRIC: Failed to copy input surface\n")
+    assert _by_scene(env.run(metrics=True))[923].status == harness.METRICS_FAILED
+
+
+def test_metrics_marker_with_metrics_off_is_session_failed(env: _Env) -> None:
+    env.rc[923] = (False, "rc=255: tail", "VIDEOMETRIC: Failed to copy input surface\n")
+    assert _by_scene(env.run(metrics=False))[923].status == harness.SESSION_FAILED
+
+
+def test_marker_beyond_last_500_chars_still_metrics_failed(env: _Env) -> None:
+    text = "VIDEOMETRIC: Failed to copy\n" + ("noise line\n" * 200)
+    assert len(text) > 500 + 100
+    env.rc[928] = (False, "rc=255: only the tail", text)
+    assert _by_scene(env.run(metrics=True))[928].status == harness.METRICS_FAILED
+
+
+def test_ordinary_failure_is_session_failed(env: _Env) -> None:
+    env.rc[1129] = (False, "rc=1: avqsv: failed to seek", "avqsv: failed to seek\n")
+    assert _by_scene(env.run(metrics=True))[1129].status == harness.SESSION_FAILED
+
+
+def test_identical_session_is_ok_without_sweep(env: _Env) -> None:
+    res = _by_scene(env.run())
+    o = res[928]
+    assert o.status == harness.SESSION_OK
+    assert o.byte_identical is True and o.corrupt_frames == 0 and o.diag is None
+    assert env.sweep_called == 0
+
+
+def test_different_bytes_run_diagnostic_sweep(env: _Env) -> None:
+    env.data[928] = b"corrupted"
+    o = _by_scene(env.run())[928]
+    assert o.status == harness.SESSION_OK
+    assert o.byte_identical is False
+    assert o.corrupt_frames == 7
+    assert env.sweep_called == 1
+    assert o.diag is not None and o.diag.count("sha256=") == 2
+
+
+def test_triad_missing_is_filled(env: _Env) -> None:
+    env.rc[923] = (True, None, "TRIADBAD")
+    assert _by_scene(env.run())[923].triad_missing == ("leg missing",)
+    assert _by_scene(env.run())[928].triad_missing == ()
+
+
+def test_no_reference_is_sweep_skipped(env: _Env) -> None:
+    refs = {k: v for k, v in env.refs.items() if k != 1129}
+    assert _by_scene(env.run(refs=refs))[1129].status == harness.SWEEP_SKIPPED
+
+
+def test_different_bytes_with_frame_check_failure_is_byte_mismatch(env: _Env) -> None:
+    env.data[928] = b"corrupted"
+    env.verify_exc["scene928"] = harness.HarnessError("packets=111 decoded=50")
+    o = _by_scene(env.run())[928]  # must not raise
+    assert o.byte_identical is False
+    assert o.diag is not None and "packets=111 decoded=50" in o.diag
+
+
+def test_different_bytes_with_sweep_failure_is_byte_mismatch(env: _Env) -> None:
+    env.data[928] = b"corrupted"
+    env.sweep_exc = harness.HarnessError("sweep exploded")
+    o = _by_scene(env.run())[928]
+    assert o.byte_identical is False
+    assert o.diag is not None and "sweep exploded" in o.diag
+
+
+def test_same_bytes_is_evaluated_before_verify_frames(env: _Env) -> None:
+    env.run()
+    assert env.calls.index("same_bytes") < env.calls.index("verify_frames")
+
+
+def test_identical_session_with_bad_frames_propagates_with_reference_recheck(
+    env: _Env,
+) -> None:
+    env.verify_exc["scene928 "] = harness.HarnessError("packets=111 decoded=50")
+    with pytest.raises(harness.HarnessError) as ei:
+        env.run()
+    msg = str(ei.value)
+    assert "packets=111 decoded=50" in msg
+    assert "reference re-verify:" in msg
