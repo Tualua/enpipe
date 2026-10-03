@@ -96,10 +96,10 @@ compares the **first frame** of each `chunk_{i:05d}.obu` with source frame `S`
 
 Why: the content check guards against `qsvencc --seek` landing one GOP late
 with rc=0 and the expected frame count (fixed in qsvencc 8.32-vppsync6, r4663,
-now the required minimum; see `.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md`)
-and against open-GOP leading-frame mismatches.
+now the required minimum; see `.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md`).
 
-`test_dv_profile5` is a normal test now. `test_chunk_content_open_gop`
-(synthetic open-GOP HEVC mp4) stays **strict xfail** until the open-GOP issue
-(`.planning/debug/qsvencc-open-gop-leading.md`) is fixed; XPASS means remove the
-marker. Hardware tests require qsvencc >= r4663 on PATH.
+`test_dv_profile5` is a normal test now. The synthetic open-GOP HEVC mp4 is
+**refused** by enpipe's open-GOP guard (`test_open_gop_source_refused`; qsvencc
+shifts `--trim` by -N on such sources, see
+`.planning/debug/HANDOFF-qsvencc-opengop-trim-offset.md`); its closed-GOP twin
+(`test_chunk_content_closed_gop`) runs the content check. Hardware tests require qsvencc >= r4663 on PATH.

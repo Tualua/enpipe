@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: resolved-guarded
 trigger: "open-GOP источник: чанк начинается с 2 кадров предыдущей сцены (тихая порча, число кадров верное) — test_hdr10 падает на проверке содержимого"
 created: 2026-10-03
 updated: 2026-10-03
@@ -59,4 +59,4 @@ next_action: ожидать решения пользователя (handoff в 
 ## Resolution
 
 root_cause: qsvencc (rigaya/QSVEnc rgy_input_avcodec.cpp, ветка OpenGOP в getSample) увеличивает trim-offset на каждый пакет с pts < pts первого keyframe, включая отбрасываемые декодером RASL-кадры после CRA; trim сдвигается на -N кадров (N=число ведущих), счёт кадров сохраняется. enpipe-математика корректна.
-fix: (не применён — ждёт решения) варианты: A) handoff в апстрим; B) компенсация в enpipe (N из ffprobe-пакетов после K); C) A+B.
+fix: enpipe: hard refusal (quick 261003-lpo), no trim compensation; upstream handoff pending
