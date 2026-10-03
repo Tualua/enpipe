@@ -74,7 +74,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # а не на голом ubuntu:24.04). PPA подключается deb822-файлом .sources, а ключ
 # скачивается по закреплённому отпечатку и сверяется с ним до записи в keyring:
 # так нет обращения к Launchpad API, нет лишних пакетов (software-properties-
-# common, gpg-agent), а подмена ключа на сервере роняет сборку. PPA плавающая
+# common, gpg-agent), а подмена ключа на сервере роняет сборку. Ключ в ответе
+# keyserver обязан быть ровно один, и отпечаток сверяется именно с его primary:
+# `gpg --dearmor` пишет в keyring ВСЕ ключи ответа, и Signed-By доверял бы
+# каждому, если бы проверялось только наличие отпечатка (IN-06). PPA плавающая
 # (не версионируется), поэтому версии стека фиксируются в доказательствах (D-11).
 # intel-media-va-driver-non-free = iHD для Arc; libvpl2 = oneVPL-диспетчер;
 # libmfx-gen1.2 = GPU-рантайм oneVPL; intel-opencl-icd + ocl-icd-libopencl1 =
@@ -86,7 +89,11 @@ RUN set -eux; \
     export GNUPGHOME="$(mktemp -d)"; \
     curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x${INTEL_PPA_KEY_FPR}" \
          -o /tmp/intel-ppa.asc; \
-    gpg --show-keys --with-colons /tmp/intel-ppa.asc | grep -q "^fpr:::::::::${INTEL_PPA_KEY_FPR}:"; \
+    gpg --show-keys --with-colons /tmp/intel-ppa.asc > /tmp/intel-ppa.colons; \
+    test "$(grep -c '^pub:' /tmp/intel-ppa.colons)" = 1; \
+    awk -F: '/^pub:/ { p = 1; next } p && /^fpr:/ { print $10; exit }' /tmp/intel-ppa.colons \
+        | grep -qx "${INTEL_PPA_KEY_FPR}"; \
+    rm -f /tmp/intel-ppa.colons; \
     install -d -m 0755 /etc/apt/keyrings; \
     gpg --dearmor -o /etc/apt/keyrings/kobuk-team-intel-graphics.gpg /tmp/intel-ppa.asc; \
     rm -rf /tmp/intel-ppa.asc "$GNUPGHOME"; \
