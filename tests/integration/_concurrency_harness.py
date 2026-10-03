@@ -8,19 +8,27 @@ backend: the production chunk_command argv, regression lock for the
 the one-time non-vacuity run on the old r4604 binary) and ffmpeg `av1_qsv`
 (retained for backlog 999.1 evidence).
 
+The gate is byte equality: a session that exited rc=0 is "clean" only if the
+sha256 of its `.obu` equals the isolated reference encoded with the same argv
+(determinism confirmed on hardware, D-01). The frame count is checked as
+packets == decoded == scene.frames (D-03). The PSNR sweep is only a
+diagnostic run when the bytes differ; it never decides "clean". With
+metrics=True a failure of the metrics subsystem is a separate outcome,
+METRICS_FAILED (D-12).
+
 Leading underscore: never collected by pytest as a test module. Import-safe
 -- no hardware/ffmpeg calls happen at module load; every subprocess call
 lives inside a function.
 
-`count_frames`/frame-count parity is used ONLY as a precondition guard for
-the PSNR sweep (see sweep_chunk) -- it is never treated as evidence of
-"clean" content on its own; a wrong-but-same-length frame is exactly the
-corruption mode this harness exists to catch.
+A matching frame count alone is never evidence of "clean" content: a
+wrong-but-same-length frame is exactly the corruption mode this harness
+exists to catch.
 """
 
 from __future__ import annotations
 
 import functools
+import hashlib
 import re
 import shutil
 import subprocess
@@ -129,19 +137,20 @@ def qsvencc_command(
     out: Path,
     icq: Optional[int] = None,
     strip_backend: bool = False,
+    metrics: bool = False,
 ) -> List[str]:
-    """qsvencc command for the lock. Per D-14 the default is byte-for-byte
-    the production argv from `chunk_command`: production ICQ, the real HDR
-    flags of the fixture and `--backend qsv`. `metrics=False` is the one
-    declared deviation: --psnr/--ssim need OpenCL and would change the
-    pipeline under test. The committed lock never sets `icq`/`strip_backend`.
+    """qsvencc command for the lock. The default is byte-for-byte the
+    production argv from `chunk_command` for the given `metrics` value:
+    production ICQ, the real HDR flags of the fixture and `--backend qsv`.
+    The lock exercises both metrics variants (D-04); `icq`/`strip_backend`
+    exist only for one-off runs and the committed lock never sets them.
 
     `icq` overrides the value after `--icq` in the RETURNED argv only (it
     never touches os.environ or enpipe.encoding.chunk.ICQ). `strip_backend`
     removes `--backend <v>` for the one-time D-16 non-vacuity run: the old
     r4604 binary does not know that flag."""
     cmd = chunk_command(
-        FIXTURE, seek, trim, out, hdr_flags=list(_fixture_hdr_flags()), metrics=False
+        FIXTURE, seek, trim, out, hdr_flags=list(_fixture_hdr_flags()), metrics=metrics
     )
     if icq is not None:
         cmd[cmd.index("--icq") + 1] = str(icq)
@@ -156,13 +165,19 @@ def qsvencc_command(
     return cmd
 
 
-def _build_command(backend: str, scene: HandoffScene, out: Path) -> List[str]:
+def _build_command(
+    backend: str, scene: HandoffScene, out: Path, metrics: bool = False
+) -> List[str]:
     if backend == "ffmpeg":
+        if metrics:
+            raise ValueError("metrics are qsvencc-only (--psnr/--ssim); ffmpeg backend has none")
         return ffmpeg_av1qsv_command(scene.seek, scene.frames, out)
     if backend == "qsvencc":
-        return qsvencc_command(scene.seek, scene.trim, out)
+        return qsvencc_command(scene.seek, scene.trim, out, metrics=metrics)
     if backend == "qsvencc-nobackend":
-        return qsvencc_command(scene.seek, scene.trim, out, strip_backend=True)
+        return qsvencc_command(
+            scene.seek, scene.trim, out, strip_backend=True, metrics=metrics
+        )
     raise ValueError(
         f"unknown backend: {backend!r} "
         f"(expected 'ffmpeg', 'qsvencc' or 'qsvencc-nobackend')"
@@ -191,9 +206,10 @@ def run_session(cmd: List[str], out: Path, stderr_path: Path) -> Tuple[bool, Opt
 
 
 def _session_worker(
-    backend: str, scene: HandoffScene, out: Path, stderr_path: Path
+    backend: str, scene: HandoffScene, out: Path, stderr_path: Path,
+    metrics: bool = False,
 ) -> Tuple[bool, Optional[str]]:
-    cmd = _build_command(backend, scene, out)
+    cmd = _build_command(backend, scene, out, metrics=metrics)
     return run_session(cmd, out, stderr_path)
 
 
@@ -212,6 +228,14 @@ def session_paths(
     )
 
 
+def reference_paths(workdir: Path, scene: HandoffScene) -> Tuple[Path, Path]:
+    """(ref_obu, ref_verbose_log) for a scene's isolated reference."""
+    return (
+        workdir / f"ref_{scene.scene}.obu",
+        workdir / f"ref_{scene.scene}.verbose.log",
+    )
+
+
 def build_isolated_reference(backend: str, workdir: Path) -> Dict[int, Path]:
     """Encodes each of the 3 hotspot scenes exactly once, in isolation (no
     concurrent contention), into `ref_<scene>.obu` -- bit-clean by
@@ -221,8 +245,7 @@ def build_isolated_reference(backend: str, workdir: Path) -> Dict[int, Path]:
     worker."""
     refs: Dict[int, Path] = {}
     for scene in HANDOFF_SCENES:
-        out = workdir / f"ref_{scene.scene}.obu"
-        stderr_path = workdir / f"ref_{scene.scene}.verbose.log"
+        out, stderr_path = reference_paths(workdir, scene)
         cmd = _build_command(backend, scene, out)
         ok, err = run_session(cmd, out, stderr_path)
         if not ok:
@@ -304,7 +327,75 @@ def run_concurrent(
 
 
 # --------------------------------------------------------------------------- #
-# Full-file per-frame PSNR sweep (D-01/D-02/D-04: locked, do not re-derive)
+# Byte gate + frame-count verification (D-01, D-03)
+# --------------------------------------------------------------------------- #
+
+
+def sha256_file(path: Path) -> str:
+    """Hex sha256 read in 1 MiB blocks: the reference encodes of scenes
+    923/1129 are large and must not be pulled into memory whole."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            block = fh.read(1 << 20)
+            if not block:
+                break
+            h.update(block)
+    return h.hexdigest()
+
+
+def same_bytes(ref: Path, test: Path) -> bool:
+    """The D-01 gate: whole-file sha256 equality (the digest is also needed
+    for diagnostics, hence not filecmp)."""
+    return sha256_file(ref) == sha256_file(test)
+
+
+def decoded_frames(path: Path) -> Tuple[int, str]:
+    """(nb_read_frames or -1, ffprobe stderr) from a full decode pass."""
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+            "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(path),
+        ],
+        capture_output=True, text=True,
+    )
+    got = (proc.stdout or "").strip().rstrip(",")
+    return (int(got) if got.isdigit() else -1), (proc.stderr or "").strip()
+
+
+def verify_frames(obu: Path, expect: int, label: str) -> None:
+    """Raises HarnessError unless packets == decoded == expect and the
+    decode pass printed nothing to stderr.
+
+    WHY ffprobe nb_read_frames instead of `ffmpeg -xerror`: on ffmpeg 6.1.1
+    `-xerror` returns rc=0 on a broken packet, while ffprobe -count_frames
+    gives a short count AND "Error parsing OBU" on stderr, catching both
+    corruption and truncation. `-xerror` and the PSNR line count are applied
+    only in the diagnostic sweep_chunk (D-03 deviation, see the plan record)."""
+    pk = count_frames(obu)
+    dec, err = decoded_frames(obu)
+    if err or not (pk == dec == expect):
+        raise HarnessError(
+            f"{label}: packets={pk} decoded={dec} expect={expect} stderr={err[:200]!r}"
+        )
+
+
+# D-12: markers of a metrics-subsystem failure (rc!=0). It is a third outcome,
+# neither corruption nor clean; the caller classifies it by the FULL stderr
+# file of the session, not by the 500-char tail returned from run_session.
+METRICS_FAILED = "METRICS_FAILED"
+_METRICS_FAILURE_MARKERS: Tuple[str, ...] = (
+    "VIDEOMETRIC:", "allocVA", "Decoded frame count does not match",
+)
+
+
+def is_metrics_failure(stderr_text: str) -> bool:
+    text = strip_ansi(stderr_text)
+    return any(marker in text for marker in _METRICS_FAILURE_MARKERS)
+
+
+# --------------------------------------------------------------------------- #
+# Full-file per-frame PSNR sweep (diagnostic only; the gate is the byte check)
 # --------------------------------------------------------------------------- #
 
 _PSNR_LINE_RE = re.compile(r"psnr_avg:(\S+)")
@@ -321,13 +412,16 @@ def corrupt_frame_count(stats_file_text: str, threshold_db: float = 30.0) -> int
 
 def sweep_chunk(ref_obu: Path, test_obu: Path, sweep_log: Path) -> int:
     """Full-file, every-frame PSNR sweep of `test_obu` against `ref_obu` via
-    a single ffmpeg decode pass. FIRST guards the psnr filter's equal-
-    frame-count precondition: a dropped/duplicated frame would otherwise
-    silently misalign the frame-by-frame comparison into a false clean --
-    a DIFFERENT corruption mode than the whole-frame content swap this
-    sweep targets. `count_frames` is used ONLY as this precondition guard,
-    never as the correctness gate itself (the PSNR content sweep below is
-    the sole gate)."""
+    a single ffmpeg decode pass. A DIAGNOSTIC run for sessions whose bytes
+    differ from the reference; it never decides "clean" (the byte gate does)
+    and the 30 dB threshold only shapes the report.
+
+    The psnr filter's equal-frame-count precondition is guarded first: a
+    dropped/duplicated frame would silently misalign the comparison. After
+    the run the checks go strictly in this order, each making the next one
+    meaningful: (a) rc != 0 -> truncated/unreadable input; (b) non-empty
+    stderr -> on 6.1.1 rc=0 proves nothing for broken packets; (c) number of
+    `psnr_avg:` lines != reference frame count -> a partial sweep."""
     ref_count = count_frames(ref_obu)
     test_count = count_frames(test_obu)
     if ref_count != test_count:
@@ -338,7 +432,7 @@ def sweep_chunk(ref_obu: Path, test_obu: Path, sweep_log: Path) -> int:
             f"~15.74 dB whole-frame-swap signature this sweep targets"
         )
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-xerror",
         "-i", str(ref_obu), "-i", str(test_obu),
         "-lavfi", f"psnr=stats_file={sweep_log}",
         "-f", "null", "-",
@@ -349,7 +443,17 @@ def sweep_chunk(ref_obu: Path, test_obu: Path, sweep_log: Path) -> int:
             f"psnr sweep failed rc={proc.returncode}: "
             f"{(proc.stderr or '').strip()[-500:]}"
         )
-    return corrupt_frame_count(sweep_log.read_text())
+    if (proc.stderr or "").strip():
+        raise HarnessError(
+            f"psnr sweep printed to stderr: {(proc.stderr or '').strip()[-500:]}"
+        )
+    stats_text = sweep_log.read_text()
+    n_lines = sum(1 for ln in stats_text.splitlines() if _PSNR_LINE_RE.search(ln))
+    if n_lines != ref_count:
+        raise HarnessError(
+            f"psnr sweep produced {n_lines} stat line(s), reference has {ref_count} frame(s)"
+        )
+    return corrupt_frame_count(stats_text)
 
 
 # --------------------------------------------------------------------------- #
