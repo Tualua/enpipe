@@ -70,21 +70,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       p7zip-full \
     && rm -rf /var/lib/apt/lists/*
 
-# --- qsvencc (Rigaya) r4634 — зеркало в Release, пин по sha256 ---
-# Почему пин на зеркало, а не releases/latest: релиз 8.31 (r4604) содержит баг
-# тихой межсессионной порчи кадров; фикс rigaya/QSVEnc 45003f1 (issue #308) есть
-# только в nightly-сборке. Поэтому .deb зеркалирован ассетом релиза
-# `deps-qsvencc-r4634` нашего репозитория и пиннится по sha256 (D-01..D-03).
-# Provenance: Actions run 36932190976 репозитория rigaya/QSVEnc, head_sha
-# 45003f157253392016f29d6201c3b04c5107d9fa, артефакт QSVEncC_ubuntu2004_deb.
-# Вырезание зависимостей (awk по control) больше не нужно (D-05): новая .deb
-# собрана на Ubuntu 20.04 с ослабленными зависимостями (libc6>=2.31, libva-drm2,
-# libva-x11-2, iHD|va-driver) — intel-opencl-icd/libmfx1 не объявлены.
-# TODO(D-06): перейти на закреплённый апстрим-релиз 8.32+ (содержащий 45003f1)
-# отдельной quick-задачей — см. .planning/todos/pending/2026-10-02-qsvencc-pin-upstream-release.md
-# (там полный чек-лист всех мест порога/пина).
-ARG QSVENCC_URL=https://github.com/Tualua/enpipe/releases/download/deps-qsvencc-r4634/qsvencc_8.31-r4634_amd64.deb
-ARG QSVENCC_SHA256=aa10f196ad07733d937a469d27b0e03973bcc266b90b3f852da0d2ce8936743d
+# --- qsvencc 8.32+vppsync4 (форк Tualua/QSVEnc) — пин по sha256 ---
+# Почему форк, а не rigaya releases/latest: апстрим 8.32 уже содержит фикс
+# межсессионной порчи кадров (rigaya/QSVEnc 45003f1, issue #308), но с
+# --psnr/--ssim на Linux/VA он всё ещё ломается: метрика читает VPP-поверхность
+# до завершения VPP (обрывы "Failed to copy input surface before video metric",
+# неверные значения), а сбой задачи при flush молча обрезает выход (236 из 240
+# кадров при rc=0 — блокер фазы 08). Форк = тег 8.32 + три патча, предложенные
+# в апстрим (#319, #320, SSIM > 1.0 при плоскости не кратной 4).
+# Provenance: релиз https://github.com/Tualua/QSVEnc/releases/tag/8.32-vppsync4,
+# коммит 94d6f7b851843d5fa1bd0ea116bc1d65f15753b0; sha256 сверен с SHA256SUMS
+# релиза. Пакет `8.32+vppsync4`, `--version` даёт `8.32 (r4658)`.
+# Зависимости .deb ослаблены (libc6>=2.31, libva-drm2, libva-x11-2, iHD|va-driver)
+# — intel-opencl-icd/libmfx1 не объявлены, вырезать ничего не нужно (D-05).
+# Официальный 8.33+ (с этими патчами) заменит форк — тогда сменить URL/SHA256.
+ARG QSVENCC_URL=https://github.com/Tualua/QSVEnc/releases/download/8.32-vppsync4/qsvencc_8.32%2Bvppsync4_amd64_ubuntu2004.deb
+ARG QSVENCC_SHA256=d2aa8412591d49f4b1febac8561301a8d97a654d42188cc4d2dee6c1775e6cb6
 # apt-get update должен стоять непосредственно перед установкой .deb в том же RUN —
 # зависимости .deb резолвятся по свежим спискам; не выносить в другой слой.
 # Литерал 4634 должен равняться QSVENCC_MIN_REV (проверяет

@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 Phase: 08 (cor02-lock-hardening) — EXECUTING
 Plan: 5 of 6
 Status: Executing Phase 08
-Last activity: 2026-10-03 - Completed quick task 261003-8fs: парсер метрик inf/nan
+Last activity: 2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsync4 (форк Tualua)
 
 ## Performance Metrics
 
@@ -138,7 +138,7 @@ None yet.
 ### Blockers/Concerns
 
 - Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual
-- Фаза 08 на паузе перед 08-06: qsvencc r4634 с --psnr/--ssim отдаёт 236 из 240 кадров при rc=0 (parity_encode.py, и legacy, и migrated); test_sdr[metrics] METRICS_FAILED x5. Разбор через /gsd:debug. 08-02 ждёт чекпоинт D-07 на хосте.
+- Фаза 08 на паузе перед 08-06: qsvencc r4634 с --psnr/--ssim отдаёт 236 из 240 кадров при rc=0 (parity_encode.py, и legacy, и migrated); test_sdr[metrics] METRICS_FAILED x5. Кандидат-фикс: quick 261003-8qq (qsvencc 8.32+vppsync4, патч #320) — перепроверить. 08-02 ждёт чекпоинт D-07 на хосте.
 
 ### Quick Tasks Completed
 
@@ -158,6 +158,7 @@ None yet.
 | 261001-lq0 | claude-code ставится npm'ом (`@anthropic-ai/claude-code`), а не фичей `ghcr.io/anthropics/devcontainer-features/claude-code` — фича делала то же самое (тот же npm-пакет в nvm-префиксе), минус pin в lock и минус зависимость сборки от ghcr. Авторизации claude/opencode/qwen переживают ребилд через 4 named volume'а (`/root/.claude`, `/root/.qwen`, `/root/.local/share/opencode`, `/root/.config/opencode`). Ключевое: `~/.claude.json` — отдельный ФАЙЛ, томом не прикрыть, а symlink — ловушка (claude пишет через temp+`rename()`, rename сносит симлинк → молчаливая поломка), поэтому `CLAUDE_CONFIG_DIR=/root/.claude` в containerEnv (эмпирически проверено, что переносит и `.claude.json`) + идемпотентная миграция в post-create.sh, которая НЕ перезаписывает уже персистентный конфиг. Самопроверка `PERSIST_OK`: `findmnt` на каждый путь + наличие кредов. НЕ собран здесь (нет docker) — хост пересобирает; чек-лист в PLAN | 2026-10-01 | 1554162 | [261001-lq0-devcontainer-claude-code-via-npm-persist](./quick/261001-lq0-devcontainer-claude-code-via-npm-persist/) |
 | 260722-lji | Devcontainer переведён на базу `intel/dlstreamer` (Ubuntu 24.04): медиа-стек (iHD 26.2.2/oneVPL/ffmpeg-QSV) теперь ИЗ образа, из Dockerfile убран ручной apt-стек драйверов+ffmpeg. Сохранены qsvencc (Rigaya, ubuntu24.04-ассет + dep-strip libmfx1/opencl-icd), dovi_tool, mkvtoolnix, tmux, proxy-ENV+IS_SANDBOX, apt-sandbox fix; devcontainer.json — фичи node+claude-code, /data-фикс (keep-groups + userns-фолбэк), LIBVA_DRIVER_NAME=iHD, remoteUser root. post-create.sh: sudo->AS_ROOT-guard. НЕ собран/не проверен здесь (нет docker/GPU) — хост пересобирает; чек-лист в SUMMARY | 2026-07-22 | 4ff3c36 | [260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl](./quick/260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl/) |
 | 261003-8fs | Парсер метрик qsvencc принимает inf/nan; ИТОГО PSNR через взвешенное MSE, nan не маскируется | 2026-10-03 | 2a2b4c1 | [261003-8fs-parser-inf-nan-metrics](./quick/261003-8fs-parser-inf-nan-metrics/) |
+| 261003-8qq | qsvencc → 8.32+vppsync4 (форк Tualua/QSVEnc, r4658): пин URL+sha256 в обоих Dockerfile, порог 4634 без изменений; на A380 с --psnr/--ssim 240/240 кадров, rc=0. Образы не пересобраны здесь | 2026-10-03 | 4cc3d82 | [261003-8qq-qsvencc-vppsync4-tualua](./quick/261003-8qq-qsvencc-vppsync4-tualua/) |
 
 ## Deferred Items
 
