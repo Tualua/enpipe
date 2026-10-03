@@ -12,7 +12,11 @@ CSV прежние; меняются только значения ИТОГО э
  3. SSIM-дБ — монотонная функция SSIM, поэтому выводится из итогового
     взвешенного SSIM, а не усредняется;
  4. nan распространяется в итог — это сигнал битой сборки/данных, а не повод
-    молча его пропустить.
+    молча его пропустить;
+ 5. если метрика есть не у всех сцен (строка метрик чанка потерялась), итог
+    этой колонки - nan: среднее по подмножеству сцен при `frames` по всем
+    сценам выглядело бы полным итогом и прятало бы потерю строк метрик.
+    Колонка без значений вовсе (метрики выключены) остаётся пустой.
 csv.DictWriter пишет float inf/nan как `inf`/`nan`, отдельный формат не нужен."""
 
 from __future__ import annotations
@@ -32,6 +36,12 @@ def _vals(ordered: list, key: str) -> list:
     return [(r["frames"], r[key]) for r in ordered if r.get(key) is not None]
 
 
+def _coverage_gap(ordered: list, key: str) -> bool:
+    """True, если метрика есть у части сцен, но не у всех (IN-07)."""
+    have = [r.get(key) is not None for r in ordered]
+    return any(have) and not all(have)
+
+
 def _wmean_raw(ordered: list, key: str) -> Optional[float]:
     """Frame-weighted среднее (SSIM) БЕЗ округления; nan в любом чанке -> nan.
     Неокруглённое значение нужно для ssim_db итога: -10*log10(1-SSIM) усиливает
@@ -41,7 +51,7 @@ def _wmean_raw(ordered: list, key: str) -> Optional[float]:
     fr = sum(f for f, _ in vals)
     if not fr:
         return None
-    if any(math.isnan(v) for _, v in vals):
+    if _coverage_gap(ordered, key) or any(math.isnan(v) for _, v in vals):
         return float("nan")
     return sum(f * v for f, v in vals) / fr
 
@@ -58,7 +68,7 @@ def _psnr_total(ordered: list, key: str) -> Optional[float]:
     fr = sum(f for f, _ in vals)
     if not fr:
         return None
-    if any(math.isnan(v) for _, v in vals):
+    if _coverage_gap(ordered, key) or any(math.isnan(v) for _, v in vals):
         return float("nan")
     mse = sum(f * (0.0 if math.isinf(v) else 10 ** (-v / 10)) for f, v in vals) / fr
     return float("inf") if mse == 0 else _round(-10 * math.log10(mse))

@@ -119,3 +119,20 @@ def test_ssim_db_total_uses_unrounded_ssim(tmp_path):
     # одна сцена: ИТОГО ssim_db совпадает со значением из сцены
     t = _total(tmp_path, [_row(0, 100, 0.998990, 1, 1)])
     assert abs(t["ssim_db"] - (-10 * math.log10(1 - 0.998990))) < 1e-4
+
+
+def test_partial_metric_coverage_total_is_nan(tmp_path):
+    # IN-07: метрика есть не у всех сцен - итог nan, а не среднее по
+    # подмножеству при frames по всем сценам.
+    t = _total(tmp_path, [_row(0, 100, 0.9, 1, 1, psnr_avg=40.0, psnr_y=40.0,
+                               ssim_y=0.9),
+                          _row(1, 300, None, 1, 1)])
+    assert t["frames"] == 400
+    for key in ("ssim_all", "ssim_db", "psnr_avg", "ssim_y", "psnr_y"):
+        assert math.isnan(t[key]), key
+
+
+def test_full_metric_coverage_total_is_finite(tmp_path):
+    t = _total(tmp_path, [_row(0, 100, 0.9, 1, 1, psnr_avg=40.0),
+                          _row(1, 300, 0.8, 1, 1, psnr_avg=50.0)])
+    assert math.isfinite(t["ssim_all"]) and math.isfinite(t["psnr_avg"])
