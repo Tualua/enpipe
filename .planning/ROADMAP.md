@@ -77,7 +77,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 **Depends on**: Phase 7
 **Requirements**: TBD (покрытие по решениям D-01..D-14 из 08-CONTEXT.md)
 **Plans**: 6 plans
-- [ ] 08-01-PLAN.md — D-02: аппаратный стоп-гейт побайтного детерминизма r4634 на сценах 923/928/1129 (+ предварительно D-05, доля METRICS_FAILED; --self-test классификатора)
+- [x] 08-01-PLAN.md — D-02: аппаратный стоп-гейт побайтного детерминизма r4634 на сценах 923/928/1129 (+ предварительно D-05, доля METRICS_FAILED; --self-test классификатора)
 - [ ] 08-02-PLAN.md — D-06/D-07/D-14: рантайм-образ на ubuntu:24.04 + Intel PPA (deb822, ключ по отпечатку), самопроверка сборки, раздел перехода, человеческий чекпоинт на хосте
 - [ ] 08-03-PLAN.md — D-01/D-03/D-04/D-05/D-08/D-09/D-12/D-13: харнесс — примитивы гейта, 4-я нога триады, ретраи эталона и классификация run_concurrent (три атомарные задачи)
 - [ ] 08-04-PLAN.md — D-04/D-05/D-08/D-12: замок parametrize(metrics), стресс-матрица по двум вариантам (прерывание на HarnessError, оценка времени)
@@ -95,7 +95,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
-| 8. Усиление замка COR-02                            | v1.2      | 0/6 | Planned     | - |
+| 8. Усиление замка COR-02                            | v1.2      | 1/6 | In Progress|  |
 
 ## Backlog
 

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Concurrent-encode correctness
-status: ready_to_plan
+status: executing
 stopped_at: Phase 8 context gathered
-last_updated: "2026-10-03T01:24:32.761Z"
-last_activity: 2026-10-03 -- Phase 8 planning complete
+last_updated: "2026-10-03T01:40:45.761Z"
+last_activity: 2026-10-03 -- Phase 08 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 8
+  completed_plans: 9
   percent: 40
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Milestone complete
+**Current focus:** Phase 08 — cor02-lock-hardening
 
 ## Current Position
 
-Phase: 7
-Plan: Not started
-Status: ready_to_plan
-Last activity: 2026-10-03 -- Phase 8 planning complete
+Phase: 08 (cor02-lock-hardening) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 08
+Last activity: 2026-10-03 -- Phase 08 execution started
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Last activity: 2026-10-03 -- Phase 8 planning complete
 | Phase 04 P02 | 15min | 4 tasks | 4 files |
 | Phase 05 P01 | 9min | 3 tasks | 3 files |
 | Phase 06 P02 | 25min | 3 tasks | 3 files |
+| Phase 08 P01 | 25min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Optional scenes-path override implemented (Claude's discretion, D-04), routing to both detect output and encode scenes
 - [Phase 06-02]: run_concurrent takes an explicit refs: Dict[int, Path] param (not a same-workdir naming convention) so isolated references can be built once and reused across many ephemeral per-iteration stress-matrix workdirs
 - [Phase 06-02]: IMMUNITY_ITERS defaults to 8 (env-tunable) -- survival-probability math (0.35^8..0.65^8 ~= 2e-4..3e-2) justifies a modest, fast-rerun iteration count distinct from the one-time 20-iter stress tier
+- [Phase 08]: [Phase 08-01]: D-02 PASS на A380/qsvencc r4634 - побайтный критерий D-01 жизнеспособен; сцена 1129 с метриками побайтно не сверена
 
 ### Pending Todos
 
@@ -172,7 +174,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T00:07:25.068Z
+Last session: 2026-10-03T01:40:40.622Z
 Stopped at: Phase 8 context gathered
 Resume file: .planning/phases/08-cor02-lock-hardening/08-CONTEXT.md
 </content>
