@@ -56,7 +56,8 @@ _METRICS_FAILURE_MARKERS: Tuple[str, ...] = (
     "Decoded frame count does not match",
 )
 CLASSES: Tuple[str, ...] = (
-    "byte_identical", "byte_mismatch", "SESSION_FAILED", "METRICS_FAILED", "frames_bad",
+    "byte_identical", "byte_mismatch", "no_reference",
+    "SESSION_FAILED", "METRICS_FAILED", "frames_bad",
 )
 REF_ATTEMPTS_METRICS = 5
 
@@ -82,12 +83,16 @@ def _classify(
     frames_ok: Optional[bool],
 ) -> str:
     """Класс одной сессии. Расхождение байтов главнее расхождения кадров;
-    сбой старта никогда не засчитывается как совпадение."""
+    сбой старта никогда не засчитывается как совпадение. Сессия без эталона
+    (same is None) - `no_reference`, а НЕ `byte_identical`: байты ни с чем не
+    сверены, засчитать её «совпавшей» значит дать ложное «чисто» (CR-01)."""
     if not ok:
         clean = harness.strip_ansi(stderr_text)
         if metrics and any(m in clean for m in _METRICS_FAILURE_MARKERS):
             return "METRICS_FAILED"
         return "SESSION_FAILED"
+    if same is None:
+        return "no_reference"
     if same is False:
         return "byte_mismatch"
     if frames_ok is False:
@@ -103,6 +108,8 @@ def _self_test() -> int:
     assert _classify(True, "", False, False, False) == "byte_mismatch"
     assert _classify(True, "", False, True, False) == "frames_bad"
     assert _classify(True, "", False, True, True) == "byte_identical"
+    assert _classify(True, "", True, None, True) == "no_reference"
+    assert _classify(True, "", False, None, True) == "no_reference"
     tmp = Path(tempfile.mkdtemp(prefix="probe_d02_selftest_"))
     try:
         a, b, c = tmp / "a", tmp / "b", tmp / "c"
@@ -224,8 +231,9 @@ def main(argv: Optional[List[str]] = None) -> int:  # noqa: C901 -- линейн
                 if ra is None or rb is None:
                     emit(f"scene {scene.scene}: эталон не построен (metrics={metrics})")
                     ref_pairs[(metrics, scene.scene)] = None
-                    if not metrics:
-                        passed = False
+                    # Без эталона ячейка не доказана ни в одном варианте:
+                    # вердикт PASS на непроверенных сессиях недопустим (CR-01).
+                    passed = False
                     continue
                 sa, sb = _sha256(ra), _sha256(rb)
                 ref_sha[(metrics, scene.scene)] = sa
@@ -286,12 +294,13 @@ def main(argv: Optional[List[str]] = None) -> int:  # noqa: C901 -- линейн
         for metrics in variants:
             for scene in scenes:
                 t = tally[metrics][scene.scene]
-                ok_n = t["byte_identical"] + t["byte_mismatch"] + t["frames_bad"]
+                ok_n = (t["byte_identical"] + t["byte_mismatch"]
+                        + t["frames_bad"] + t["no_reference"])
                 emit(
                     f"metrics={'on ' if metrics else 'off'} {scene.scene:>4} | {ok_n} | "
                     + " | ".join(str(t[c]) for c in CLASSES)
                 )
-                if t["byte_mismatch"] or t["frames_bad"]:
+                if t["byte_mismatch"] or t["frames_bad"] or t["no_reference"]:
                     passed = False
                 if not metrics and t["SESSION_FAILED"]:
                     passed = False
