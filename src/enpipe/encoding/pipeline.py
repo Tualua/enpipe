@@ -36,7 +36,7 @@ from .audio import encode_audio
 from .chunk import GOP_LEN, ICQ, QPMAX, chunk_command, count_frames, encode_chunk
 from .hdr import detect_hdr
 from .keyframes import compute_chunk_seek_trim, keyframe_table
-from .metrics import write_metrics_csv
+from .metrics import format_total_line, write_metrics_csv
 from .scenes_io import read_scenes
 
 JOBS = int(os.environ.get("JOBS", "3"))            # параллельных qsvencc-сессий
@@ -316,10 +316,11 @@ def run_encode(args) -> None:
         csv_path = args.csv or Path(str(out) + ".metrics.csv")
         total = write_metrics_csv(csv_path, rows)
         log(f">> метрики -> {csv_path}")
-        if total.get("ssim_all") is not None:
-            log(f">> ИТОГО (frame-weighted): SSIM {total['ssim_all']:.5f} "
-                f"PSNR {total['psnr_avg']:.2f}dB  | {total['frames']} кадров, "
-                f"{total['size_mb']:.0f} MB")
+        # строка печатается до мукса: падение здесь теряет весь прогон,
+        # поэтому каждая метрика форматируется независимо (None -> «н/д»)
+        line = format_total_line(total)
+        if line is not None:
+            log(line)
 
     # --- финальный мукс ---
     num, den = fps.as_integer_ratio() if isinstance(fps, float) else (fps, 1)

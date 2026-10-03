@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 Phase: 8
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-10-03
+Last activity: 2026-10-03 - Completed quick task 261003-c1b: исправлено падение psnr_avg в строке ИТОГО pipeline.py
 
 ## Performance Metrics
 
@@ -150,6 +150,7 @@ None yet.
 | 260709-4h8 | `-o` accepts a directory → `<stem>.Encoded<suffix>` inside it (fixes chunks-workdir PermissionError) | 2026-07-09 | cb49cc7 | [260709-4h8-o-accepts-a-directory-output-filename-be](./quick/260709-4h8-o-accepts-a-directory-output-filename-be/) |
 | 260709-629 | Тихий выход по Ctrl-C (SIGINT): перехват `KeyboardInterrupt` в `main()` → `SystemExit(130)`, без трейсбеков | 2026-07-09 | c942e05 | [260709-629-ctrl-c-sigint](./quick/260709-629-ctrl-c-sigint/) |
 | 260709-6jo | Живой tqdm-прогресс детекции сцен: СТАРТ/ФИНИШ-строки в stderr, штатный бар (последовательно) / агрегированный бар (параллельно); cut-математика и порядок результатов не изменились | 2026-07-09 | b39d1c9 | [260709-6jo-live-tqdm](./quick/260709-6jo-live-tqdm/) |
+| 261003-c1b | Строка ИТОГО в `run_encode` не падает с TypeError при `psnr_avg=None` (SSIM есть, PSNR нет): `format_total_line`, «н/д» для отсутствующей метрики | 2026-10-03 | a154dd2 | [261003-c1b-psnr-avg-pipeline-py-319](./quick/261003-c1b-psnr-avg-pipeline-py-319/) |
 | 260709-711 | Плавный ПОКАДРОВЫЙ прогресс-бар в параллельном режиме: `progress_cb`-хук в `QsvPipeStream.read()` двигает общий бар из всех сегмент-потоков (было: скачки по завершении целого сегмента, висело на 0%). Ветка `show_progress=False`, cut-математика и порядок `results` не тронуты | 2026-07-09 | 05c8ab6 | [260709-711-smooth-per-frame-progress-bar](./quick/260709-711-smooth-per-frame-progress-bar/) |
 | 260709-89t | `enpipe run/detect/encode <папка>` — новый leaf-модуль `shared/batch.py` (дискавери + collect-then-report оркестратор), `--recursive`, skip-existing, guard'ы схлопывания выходов (-o-файл/--workdir/--csv/--scenes -> die). Одиночный файл byte-identical | 2026-07-09 | f7f8fb7 | [260709-89t-folder-batch-input-enpipe-run-detect-enc](./quick/260709-89t-folder-batch-input-enpipe-run-detect-enc/) |
 | 260709-gs0 | Слим-рантайм-образ enpipe (multi-stage `Dockerfile` + `.dockerignore` + `docker/README.md`); builder: `uv sync --frozen --no-dev --no-editable`; runtime: медиа-стек дословно из `.devcontainer/Dockerfile` (без tmux) + venv-copy. Образ здесь не собран (нет docker) — сборку/GPU-прогон проверяет пользователь на хосте | 2026-07-09 | cbae949 | [260709-gs0-compact-slim-runtime-container-image-for](./quick/260709-gs0-compact-slim-runtime-container-image-for/) |

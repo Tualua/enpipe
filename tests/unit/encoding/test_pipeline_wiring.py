@@ -158,6 +158,67 @@ def test_run_encode_writes_metrics_csv_when_enabled(tmp_path, monkeypatch):
     assert called_csv_path == Path(str(out) + ".metrics.csv")
 
 
+
+def test_run_encode_survives_total_without_psnr(tmp_path, monkeypatch):
+    video = tmp_path / "source.mkv"
+    video.write_bytes(b"dummy-source-bytes")
+    scenes_path = tmp_path / "source.mkv.scenes"
+    out = tmp_path / "out.mkv"
+    workdir = tmp_path / "chunks"
+
+    args = Namespace(
+        video=video, scenes=scenes_path, out=out,
+        frm=0, to=None, workdir=workdir, keep=True, jobs=1,
+        no_audio=True, no_metrics=False, csv=None,
+    )
+
+    # --- tool preflight: every shutil.which() call is truthy --- #
+    monkeypatch.setattr(p.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+
+    # --- deterministic, mocked inputs --- #
+    monkeypatch.setattr(p, "probe_fps", lambda src: 24.0)
+    monkeypatch.setattr(p, "keyframe_table", lambda src, fps: _TABLE)
+    monkeypatch.setattr(p, "detect_hdr", lambda src: [])
+    monkeypatch.setattr(p, "read_scenes", lambda path: list(_SCENES))
+    mock_write_metrics_csv = Mock(return_value={
+        "ssim_all": 0.98765, "psnr_avg": None, "frames": 74, "size_mb": 12.3,
+    })
+    monkeypatch.setattr(p, "write_metrics_csv", mock_write_metrics_csv)
+
+    expected_total = sum(e - s for s, e in _SCENES)
+    monkeypatch.setattr(p, "count_frames", lambda path: expected_total)
+
+    # --- canned per-chunk bytes carrying real metrics, distinct per idx --- #
+    canned = {i: f"CHUNK{i:03d}".encode() * (e - s) for i, (s, e) in enumerate(_SCENES)}
+
+    def _encode_chunk_side_effect(task):
+        idx, cmd, cp, expect = task
+        cp.write_bytes(canned[idx])
+        return idx, expect, None, 0.01, {
+            "size": len(canned[idx]), "ssim_all": 0.99,
+        }
+
+    monkeypatch.setattr(p, "encode_chunk", Mock(side_effect=_encode_chunk_side_effect))
+
+    def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics):
+        return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics)
+
+    monkeypatch.setattr(p, "chunk_command", Mock(side_effect=_chunk_command_side_effect))
+
+    # --- final mkvmerge mux: create `out` so the closing out.stat() succeeds --- #
+    def _proc_run_side_effect(cmd, **kwargs):
+        if cmd and cmd[0] == "mkvmerge":
+            out_path = Path(cmd[cmd.index("-o") + 1])
+            out_path.write_bytes(b"fake-muxed-output")
+        return Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(p._proc, "run", Mock(side_effect=_proc_run_side_effect))
+
+    # SSIM есть, PSNR нет: строка ИТОГО не должна ронять прогон до мукса
+    p.run_encode(args)
+
+    assert out.exists()
+
 def test_run_encode_refuses_before_any_work_on_old_qsvencc(tmp_path, monkeypatch):
     video = tmp_path / "source.mkv"
     video.write_bytes(b"dummy-source-bytes")
