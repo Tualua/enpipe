@@ -71,6 +71,7 @@ from enpipe.encoding.keyframes import (
 )
 from enpipe.encoding.pipeline import probe_fps
 from enpipe.encoding.scenes_io import read_scenes
+from enpipe.shared.qsvencc_version import QSVENCC_METRICS_MIN_REV
 
 pytestmark = pytest.mark.hardware
 
@@ -114,6 +115,15 @@ METRICS_ATTEMPTS = 5
 
 @pytest.fixture
 def metrics_tap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # WR-05: каждый вариант с метриками проходит через эту фикстуру, поэтому
+    # порог ревизии для пути с метриками (r4658, #319/#320) проверяется здесь.
+    # Старая сборка - провал, а не skip.
+    rev = harness.qsvencc_revision()
+    if rev is None or rev < QSVENCC_METRICS_MIN_REV:
+        pytest.fail(
+            f"qsvencc ({harness.qsvencc_version_line()!r}) слишком старый для "
+            f"пути с метриками: требуется r{QSVENCC_METRICS_MIN_REV} или новее (#319/#320)"
+        )
     log_dir = tmp_path / "qsvencc_tap_logs"
     bin_dir = tmp_path / "qsvencc_tap_bin"
     harness.install_qsvencc_tap(bin_dir, log_dir)

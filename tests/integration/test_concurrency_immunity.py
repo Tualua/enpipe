@@ -36,7 +36,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _concurrency_harness as harness  # noqa: E402
 
-from enpipe.shared.qsvencc_version import QSVENCC_MIN_REV  # noqa: E402
+from enpipe.shared.qsvencc_version import (  # noqa: E402
+    QSVENCC_METRICS_MIN_REV,
+    QSVENCC_MIN_REV,
+)
 
 pytestmark = pytest.mark.hardware
 
@@ -184,6 +187,13 @@ def test_qsvencc_immune_at_production_jobs(tmp_path: Path, metrics: bool) -> Non
             f"binary {shutil.which('qsvencc')}, required r{QSVENCC_MIN_REV} or "
             f"newer. The lock must run on the fixed build; an old build FAILS "
             f"here, it is never skipped."
+        )
+    # WR-05: путь с метриками требует сборку с патчами #319/#320 (r4658);
+    # на r4634 он усекал выход при rc=0. Старая сборка FAILS, не skip.
+    if metrics and rev < QSVENCC_METRICS_MIN_REV:
+        pytest.fail(
+            f"qsvencc ({version_line!r}) слишком старый для пути с метриками: "
+            f"требуется r{QSVENCC_METRICS_MIN_REV} или новее (#319/#320)."
         )
 
     workdir = tmp_path / ("metrics" if metrics else "no-metrics")

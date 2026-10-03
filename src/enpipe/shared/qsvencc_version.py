@@ -35,6 +35,15 @@ from enpipe.shared.logging import die
 # держит tests/unit/shared/test_qsvencc_threshold_sync.py.
 QSVENCC_MIN_REV = 4634
 
+# Минимальная ревизия для пути с метриками (--psnr/--ssim): форк
+# 8.32+vppsync4 (r4658) с патчами #319/#320. На r4634 и апстримном 8.32 этот
+# путь усекал выход при rc=0 и падал с VIDEOMETRIC (фаза 08). Пока проверяется
+# только в аппаратных тестах (замок COR-02 и аппаратный тир при metrics=True):
+# в проде усечение ловят encode_chunk/count_frames через die(), а образ пинит
+# форк по sha256 (переопределить URL без SHA нельзя - sha256sum -c упадёт).
+# Число ревизии не отличает форк от апстрима с тем же номером (WR-05).
+QSVENCC_METRICS_MIN_REV = 4658
+
 # Якорь только на начало строки (не на `$`): хвостовой ANSI-сброс не мешает.
 _REV_RE = re.compile(r"^QSVEncC\b[^\n]*?\(r(\d+)\)")
 
