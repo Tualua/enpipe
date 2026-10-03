@@ -443,3 +443,69 @@ def test_identical_session_with_bad_frames_propagates_with_reference_recheck(
     msg = str(ei.value)
     assert "packets=111 decoded=50" in msg
     assert "reference re-verify:" in msg
+
+
+# --- qsvencc full-stderr tap + retry rule ------------------------------------- #
+
+
+def _fake_qsvencc(tmp_path: Path, rc: int, stderr_text: str) -> str:
+    fake = tmp_path / "real_qsvencc"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "print('hello'); print(' '.join(sys.argv[1:]), file=sys.stdout)\n"
+        f"sys.stderr.write({stderr_text!r})\n"
+        f"sys.exit({rc})\n"
+    )
+    fake.chmod(0o755)
+    return str(fake)
+
+
+def test_tap_captures_full_stderr_and_passes_through(tmp_path: Path) -> None:
+    stderr_text = "\x1b[31mVIDEOMETRIC: Failed to copy input surface" + "x" * 2000
+    real = _fake_qsvencc(tmp_path, 255, stderr_text)
+    tap = harness.install_qsvencc_tap(tmp_path / "bin", tmp_path / "logs", real=real)
+    proc = subprocess.run(
+        [str(tap), "--a", "b c"], capture_output=True, text=True
+    )
+    assert proc.returncode == 255
+    assert proc.stdout.splitlines() == ["hello", "--a b c"]
+    assert "VIDEOMETRIC" in proc.stderr
+    fails = harness.tap_failures(tmp_path / "logs")
+    assert len(fails) == 1
+    assert len(fails[0]) > 2000
+    assert fails[0].startswith("\x1b[31mVIDEOMETRIC")
+
+
+def test_tap_success_has_no_failures(tmp_path: Path) -> None:
+    real = _fake_qsvencc(tmp_path, 0, "fine")
+    tap = harness.install_qsvencc_tap(tmp_path / "bin", tmp_path / "logs", real=real)
+    proc = subprocess.run([str(tap), "x"], capture_output=True, text=True)
+    assert proc.returncode == 0
+    assert harness.tap_failures(tmp_path / "logs") == []
+
+
+def test_tap_found_via_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+    import shutil
+
+    real = _fake_qsvencc(tmp_path, 0, "")
+    tap = harness.install_qsvencc_tap(tmp_path / "bin", tmp_path / "logs", real=real)
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    assert shutil.which("qsvencc") == str(tap)
+
+
+def test_tap_without_real_binary_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(harness.HarnessError):
+        harness.install_qsvencc_tap(tmp_path / "bin", tmp_path / "logs")
+
+
+def test_metrics_only_failure_rule() -> None:
+    vm = "VIDEOMETRIC: Failed to copy input surface"
+    assert harness.metrics_only_failure([], "x") is False
+    assert harness.metrics_only_failure([vm], "qsvencc rc=255: ...") is True
+    assert harness.metrics_only_failure([vm, "avqsv: failed to seek"], "m") is False
+    assert harness.metrics_only_failure([vm], "чанк 2: кадров 50, ожидалось 111") is False

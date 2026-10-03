@@ -32,10 +32,11 @@ import hashlib
 import re
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from enpipe.encoding.chunk import chunk_command, count_frames, parse_metrics
 from enpipe.encoding.hdr import detect_hdr
@@ -748,3 +749,74 @@ def reference_triad_violations(
         ):
             out.append((scene.scene, reason))
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Full-stderr tap for qsvencc (Phase 8 D-10d / D-12)
+# --------------------------------------------------------------------------- #
+
+# WHY: enpipe and legacy put only the last 500 characters of qsvencc stderr into
+# the error message (chunk.py:89, encode_scenes.py:409), and neither src/ nor
+# legacy/ may change in this phase (D-12, frozen legacy). A wrapper named
+# `qsvencc` earlier on PATH gives the tests the FULL stderr of every call
+# without touching production code. stderr is buffered until the child exits,
+# which is safe: both callers use capture_output, not streaming reads.
+_TAP_TEMPLATE = """#!{python}
+import subprocess, sys, uuid
+REAL = {real!r}
+LOG_DIR = {log_dir!r}
+proc = subprocess.run([REAL] + sys.argv[1:], stderr=subprocess.PIPE)
+name = uuid.uuid4().hex
+with open(LOG_DIR + "/" + name + ".stderr", "wb") as f:
+    f.write(proc.stderr)
+with open(LOG_DIR + "/" + name + ".rc", "w") as f:
+    f.write(str(proc.returncode))
+sys.stderr.buffer.write(proc.stderr)
+sys.stderr.buffer.flush()
+sys.exit(proc.returncode)
+"""
+
+
+def install_qsvencc_tap(bin_dir: Path, log_dir: Path, real: Optional[str] = None) -> Path:
+    """Create an executable `bin_dir/qsvencc` that runs the real binary with the
+    same arguments, stores its full stderr and rc per call in `log_dir`, and
+    forwards stderr and rc unchanged. The real path is resolved to an absolute
+    path BEFORE the caller prepends `bin_dir` to PATH (else the tap would call
+    itself)."""
+    real = real or shutil.which("qsvencc")
+    if real is None:
+        raise HarnessError("qsvencc not found on PATH: cannot install the stderr tap")
+    real = str(Path(real).resolve())
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    tap = bin_dir / "qsvencc"
+    tap.write_text(
+        _TAP_TEMPLATE.format(
+            python=sys.executable, real=real, log_dir=str(log_dir.resolve())
+        )
+    )
+    tap.chmod(0o755)
+    return tap
+
+
+def tap_failures(log_dir: Path) -> List[str]:
+    """Full stderr text of every tapped qsvencc call that exited non-zero."""
+    out: List[str] = []
+    for rc_file in sorted(log_dir.glob("*.rc")):
+        if rc_file.read_text().strip() != "0":
+            err = rc_file.with_suffix(".stderr")
+            out.append(err.read_bytes().decode("utf-8", "replace") if err.exists() else "")
+    return out
+
+
+def metrics_only_failure(failed_stderrs: Sequence[str], message: str) -> bool:
+    """True iff a retry is allowed: at least one qsvencc call failed, ALL failed
+    calls failed in the metrics subsystem (D-12), and the error message carries
+    no frame-count mismatch. A frame-count mismatch of a chunk or of the
+    concatenation signals corruption or a bug and is never retried (T-08-08);
+    an empty list (e.g. mkvmerge failed, not qsvencc) is no reason to retry."""
+    return (
+        bool(failed_stderrs)
+        and all(is_metrics_failure(t) for t in failed_stderrs)
+        and "ожидалось" not in message
+    )
