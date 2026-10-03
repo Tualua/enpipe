@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "qsvencc --avhw --seek в последнюю GOP источника падает rc=255: последний чанк теряется и весь encode умирает"
 created: 2026-10-03
 updated: 2026-10-03
@@ -58,4 +58,9 @@ next_action: ждём фикс апстрима (handoff передан); тем
 
 ## Resolution
 
-decision (пользователь, 2026-10-03): фикс в qsvencc — в соседнем проекте; передан [`HANDOFF-qsvencc-seek-firstpkt.md`](./HANDOFF-qsvencc-seek-firstpkt.md). Обход в enpipe (seek K − m) не применён, ждёт ответа по апстриму. Отдельно: добавить аппаратную проверку содержимого чанков (md5 первого кадра vs эталон на K).
+root cause: qsvencc `--seek` отсчитывается от firstpkt->pts (см. [`HANDOFF-qsvencc-seek-firstpkt.md`](../HANDOFF-qsvencc-seek-firstpkt.md)).
+fix: апстрим форка — 8.32-vppsync6 (r4663).
+enpipe: пин + гейт r4663 + test_dv_profile5 без xfail (quick 261003-l9x).
+verification: test_dv_profile5 PASSED на A380 (см. SUMMARY quick 261003-l9x).
+
+Историческое решение (2026-10-03): фикс в qsvencc — в соседнем проекте; обход в enpipe (seek K − m) не применялся.

@@ -56,14 +56,14 @@ Development:
 
 **External Binaries (subprocess invocations):**
 - ffmpeg / ffprobe (Ubuntu 24.04 apt packages) - QSV-accelerated decode, audio transcode, metadata probing via `src/enpipe/shared/proc.py`
-- qsvencc 8.32+vppsync4 (Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
+- qsvencc 8.32+vppsync6 (r4663, tag 8.32-vppsync6, sha256 f7be83b6…; Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
 - mkvmerge (mkvtoolnix apt package) - final `.mkv` muxing via `src/enpipe/encoding/pipeline.py`
 - dovi_tool (x86_64-unknown-linux-musl static binary, GitHub releases) - Dolby Vision RPU extraction; currently unused (DEBT-04, reserved for Phase 4)
 
 **GPU/Media Stack (environment dependencies, not Python imports):**
 - Intel Media driver (iHD, from Intel PPA `kobuk-team/intel-graphics`) - VA-API for Intel Arc A380
 - oneVPL (libvpl2, libmfx-gen1.2 from Ubuntu 24.04 + Intel PPA) - GPU dispatcher and runtime
-- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable on r4658: 0 failures from 640 sessions)
+- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable, measured on r4658: 0 failures from 640 sessions)
 - vainfo (libva-utils) - VA-API diagnostics
 
 ## Configuration

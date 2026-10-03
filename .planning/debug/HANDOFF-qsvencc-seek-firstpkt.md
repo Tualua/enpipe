@@ -1,7 +1,9 @@
+**Решено в 8.32-vppsync6 (r4663)**, Tualua/QSVEnc, 2026-10-03: `--seek` стартует с первого keyframe на/после цели для любого контейнера; проверено на A380 (синтетика TS/mkv open/closed GOP, dv-p5 фрагмент и полный mp4); enpipe требует r4663 (quick 261003-l9x).
+
 # HANDOFF — qsvencc `--seek` отсчитывается от `firstpkt->pts` и молча попадает в следующую GOP (`--avhw`)
 
 **Дата:** 2026-10-03
-**Откуда:** enpipe, сессия отладки [`qsvencc-seek-last-gop.md`](./qsvencc-seek-last-gop.md)
+**Откуда:** enpipe, сессия отладки [`qsvencc-seek-last-gop.md`](./resolved/qsvencc-seek-last-gop.md)
 **Кому:** соседний проект, где уже чинили qsvencc (ср. 45003f1 / #308, #319/#320)
 **Версия, на которой воспроизведено:** QSVEncC 8.32 (r4658), форк Tualua/QSVEnc `8.32-vppsync4`; A380, iHD. Код ридера в форке **побайтно совпадает** с `rigaya/QSVEnc` master (`b16f167`, `QSVPipeline/rgy_input_avcodec.cpp`, 4249 строк) — баг в апстриме.
 
@@ -91,4 +93,4 @@ enc syn.ts  0:00:10.010   # rc=255, "No video packets found!" (последня�
 
 - Пробные файлы и логи: `/tmp/claude-0/-workspaces-enpipe/7682fc60-44f2-424a-8b15-1a436c99b524/scratchpad/dvprobe/` (`syn.ts`, `syn.mkv`, `p5-nocut.mkv`) — временные, могут исчезнуть; синтетику проще пересоздать по §3.
 - Фикстуры enpipe (не распространять, защищённый контент): `/data/downloads/enpipe-fixtures/dv-p5.mkv` (последний kf 85.961, dur 90.174), `dv-p81.mkv`, `hdr10plus.mkv`.
-- Полная хронология: [`qsvencc-seek-last-gop.md`](./qsvencc-seek-last-gop.md).
+- Полная хронология: [`qsvencc-seek-last-gop.md`](./resolved/qsvencc-seek-last-gop.md).
