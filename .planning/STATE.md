@@ -4,14 +4,14 @@ milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: executing
 stopped_at: Phase 8 context gathered
-last_updated: "2026-10-03T02:23:22.659Z"
-last_activity: 2026-10-03 -- Phase 08 execution started
+last_updated: "2026-10-03T07:38:37.661Z"
+last_activity: "2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsync4 (форк Tualua)"
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 2
   total_plans: 18
-  completed_plans: 12
-  percent: 40
+  completed_plans: 13
+  percent: 33
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 08 (cor02-lock-hardening) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Executing Phase 08
 Last activity: 2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsync4 (форк Tualua)
 
@@ -72,6 +72,7 @@ Last activity: 2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsyn
 | Phase 08 P03 | 40min | 3 tasks | 3 files |
 | Phase 08 P04 | 25min | 2 tasks | 2 files |
 | Phase 08 P05 | 40min | 3 tasks | 4 files |
+| Phase 08 P06 | 75min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,7 @@ Recent decisions affecting current work:
 - [Phase 08]: Гейт харнесса - sha256; отличные сессии всегда byte_mismatch, HarnessError только для идентичных с неверным числом кадров — D-01/D-03, анти-ложное-чисто
 - [Phase 08]: 08-04: HarnessError в замке не глушится, в матрице прерывает прогон FAIL; METRICS_FAILED без порога (D-12)
 - [Phase 08]: 08-05: решение о повторе по полному stderr через перехватчик на PATH; METRICS_FAILED=провал; метрики на железе красные
+- [Phase 08]: 08-06: гейт COR-02 побайтный доказан на r4658 (8.32-vppsync4): D-10c на r4604 даёт 3 расхождения (непустота), замок 2 passed, матрица 640 сессий 0 расхождений и 0 METRICS_FAILED, D-05 эталоны on/off совпадают, тир 7 passed/2 skipped, паритет OK; бинарь r4634 заменён на r4658 (quick 261003-8qq); рантайм на Ubuntu 24.04 + PPA с OpenCL, метрики стабильны на r4658; остаток в бэклоге 999.4 (трек апстрима #319/#320, 500-симв. усечение stderr, нет retry)
 
 ### Pending Todos
 
@@ -138,7 +140,7 @@ None yet.
 ### Blockers/Concerns
 
 - Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual
-- Фаза 08: блокер «236/240 при rc=0 с метриками» снят сборкой qsvencc 8.32+vppsync4 (r4658, quick 261003-8qq). Перепроверено 2026-10-03 на A380: test_sdr[metrics] и [no-metrics] PASSED (metrics attempts=1); scratch/parity_encode.py с метриками 3/3 PARITY OK (attempts 1/1/1, movie.obu побайтно идентичен legacy↔migrated). 08-06 разблокирован; эталоны фаз 07–08 сняты на r4634 — учесть при сверке. 08-02 ждёт чекпоинт D-07 на хосте.
+- Фаза 08: блокер «236/240 при rc=0 с метриками» снят сборкой qsvencc 8.32+vppsync4 (r4658, quick 261003-8qq). Перепроверено 2026-10-03 на A380: test_sdr[metrics] и [no-metrics] PASSED (metrics attempts=1); scratch/parity_encode.py с метриками 3/3 PARITY OK (attempts 1/1/1, movie.obu побайтно идентичен legacy↔migrated). 08-06 выполнен на r4658 (2026-10-03, все гейты зелёные, см. 08-06-SUMMARY); эталоны фаз 07–08 сняты на r4634 — учесть при сверке. 08-02 ждёт чекпоинт D-07 на хосте.
 
 ### Quick Tasks Completed
 
@@ -183,7 +185,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T02:04:12.903Z
+Last session: 2026-10-03T07:38:31.140Z
 Stopped at: Phase 8 context gathered
 Resume file: .planning/phases/08-cor02-lock-hardening/08-CONTEXT.md
 </content>

@@ -82,7 +82,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 - [x] 08-03-PLAN.md — D-01/D-03/D-04/D-05/D-08/D-09/D-12/D-13: харнесс — примитивы гейта, 4-я нога триады, ретраи эталона и классификация run_concurrent (три атомарные задачи)
 - [x] 08-04-PLAN.md — D-04/D-05/D-08/D-12: замок parametrize(metrics), стресс-матрица по двум вариантам (прерывание на HarnessError, оценка времени)
 - [x] 08-05-PLAN.md — D-10d/D-12: перехватчик полного stderr qsvencc, аппаратный тир и паритет с legacy с метриками
-- [ ] 08-06-PLAN.md — D-10/D-11/D-12: прогон на железе (r4604 непустота с sha256-гейтом, замок, матрица ~640 сессий, D-10d), доказательства, бэклог 999.4
+- [x] 08-06-PLAN.md — D-10/D-11/D-12: прогон на железе (r4604 непустота с sha256-гейтом, замок, матрица ~640 сессий, D-10d), доказательства, бэклог 999.4
 
 ## Progress
 
@@ -95,7 +95,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
-| 8. Усиление замка COR-02                            | v1.2      | 4/6 | In Progress|  |
+| 8. Усиление замка COR-02                            | v1.2      | 5/6 | In Progress|  |
 
 ## Backlog
 
@@ -111,6 +111,15 @@ Plans:
 ### Phase 999.3: Гейт версии qsvencc в legacy/encode_scenes.py (BACKLOG)
 
 **Goal:** [Captured for future planning] Пробел верификации фазы 7 (07-REVIEW.md WR-04), некритичный: `legacy/encode_scenes.py` запускает параллельный qsvencc без проверки ревизии >= 4634 и без `--backend qsv`; docstring `qsvencc_version` утверждает покрытие «каждого запуска». Либо подключить гейт в legacy, либо сузить формулировку docstring.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.4: Надёжность метрик qsvencc (--psnr/--ssim) при параллельных чанках (BACKLOG)
+
+**Goal:** [Captured for future planning] Факты фазы 8. История на r4634 + PPA (intel-opencl-icd 26.31.39395.13): подсистема метрик падала (`VIDEOMETRIC: Failed to copy input surface`, `allocVA`, `Decoded frame count does not match`, rc=255), на синтетике 320x180 JOBS=2 отказывали 3 из 4 чанков в каждой из 5 попыток, в 08-01 на сцене 1129 2 отказа из 3; при rc=0 терялись кадры (236/240); `encode_chunk` при rc!=0 теряет чанк, а значения PSNR/SSIM были недостоверны (33.9 против 48.2 дБ на побайтно одинаковом выходе). Измерено в 08-06 на r4658 (8.32-vppsync4, форк Tualua: патчи #319 и #320): METRICS_FAILED = 0 из 640 сессий матрицы (JOBS 3/5/8, оба варианта метрик), 0 из 24+24 в замке, число попыток метрик в аппаратном тире и паритете везде 1; qsvencc SSIM совпадает с ffmpeg до 1e-6, PSNR = PSNR от среднего MSE (quick 261003-8fs/8qq). Дефект на r4658 не воспроизведён, остаётся: (1) исправления #319/#320 лежат только в форке, нужно отследить попадание в официальный апстрим (8.33+) и вернуться на официальный релиз; (2) сообщение об ошибке чанка в `encode_chunk` обрезано до 500 символов stderr, маркер `VIDEOMETRIC` может не попасть; (3) retry в `encode_chunk` отсутствует. Варианты (без решения): retry при маркерах VIDEOMETRIC, внешний ffmpeg-PSNR, issue/PR в апстрим.
 **Requirements:** TBD
 **Plans:** 0 plans
 

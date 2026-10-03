@@ -2,7 +2,7 @@
 status: resolved
 trigger: "enpipe-энкод (scene-chunk seek+trim) даёт единичные кадры с VMAF≈0 (кадр показывает содержимое соседнего кадра), тогда как контрольный single-pass энкод совпадает покадрово. Пример: кадр 110079."
 created: 2026-07-22
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Debug: единичные битые кадры в scene-chunk энкоде (VMAF≈0)
@@ -378,3 +378,34 @@ test_run_parity_vs_two_step passed. Детерминизм: два `enpipe encod
 **Осознанное ограничение (D-17):** постоянным коммитнутым тестом охраняется только JOBS=3 x 8 (production-уровень);
 уровни JOBS 5/8 x 20 проверены один раз в этой фазе и НЕ охраняются постоянно. При любом обновлении
 qsvencc/iHD/ядра перезапускать вручную: `scratch/gate_stress_matrix.py --jobs 3,5,8 --iters 20 --expect clean`.
+
+## ФАЗА 8: ЗАМОК УСИЛЕН 2026-10-03T07:45Z
+
+**Окружение:** uname -r 6.19.14-200.fc43.x86_64; iHD 26.3.2 (intel-media-va-driver-non-free 26.3.2-1~24.04~ppa1); intel-opencl-icd 26.31.39395.13-1~24.04~ppa1 (clinfo: Intel Arc A380); libmfx-gen1.2 26.3.2-1~24.04~ppa1; ffmpeg 6.1.1-3ubuntu5; `qsvencc` на PATH: `QSVEncC (x64) 8.32 (r4658)` (форк Tualua/QSVEnc 8.32-vppsync4, quick 261003-8qq).
+
+**Подмена бинаря под тестом:** план писался под r4634 (8.31). До прогона на фазу 8 переключён бинарь на r4658 (= upstream 8.32 с 45003f1/#308 + патчи #319 синхронизация VPP перед чтением метрик, #320 нет молчаливой потери кадров при сбое flush, фикс SSIM>1.0). Все проверки «чисто» ниже сняты на (r4658), не на r4634. Наблюдения фазы 7 и 08-01 сняты на r4634.
+
+**Что изменилось в критерии:** побайтное равенство сессии и изолированного эталона вместо PSNR-порога 30 дБ; сверка packets == decoded == scene.frames; триада (HW-декод, 10-бит, GopRefDist/BRefType) на каждой сессии и эталоне; оба варианта метрик; METRICS_FAILED - отдельный исход, не «чисто».
+
+**D-10c (непустота, r4604):** .deb скачан с GitHub release 8.31, `sha256sum -c`: OK (15aa733f...), только `dpkg-deb -x`, PATH-префикс, в систему не ставился. Шапка лога: `QSVEncC (x64) 8.31 (r4604)`. 8 итераций x 3 сцены, JOBS=3, metrics off: побайтных расхождений 3 > 0, `corruption reproduced: True`, PASS (211 с). Замок не вакуумен. После D-10c `qsvencc` на PATH по-прежнему r4658.
+
+**D-10a (замок, r4658):** `2 passed` (332 с). `COR-02 lock metrics=False sessions=24 ok=24 METRICS_FAILED=0 byte_mismatch=0 triad_violations=0 failed=0`; `COR-02 lock metrics=True sessions=24 ok=24 METRICS_FAILED=0 byte_mismatch=0 triad_violations=0 failed=0`.
+
+**D-10b (матрица, r4658, 20 итераций, 640 сессий, 3372 с):**
+
+| metrics | JOBS | ok | byte_mismatch | triad | SESSION_FAILED | METRICS_FAILED | wall | mean/max на итерацию |
+|---------|------|----|---------------|-------|----------------|----------------|------|----------------------|
+| off | 3 | 60 | 0 | 0 | 0 | 0 | 395 с | 19.8 / 26.9 с |
+| off | 5 | 100 | 0 | 0 | 0 | 0 | 498 с | 24.9 / 29.4 с |
+| off | 8 | 160 | 0 | 0 | 0 | 0 | 762 с | 38.1 / 58.8 с |
+| on | 3 | 60 | 0 | 0 | 0 | 0 | 371 с | 18.5 / 26.5 с |
+| on | 5 | 100 | 0 | 0 | 0 | 0 | 519 с | 26.0 / 39.7 с |
+| on | 8 | 160 | 0 | 0 | 0 | 0 | 771 с | 38.6 / 57.0 с |
+
+Вердикт PASS, без HARNESS ERROR. METRICS_FAILED = 0 во всех ячейках (на r4634 по 08-01 было 2 отказа на 3 сессии сцены 1129 при metrics on).
+
+**D-05:** эталоны metrics on и off в этом прогоне совпадают побайтно (sha256): 923 `8004166d...71f2`, 928 `faaf7231...e0e6`, 1129 `a32e08fa...dad3`. Метрики не влияют на битстрим.
+
+**D-10d (r4658):** аппаратный тир `7 passed, 2 skipped` (128 с): test_sdr, test_hdr10, test_sdr_legacy_oracle_parity в обоих вариантах, test_run_parity_vs_two_step; HDR10+/DV скипнуты без фикстур. Попытки метрик: везде 1 (enpipe=1, legacy=1). `scratch/parity_encode.py`: PARITY OK, movie.obu побайтно идентичен, попытки 1/1/1 (20 с). Сужение D-10d: с метриками проверены test_sdr, test_hdr10, test_sdr_legacy_oracle_parity и parity_encode.py; test_hdr10plus, test_dv, test_run_parity_vs_two_step без метрик.
+
+Дефект надёжности метрик и отслеживание апстрима: бэклог 999.4 в ROADMAP.md.
