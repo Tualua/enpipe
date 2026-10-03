@@ -4,7 +4,7 @@
 
 ## Коммиты
 - 2a2b4c1: регэкспы `_NUM` (inf/nan) в chunk.py + тесты
-- 8caf3b3 (HEAD после amend с документами): агрегация ИТОГО в metrics.py, тесты, проверка в `_assert_metrics_csv`
+- коммит «ИТОГО метрик через MSE…» (следующий за 2a2b4c1): агрегация ИТОГО в metrics.py, тесты, проверка в `_assert_metrics_csv`
 
 ## Проверено (реально запущено)
 - `uv run pytest`: 283 passed, 12 deselected (было 274)
