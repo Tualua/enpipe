@@ -4,16 +4,18 @@
 from __future__ import annotations
 
 import csv
+import math
 
 from enpipe.encoding.metrics import write_metrics_csv
 
 
-def _row(scene, frames, ssim_all, encode_sec, size_mb):
+def _row(scene, frames, ssim_all, encode_sec, size_mb, *, psnr_avg=None,
+         psnr_y=None, ssim_db=None, ssim_y=None):
     return {
         "scene": scene, "start_frame": 0, "end_frame": frames, "frames": frames,
         "seek": 0.0, "trim": 0.0, "encode_sec": encode_sec, "fps": 0.0,
-        "size_mb": size_mb, "ssim_all": ssim_all, "ssim_db": None,
-        "psnr_avg": None, "ssim_y": None, "psnr_y": None,
+        "size_mb": size_mb, "ssim_all": ssim_all, "ssim_db": ssim_db,
+        "psnr_avg": psnr_avg, "ssim_y": ssim_y, "psnr_y": psnr_y,
     }
 
 
@@ -53,3 +55,56 @@ def test_write_metrics_csv_empty_rows(tmp_path):
 
     assert total["frames"] == 0
     assert total["ssim_all"] is None
+
+
+def _total(tmp_path, rows):
+    return write_metrics_csv(tmp_path / "m.csv", {i: r for i, r in enumerate(rows)})
+
+
+def test_psnr_total_is_mse_weighted(tmp_path):
+    t = _total(tmp_path, [_row(0, 100, 1.0, 1, 1, psnr_avg=40.0, psnr_y=40.0),
+                          _row(1, 300, 1.0, 1, 1, psnr_avg=50.0, psnr_y=50.0)])
+    expect = -10 * math.log10((100 * 1e-4 + 300 * 1e-5) / 400)
+    assert abs(t["psnr_avg"] - expect) < 1e-4
+    assert abs(t["psnr_y"] - 44.88117) < 1e-4
+
+
+def test_psnr_total_inf_chunk_and_all_inf(tmp_path):
+    t = _total(tmp_path, [_row(0, 100, 1.0, 1, 1, psnr_avg=math.inf),
+                          _row(1, 300, 1.0, 1, 1, psnr_avg=50.0)])
+    expect = -10 * math.log10(300 * 1e-5 / 400)
+    assert abs(t["psnr_avg"] - expect) < 1e-4
+    t = _total(tmp_path, [_row(0, 100, 1.0, 1, 1, psnr_avg=math.inf),
+                          _row(1, 300, 1.0, 1, 1, psnr_avg=math.inf)])
+    assert math.isinf(t["psnr_avg"])
+
+
+def test_nan_propagates(tmp_path):
+    t = _total(tmp_path, [_row(0, 100, math.nan, 1, 1, psnr_avg=math.nan),
+                          _row(1, 300, 0.9, 1, 1, psnr_avg=50.0)])
+    assert math.isnan(t["psnr_avg"])
+    assert math.isnan(t["ssim_all"])
+    assert math.isnan(t["ssim_db"])
+
+
+def test_ssim_db_derived_from_total_ssim(tmp_path):
+    t = _total(tmp_path, [_row(0, 100, 0.9, 1, 1), _row(1, 300, 0.8, 1, 1)])
+    assert abs(t["ssim_db"] - 7.56962) < 1e-4
+    t = _total(tmp_path, [_row(0, 100, 1.0, 1, 1), _row(1, 300, 1.0, 1, 1)])
+    assert math.isinf(t["ssim_db"])
+    t = _total(tmp_path, [_row(0, 100, 1.05, 1, 1)])
+    assert math.isnan(t["ssim_db"])
+    t = _total(tmp_path, [_row(0, 100, None, 1, 1)])
+    assert t["ssim_db"] is None
+
+
+def test_csv_writes_inf_nan_as_text(tmp_path):
+    out = tmp_path / "m.csv"
+    write_metrics_csv(out, {0: _row(0, 100, 1.0, 1, 1, psnr_avg=math.inf,
+                                    ssim_db=math.inf),
+                            1: _row(1, 100, 1.0, 1, 1, psnr_avg=math.nan)})
+    with out.open(newline="") as f:
+        data = list(csv.DictReader(f))
+    assert data[0]["psnr_avg"] == "inf" and data[0]["ssim_db"] == "inf"
+    assert data[1]["psnr_avg"] == "nan"
+    assert data[2]["psnr_avg"] == "nan" and data[2]["ssim_db"] == "inf"

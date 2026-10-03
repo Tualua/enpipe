@@ -187,9 +187,11 @@ def _run_legacy_metrics_retry(
 
 
 def _assert_metrics_csv(out: Path) -> None:
-    """<out>.metrics.csv exists with an ИТОГО row with non-empty ssim_all and
-    psnr_avg (values are not compared, D-12)."""
+    """<out>.metrics.csv exists with an ИТОГО row with non-empty, parseable
+    ssim_all and psnr_avg. `inf` is legitimate (flat scenes / lossless planes);
+    `nan` in ИТОГО is an error. Values are not otherwise compared (D-12)."""
     import csv
+    import math
 
     csv_path = Path(str(out) + ".metrics.csv")
     assert csv_path.is_file(), f"metrics CSV missing: {csv_path}"
@@ -198,6 +200,8 @@ def _assert_metrics_csv(out: Path) -> None:
     assert rows, f"no ИТОГО row in {csv_path}"
     assert rows[0].get("ssim_all") not in (None, "", "None"), "empty ssim_all"
     assert rows[0].get("psnr_avg") not in (None, "", "None"), "empty psnr_avg"
+    for key in ("ssim_all", "psnr_avg"):
+        assert not math.isnan(float(rows[0][key])), f"nan {key} in ИТОГО"
 
 
 def _multiscene_segments(seg_dur: float) -> List[str]:

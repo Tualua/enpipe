@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 Phase: 08 (cor02-lock-hardening) — EXECUTING
 Plan: 5 of 6
 Status: Executing Phase 08
-Last activity: 2026-10-03 -- Phase 08 execution started
+Last activity: 2026-10-03 - Completed quick task 261003-8fs: парсер метрик inf/nan
 
 ## Performance Metrics
 
@@ -157,6 +157,7 @@ None yet.
 | 260723-36w | Opt-in FFmpeg 8.1 (BtbN static GPL) side-by-side в devcontainer: отдельный RUN-слой тянет `ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz` в `/opt/ffmpeg-8.1`, на PATH как `ffmpeg-8.1`/`ffprobe-8.1`; системный ffmpeg 6.1.1 НЕ трогается. ЗАЧЕМ: `av1_qsv` — иммунный к межпроцессной порче кадров путь энкода (см. debug scene-chunk-frame-mismatch), плюс `dovi_rpu` BSF (DV-проброс), которого нет в 6.1.1. Пин: осознанно подвижный `latest`-тег (без SHA256), единообразно с qsvencc/dovi_tool. Слой перед podman apt-фиксом (кэш media/qsvencc не бьётся); non-fatal self-check в post-create.sh (version + av1_qsv/hevc_qsv + dovi_rpu). НЕ собран здесь — хост пересобирает (чек-лист в SUMMARY) | 2026-07-23 | 885a578 | [260723-36w-add-future-ready-ffmpeg-8-1-btbn-static-](./quick/260723-36w-add-future-ready-ffmpeg-8-1-btbn-static-/) |
 | 261001-lq0 | claude-code ставится npm'ом (`@anthropic-ai/claude-code`), а не фичей `ghcr.io/anthropics/devcontainer-features/claude-code` — фича делала то же самое (тот же npm-пакет в nvm-префиксе), минус pin в lock и минус зависимость сборки от ghcr. Авторизации claude/opencode/qwen переживают ребилд через 4 named volume'а (`/root/.claude`, `/root/.qwen`, `/root/.local/share/opencode`, `/root/.config/opencode`). Ключевое: `~/.claude.json` — отдельный ФАЙЛ, томом не прикрыть, а symlink — ловушка (claude пишет через temp+`rename()`, rename сносит симлинк → молчаливая поломка), поэтому `CLAUDE_CONFIG_DIR=/root/.claude` в containerEnv (эмпирически проверено, что переносит и `.claude.json`) + идемпотентная миграция в post-create.sh, которая НЕ перезаписывает уже персистентный конфиг. Самопроверка `PERSIST_OK`: `findmnt` на каждый путь + наличие кредов. НЕ собран здесь (нет docker) — хост пересобирает; чек-лист в PLAN | 2026-10-01 | 1554162 | [261001-lq0-devcontainer-claude-code-via-npm-persist](./quick/261001-lq0-devcontainer-claude-code-via-npm-persist/) |
 | 260722-lji | Devcontainer переведён на базу `intel/dlstreamer` (Ubuntu 24.04): медиа-стек (iHD 26.2.2/oneVPL/ffmpeg-QSV) теперь ИЗ образа, из Dockerfile убран ручной apt-стек драйверов+ffmpeg. Сохранены qsvencc (Rigaya, ubuntu24.04-ассет + dep-strip libmfx1/opencl-icd), dovi_tool, mkvtoolnix, tmux, proxy-ENV+IS_SANDBOX, apt-sandbox fix; devcontainer.json — фичи node+claude-code, /data-фикс (keep-groups + userns-фолбэк), LIBVA_DRIVER_NAME=iHD, remoteUser root. post-create.sh: sudo->AS_ROOT-guard. НЕ собран/не проверен здесь (нет docker/GPU) — хост пересобирает; чек-лист в SUMMARY | 2026-07-22 | 4ff3c36 | [260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl](./quick/260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl/) |
+| 261003-8fs | Парсер метрик qsvencc принимает inf/nan; ИТОГО PSNR через взвешенное MSE, nan не маскируется | 2026-10-03 | 2a2b4c1 | [261003-8fs-parser-inf-nan-metrics](./quick/261003-8fs-parser-inf-nan-metrics/) |
 
 ## Deferred Items
 
