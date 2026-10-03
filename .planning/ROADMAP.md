@@ -81,7 +81,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 - [ ] 08-02-PLAN.md — D-06/D-07/D-14: рантайм-образ на ubuntu:24.04 + Intel PPA (deb822, ключ по отпечатку), самопроверка сборки, раздел перехода, человеческий чекпоинт на хосте
 - [x] 08-03-PLAN.md — D-01/D-03/D-04/D-05/D-08/D-09/D-12/D-13: харнесс — примитивы гейта, 4-я нога триады, ретраи эталона и классификация run_concurrent (три атомарные задачи)
 - [x] 08-04-PLAN.md — D-04/D-05/D-08/D-12: замок parametrize(metrics), стресс-матрица по двум вариантам (прерывание на HarnessError, оценка времени)
-- [ ] 08-05-PLAN.md — D-10d/D-12: перехватчик полного stderr qsvencc, аппаратный тир и паритет с legacy с метриками
+- [x] 08-05-PLAN.md — D-10d/D-12: перехватчик полного stderr qsvencc, аппаратный тир и паритет с legacy с метриками
 - [ ] 08-06-PLAN.md — D-10/D-11/D-12: прогон на железе (r4604 непустота с sha256-гейтом, замок, матрица ~640 сессий, D-10d), доказательства, бэклог 999.4
 
 ## Progress
@@ -95,7 +95,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
-| 8. Усиление замка COR-02                            | v1.2      | 3/6 | In Progress|  |
+| 8. Усиление замка COR-02                            | v1.2      | 4/6 | In Progress|  |
 
 ## Backlog
 
