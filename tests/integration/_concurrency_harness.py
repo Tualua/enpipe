@@ -473,14 +473,27 @@ def verify_frames(obu: Path, expect: int, label: str) -> None:
 # D-12: markers of a metrics-subsystem failure (rc!=0). It is a third outcome,
 # neither corruption nor clean; the caller classifies it by the FULL stderr
 # file of the session, not by the 500-char tail returned from run_session.
+#
+# ОДИН кортеж на классификацию и на метрическую ногу триады (WR-03: два списка
+# разошлись). Он намеренно узкий:
+# - `allocVA` маркером не считается: это общая ошибка VA-аллокации, под
+#   конкурентной нагрузкой это обычный отказ ресурсов, а не отказ метрик;
+# - "Decoded frame count does not match" - не отказ метрик: число
+#   декодированных кадров выхода не совпало со входом, это и есть симптом
+#   потери кадров (236 из 240), ради которого существует замок. Он главнее
+#   любого маркера метрик: такая сессия - SESSION_FAILED и не повторяется.
 METRICS_FAILED = "METRICS_FAILED"
 _METRICS_FAILURE_MARKERS: Tuple[str, ...] = (
-    "VIDEOMETRIC:", "allocVA", "Decoded frame count does not match",
+    "VIDEOMETRIC: Failed",
+    "Failed to finish video quality metric",
 )
+_FRAME_LOSS_MARKER = "Decoded frame count does not match"
 
 
 def is_metrics_failure(stderr_text: str) -> bool:
     text = strip_ansi(stderr_text)
+    if _FRAME_LOSS_MARKER in text:
+        return False
     return any(marker in text for marker in _METRICS_FAILURE_MARKERS)
 
 
@@ -665,10 +678,10 @@ _QSVENCC_POSITIVE_LEGS: Tuple[Tuple[str, str], ...] = (
 _METRICS_FRAMES_RE = re.compile(
     r"^.*ssim/psnr:\s*(SSIM|PSNR)\s+YUV:.*\(Frames:\s*(\d+)\)", re.M
 )
+# Нога триады: все маркеры отказа метрик плюс маркер потери кадров (WR-03:
+# выводится из единого кортежа выше, а не копируется отдельно).
 _METRICS_SUBSYSTEM_FAILURES: Tuple[str, ...] = (
-    "VIDEOMETRIC: Failed",
-    "Failed to finish video quality metric",
-    "Decoded frame count does not match",
+    *_METRICS_FAILURE_MARKERS, _FRAME_LOSS_MARKER,
 )
 
 

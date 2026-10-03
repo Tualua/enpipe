@@ -6,8 +6,10 @@ at production JOBS. Both metrics variants use the production argv (D-04) and
 each has its own isolated reference (D-05). The qsvencc triad is checked on
 every SESSION_OK session and on every reference (D-08, D-09).
 
-METRICS_FAILED is a known defect of the qsvencc metrics subsystem (D-12,
-backlog): it is counted separately and is neither "clean" nor corruption.
+METRICS_FAILED (D-12) was a known defect of the qsvencc metrics subsystem on
+r4634; on the pinned fork r4658 it measured 0 of 640, so the lock no longer
+tolerates it: any METRICS_FAILED session fails the test (WR-03). It is still
+reported separately from corruption.
 HarnessError from the harness (measuring-tool failure on a byte-identical
 session) is deliberately NOT caught: it must fail the test as an error. On a
 qsvencc older than r4634 the lock FAILS; it is never skipped.
@@ -207,6 +209,14 @@ def test_qsvencc_immune_at_production_jobs(tmp_path: Path, metrics: bool) -> Non
         )
     if tally.skipped:
         problems.append(f"{tally.skipped} session(s) skipped (no reference)")
+    # WR-03: неограниченный допуск METRICS_FAILED пропускал 23 отказа из 24
+    # при одной ok-сессии. На r4658 измерено 0 из 640, поэтому любой случай -
+    # сигнал регрессии, а не допускаемый известный дефект.
+    if tally.metrics_failed:
+        problems.append(
+            f"{tally.metrics_failed}/{tally.sessions} session(s) METRICS_FAILED "
+            f"(not tolerated on the pinned build; metrics path NOT verified)"
+        )
     if tally.ok == 0:
         problems.append("no session verified (ok == 0): vacuous run")
     print(

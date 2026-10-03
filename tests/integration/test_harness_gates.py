@@ -48,8 +48,13 @@ def test_sha256_file_blockwise_matches_hashlib(tmp_path: Path) -> None:
     "text, expected",
     [
         ("\x1b[31mVIDEOMETRIC: Failed to copy input surface", True),
-        ("allocVA: error", True),
-        ("ssim/psnr: Decoded frame count does not match original frames", True),
+        ("Failed to finish video quality metric", True),
+        # WR-03: allocVA - общая ошибка VA, а не отказ только метрик.
+        ("allocVA: error", False),
+        # WR-03: потеря кадров никогда не отказ только метрик, даже рядом с
+        # маркером VIDEOMETRIC.
+        ("ssim/psnr: Decoded frame count does not match original frames", False),
+        ("VIDEOMETRIC: Failed to copy\nDecoded frame count does not match", False),
         ("rc=1: avqsv: failed to seek", False),
     ],
 )
@@ -509,3 +514,14 @@ def test_metrics_only_failure_rule() -> None:
     assert harness.metrics_only_failure([vm], "qsvencc rc=255: ...") is True
     assert harness.metrics_only_failure([vm, "avqsv: failed to seek"], "m") is False
     assert harness.metrics_only_failure([vm], "чанк 2: кадров 50, ожидалось 111") is False
+    frame_loss = vm + "\nssim/psnr: Decoded frame count does not match original frames"
+    assert harness.metrics_only_failure([frame_loss], "qsvencc rc=255: ...") is False
+
+
+def test_frame_loss_marker_with_metrics_on_is_session_failed(env: _Env) -> None:
+    # WR-03: потеря кадров - симптом COR-02, а не допускаемый METRICS_FAILED.
+    env.rc[923] = (
+        False, "rc=255: tail",
+        "VIDEOMETRIC: Failed\nssim/psnr: Decoded frame count does not match original frames\n",
+    )
+    assert _by_scene(env.run(metrics=True))[923].status == harness.SESSION_FAILED
