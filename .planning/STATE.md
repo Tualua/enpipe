@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: executing
 stopped_at: Phase 8 context gathered
-last_updated: "2026-10-03T01:48:43.598Z"
+last_updated: "2026-10-03T01:52:49.032Z"
 last_activity: 2026-10-03 -- Phase 08 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 10
+  completed_plans: 11
   percent: 40
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 08 (cor02-lock-hardening) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Executing Phase 08
 Last activity: 2026-10-03 -- Phase 08 execution started
 
@@ -70,6 +70,7 @@ Last activity: 2026-10-03 -- Phase 08 execution started
 | Phase 06 P02 | 25min | 3 tasks | 3 files |
 | Phase 08 P01 | 25min | 2 tasks | 2 files |
 | Phase 08 P03 | 40min | 3 tasks | 3 files |
+| Phase 08 P04 | 25min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,7 @@ Recent decisions affecting current work:
 - [Phase 06-02]: IMMUNITY_ITERS defaults to 8 (env-tunable) -- survival-probability math (0.35^8..0.65^8 ~= 2e-4..3e-2) justifies a modest, fast-rerun iteration count distinct from the one-time 20-iter stress tier
 - [Phase 08]: [Phase 08-01]: D-02 PASS на A380/qsvencc r4634 - побайтный критерий D-01 жизнеспособен; сцена 1129 с метриками побайтно не сверена
 - [Phase 08]: Гейт харнесса - sha256; отличные сессии всегда byte_mismatch, HarnessError только для идентичных с неверным числом кадров — D-01/D-03, анти-ложное-чисто
+- [Phase 08]: 08-04: HarnessError в замке не глушится, в матрице прерывает прогон FAIL; METRICS_FAILED без порога (D-12)
 
 ### Pending Todos
 
@@ -176,7 +178,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T01:48:38.599Z
+Last session: 2026-10-03T01:52:43.379Z
 Stopped at: Phase 8 context gathered
 Resume file: .planning/phases/08-cor02-lock-hardening/08-CONTEXT.md
 </content>
