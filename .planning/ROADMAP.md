@@ -75,9 +75,13 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 ### Phase 8: Усиление замка COR-02: триада на каждой сессии, сверка кадров, путь с метриками
 **Goal**: Пробелы верификации фазы 7 (07-VERIFICATION.md, 07-REVIEW.md WR-01..03), некритичные: (1) `assert_qsvencc_triad` проверяется только на первой успешной сессии — проверять каждую сессию и эталоны; (2) проверка порчи по PSNR может пропустить кадр — `count_frames` считает пакеты, нет `-xerror`, число строк PSNR не сверяется с числом кадров, порог 30 dB ловит только полную подмену кадра; (3) замок и стресс-матрица гоняют только `metrics=False`, а продакшен по умолчанию добавляет `--psnr --ssim` (больше параллельных GPU-сессий) — нужен конкурентный прогон пути по умолчанию.
 **Depends on**: Phase 7
-**Requirements**: TBD
-**Plans**: 0 plans
-- [ ] TBD (run /gsd:plan-phase 8 to break down)
+**Requirements**: TBD (покрытие по решениям D-01..D-14 из 08-CONTEXT.md)
+**Plans**: 5 plans
+- [ ] 08-01-PLAN.md — D-02: аппаратный стоп-гейт побайтного детерминизма r4634 на сценах 923/928/1129 (+ предварительно D-05, доля METRICS_FAILED)
+- [ ] 08-02-PLAN.md — D-06/D-07/D-14: рантайм-образ на ubuntu:24.04 + Intel PPA (OpenCL), самопроверка сборки, человеческий чекпоинт на хосте
+- [ ] 08-03-PLAN.md — D-01/D-03/D-04/D-08/D-09/D-12/D-13: харнесс — побайтный гейт, сверка кадров, METRICS_FAILED, metrics-параметр, ретраи эталона, 4-я нога триады
+- [ ] 08-04-PLAN.md — D-04/D-05/D-08/D-10d: замок parametrize(metrics), стресс-матрица по двум вариантам, аппаратный тир и паритет с метриками
+- [ ] 08-05-PLAN.md — D-10/D-11/D-12: прогон на железе (r4604 непустота, замок, матрица ~640 сессий, D-18 с метриками), доказательства, бэклог 999.4
 
 ## Progress
 
@@ -90,7 +94,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
-| 8. Усиление замка COR-02                            | v1.2      | 0/0 | Not started | - |
+| 8. Усиление замка COR-02                            | v1.2      | 0/5 | Planned     | - |
 
 ## Backlog
 
