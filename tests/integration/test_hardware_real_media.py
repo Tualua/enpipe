@@ -11,13 +11,17 @@ needs no GPU at all. The `hardware` marker / `_require_hardware` gate below
 applies ONLY to the `enpipe` pipeline's own encode step, which drives the
 real `qsvencc` QSV hardware encoder against /dev/dri/renderD128.
 
-Every `enpipe encode` invocation in this file MUST pass --no-metrics:
-qsvencc's --psnr/--ssim computation requires an OpenCL device that is
-unavailable on this Debian-trixie devcontainer (Intel's own OpenCL ICD is
-absent -- see scratch/parity_encode.py:81-94, METRICS_UNAVAILABLE). Without
---no-metrics, chunk_command() appends --psnr --ssim and qsvencc fails with
-rc=255 deterministically. Metrics *parsing* is already covered by TEST-01's
-fast tier (tests/unit/encoding/test_chunk.py) -- it is not this test's job.
+The devcontainer runs on Ubuntu 24.04 + the Intel PPA with intel-opencl-icd,
+so qsvencc --psnr/--ssim work. test_sdr, test_hdr10 and
+test_sdr_legacy_oracle_parity are parametrized over metrics (Phase 8 D-10d).
+In the metrics variant the FULL stderr of every qsvencc call is captured by a
+wrapper placed on PATH. An attempt is retried (up to METRICS_ATTEMPTS) only
+when every failed qsvencc call failed in the metrics subsystem (D-12, known
+defect, backlog) and there is no frame-count mismatch. Any other failure is an
+immediate test failure. Exhausting the attempts is a failure marked
+METRICS_FAILED (the metrics path is NOT verified; this is not a green). The
+remaining tests deliberately keep --no-metrics: metrics are not their subject
+and the metrics path is covered by the parametrized tests.
 
 DV RPU verification NEVER uses the mutating dovi_rpu ffmpeg bitstream
 filter to write, and NEVER uses dovi_tool's RPU-extraction subcommand
@@ -51,6 +55,9 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _concurrency_harness as harness  # noqa: E402
 
 from enpipe.cli.main import main as _enpipe_main
 from enpipe.encoding.chunk import count_frames
@@ -94,6 +101,103 @@ def _run_cli(argv: List[str]) -> None:
         _enpipe_main(argv)
     except SystemExit as exc:
         pytest.fail(f"enpipe {argv[0]} failed: {exc}")
+
+
+# --------------------------------------------------------------------------- #
+# Metrics variant: full-stderr tap + strict retry rule (D-10d / D-12)
+# --------------------------------------------------------------------------- #
+
+# 4 chunks x `--jobs 2`; the measured per-chunk metrics failure rate is
+# 1/9..6/15, so 3 attempts per run may not be enough. 5 matches D-13.
+METRICS_ATTEMPTS = 5
+
+
+@pytest.fixture
+def metrics_tap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    log_dir = tmp_path / "qsvencc_tap_logs"
+    bin_dir = tmp_path / "qsvencc_tap_bin"
+    harness.install_qsvencc_tap(bin_dir, log_dir)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    return log_dir
+
+
+def _reset_tap(log_dir: Path) -> None:
+    for f in log_dir.glob("*"):
+        f.unlink()
+
+
+def _cleanup(paths: List[Path]) -> None:
+    for pth in paths:
+        if pth.is_dir():
+            shutil.rmtree(pth, ignore_errors=True)
+        else:
+            pth.unlink(missing_ok=True)
+            Path(str(pth) + ".metrics.csv").unlink(missing_ok=True)
+
+
+def _run_cli_metrics_retry(
+    argv: List[str], cleanup: List[Path], log_dir: Path,
+    attempts: int = METRICS_ATTEMPTS,
+) -> int:
+    """Run enpipe in-process; retry ONLY on a pure metrics-subsystem failure
+    judged by the full tapped stderr (not the 500-char tail inside die())."""
+    last: object = None
+    for n in range(1, attempts + 1):
+        _reset_tap(log_dir)
+        try:
+            _enpipe_main(argv)
+            return n
+        except SystemExit as exc:
+            last = exc
+            fails = harness.tap_failures(log_dir)
+            if not harness.metrics_only_failure(fails, str(exc)):
+                pytest.fail(
+                    f"enpipe {argv[0]} failed (not a metrics-only failure): {exc}; "
+                    f"qsvencc failures: {[f[-300:] for f in fails]}"
+                )
+            _cleanup(cleanup)
+    pytest.fail(
+        f"METRICS_FAILED x{attempts}: known qsvencc metrics defect (Phase 8 D-12); "
+        f"metrics path NOT verified: {last}"
+    )
+
+
+def _run_legacy_metrics_retry(
+    cmd: List[str], cleanup: List[Path], log_dir: Path,
+    attempts: int = METRICS_ATTEMPTS,
+) -> Tuple["subprocess.CompletedProcess[str]", int]:
+    """Same rule for the frozen legacy subprocess; only this side is retried."""
+    proc = None
+    for n in range(1, attempts + 1):
+        _reset_tap(log_dir)
+        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return proc, n
+        fails = harness.tap_failures(log_dir)
+        if not harness.metrics_only_failure(fails, proc.stderr):
+            pytest.fail(
+                f"legacy oracle failed (not a metrics-only failure, rc={proc.returncode}): "
+                f"{proc.stderr[-1500:]}; qsvencc failures: {[f[-300:] for f in fails]}"
+            )
+        _cleanup(cleanup)
+    pytest.fail(
+        f"METRICS_FAILED x{attempts} (legacy): known qsvencc metrics defect "
+        f"(Phase 8 D-12); metrics path NOT verified: {proc.stderr[-500:] if proc else ''}"
+    )
+
+
+def _assert_metrics_csv(out: Path) -> None:
+    """<out>.metrics.csv exists with an ИТОГО row with non-empty ssim_all and
+    psnr_avg (values are not compared, D-12)."""
+    import csv
+
+    csv_path = Path(str(out) + ".metrics.csv")
+    assert csv_path.is_file(), f"metrics CSV missing: {csv_path}"
+    with csv_path.open(newline="") as f:
+        rows = [r for r in csv.DictReader(f) if r.get("scene") == "ИТОГО"]
+    assert rows, f"no ИТОГО row in {csv_path}"
+    assert rows[0].get("ssim_all") not in (None, "", "None"), "empty ssim_all"
+    assert rows[0].get("psnr_avg") not in (None, "", "None"), "empty psnr_avg"
 
 
 def _multiscene_segments(seg_dur: float) -> List[str]:
@@ -220,7 +324,8 @@ def _verify_frame_counts_and_keyframes(
         assert seek == fmt_seek(kf_time)
 
 
-def test_sdr(tmp_path: Path) -> None:
+@pytest.mark.parametrize("metrics", [False, True], ids=["no-metrics", "metrics"])
+def test_sdr(tmp_path: Path, request: pytest.FixtureRequest, metrics: bool) -> None:
     src = tmp_path / "sdr.mkv"
     _make_multiscene_clip(
         src,
@@ -236,12 +341,20 @@ def test_sdr(tmp_path: Path) -> None:
     _run_cli(["detect", str(src), "--jobs", "2"])
     assert scenes.is_file(), f"enpipe detect did not write {scenes}"
 
-    _run_cli([
+    argv = [
         "encode", str(src), str(scenes),
         "-o", str(out), "--workdir", str(workdir),
-        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
-    ])
+        "--keep", "--no-audio", "--jobs", "2",
+    ]
+    if metrics:
+        log_dir = request.getfixturevalue("metrics_tap")
+        n = _run_cli_metrics_retry(argv, [workdir, out], log_dir)
+        print(f"metrics attempts={n}")
+    else:
+        _run_cli(argv + ["--no-metrics"])
     assert out.is_file(), f"enpipe encode did not write {out}"
+    if metrics:
+        _assert_metrics_csv(out)
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
 
@@ -280,7 +393,8 @@ def _frame_side_data_types(path: Path) -> List[List[str]]:
     ]
 
 
-def test_hdr10(tmp_path: Path) -> None:
+@pytest.mark.parametrize("metrics", [False, True], ids=["no-metrics", "metrics"])
+def test_hdr10(tmp_path: Path, request: pytest.FixtureRequest, metrics: bool) -> None:
     if not _encoder_available("libx265"):
         pytest.skip("libx265 encoder not available in this ffmpeg build")
 
@@ -298,12 +412,20 @@ def test_hdr10(tmp_path: Path) -> None:
     _run_cli(["detect", str(src), "--jobs", "2"])
     assert scenes.is_file(), f"enpipe detect did not write {scenes}"
 
-    _run_cli([
+    argv = [
         "encode", str(src), str(scenes),
         "-o", str(out), "--workdir", str(workdir),
-        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
-    ])
+        "--keep", "--no-audio", "--jobs", "2",
+    ]
+    if metrics:
+        log_dir = request.getfixturevalue("metrics_tap")
+        n = _run_cli_metrics_retry(argv, [workdir, out], log_dir)
+        print(f"metrics attempts={n}")
+    else:
+        _run_cli(argv + ["--no-metrics"])
     assert out.is_file(), f"enpipe encode did not write {out}"
+    if metrics:
+        _assert_metrics_csv(out)
 
     _verify_frame_counts_and_keyframes(src, workdir, scenes, out)
 
@@ -332,13 +454,16 @@ def test_hdr10(tmp_path: Path) -> None:
     )
 
 
-def test_sdr_legacy_oracle_parity(tmp_path: Path) -> None:
+@pytest.mark.parametrize("metrics", [False, True], ids=["no-metrics", "metrics"])
+def test_sdr_legacy_oracle_parity(
+    tmp_path: Path, request: pytest.FixtureRequest, metrics: bool
+) -> None:
     """SC4: legacy/encode_scenes.py remains the executable parity oracle.
     Runs the FROZEN legacy oracle (read-only subprocess, never imported,
     never modified) on the SAME sample + SAME .scenes file the enpipe
-    pipeline used, isolating ENCODE parity from detect. Both sides run
-    --no-metrics (qsvencc --psnr/--ssim needs an OpenCL device unavailable
-    on this devcontainer -- scratch/parity_encode.py:81-94)."""
+    pipeline used, isolating ENCODE parity from detect. With metrics=True
+    both sides run with --psnr/--ssim (retry rule: see module docstring);
+    with metrics=False both pass --no-metrics."""
     src = tmp_path / "sdr_parity.mkv"
     _make_multiscene_clip(
         src,
@@ -352,11 +477,17 @@ def test_sdr_legacy_oracle_parity(tmp_path: Path) -> None:
 
     wd_enpipe = tmp_path / "wd_enpipe"
     enpipe_out = tmp_path / "enpipe_out.mkv"
-    _run_cli([
+    en_argv = [
         "encode", str(src), str(scenes),
         "-o", str(enpipe_out), "--workdir", str(wd_enpipe),
-        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
-    ])
+        "--keep", "--no-audio", "--jobs", "2",
+    ]
+    if metrics:
+        log_dir = request.getfixturevalue("metrics_tap")
+        n_en = _run_cli_metrics_retry(en_argv, [wd_enpipe, enpipe_out], log_dir)
+        print(f"metrics attempts enpipe={n_en}")
+    else:
+        _run_cli(en_argv + ["--no-metrics"])
     assert enpipe_out.is_file()
 
     wd_legacy = tmp_path / "wd_legacy"
@@ -365,16 +496,26 @@ def test_sdr_legacy_oracle_parity(tmp_path: Path) -> None:
         sys.executable, str(REPO_ROOT / "legacy" / "encode_scenes.py"),
         str(src), str(scenes),
         "-o", str(legacy_out), "--workdir", str(wd_legacy),
-        "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
+        "--keep", "--no-audio", "--jobs", "2",
     ]
-    legacy_proc = subprocess.run(
-        legacy_cmd, cwd=REPO_ROOT, capture_output=True, text=True
-    )
+    if metrics:
+        legacy_proc, n_lg = _run_legacy_metrics_retry(
+            legacy_cmd, [wd_legacy, legacy_out], log_dir
+        )
+        print(f"metrics attempts legacy={n_lg}")
+    else:
+        legacy_cmd.append("--no-metrics")
+        legacy_proc = subprocess.run(
+            legacy_cmd, cwd=REPO_ROOT, capture_output=True, text=True
+        )
     assert legacy_proc.returncode == 0, (
         f"legacy oracle encode_scenes.py failed (rc={legacy_proc.returncode}): "
         f"{legacy_proc.stderr[-2000:]}"
     )
     assert legacy_out.is_file()
+    if metrics:
+        _assert_metrics_csv(enpipe_out)
+        _assert_metrics_csv(legacy_out)
 
     # PRIMARY GATE: final .mkv frame-count parity.
     assert count_frames(legacy_out) == count_frames(enpipe_out), (
@@ -466,6 +607,7 @@ def test_hdr10plus(tmp_path: Path) -> None:
     _run_cli([
         "encode", str(src), str(scenes),
         "-o", str(out), "--workdir", str(workdir),
+    # metrics path covered by parametrized tests above (D-10d scope decision, Phase 8)
         "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
     ])
     assert out.is_file(), f"enpipe encode did not write {out}"
@@ -494,6 +636,7 @@ def test_run_parity_vs_two_step(tmp_path: Path) -> None:
     wd_run = tmp_path / "wd_run"
     _run_cli([
         "run", str(src), "-o", str(run_out),
+    # metrics path covered by parametrized tests above (D-10d scope decision, Phase 8)
         "--workdir", str(wd_run), "--keep", "--no-audio", "--no-metrics",
         "--detect-jobs", "2", "--encode-jobs", "2",
     ])
@@ -520,6 +663,7 @@ def test_run_parity_vs_two_step(tmp_path: Path) -> None:
     _run_cli([
         "encode", str(src2), str(scenes2),
         "-o", str(two_out), "--workdir", str(wd_two),
+    # metrics path covered by parametrized tests above (D-10d scope decision, Phase 8)
         "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
     ])
     assert two_out.is_file(), f"enpipe encode did not write {two_out}"
@@ -593,6 +737,7 @@ def test_dv(tmp_path: Path) -> None:
     _run_cli([
         "encode", str(src), str(scenes),
         "-o", str(out), "--workdir", str(workdir),
+    # metrics path covered by parametrized tests above (D-10d scope decision, Phase 8)
         "--keep", "--no-audio", "--no-metrics", "--jobs", "2",
     ])
     assert out.is_file(), f"enpipe encode did not write {out}"
