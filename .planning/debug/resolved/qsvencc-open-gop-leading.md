@@ -1,5 +1,5 @@
 ---
-status: resolved-guarded
+status: resolved
 trigger: "open-GOP источник: чанк начинается с 2 кадров предыдущей сцены (тихая порча, число кадров верное) — test_hdr10 падает на проверке содержимого"
 created: 2026-10-03
 updated: 2026-10-03
@@ -60,3 +60,8 @@ next_action: ожидать решения пользователя (handoff в 
 
 root_cause: qsvencc (rigaya/QSVEnc rgy_input_avcodec.cpp, ветка OpenGOP в getSample) увеличивает trim-offset на каждый пакет с pts < pts первого keyframe, включая отбрасываемые декодером RASL-кадры после CRA; trim сдвигается на -N кадров (N=число ведущих), счёт кадров сохраняется. enpipe-математика корректна.
 fix: enpipe: hard refusal (quick 261003-lpo), no trim compensation; upstream handoff pending
+
+## Resolution (closed)
+
+Исправлено в форке Tualua/QSVEnc 8.32-vppsync7 (r4665), патч #6: RASL больше не входят в trim offset, `--avsw` отбрасывает RADL в начале как `--avhw`. Проверено на A380 (--avhw и --avsw): `--seek 2.002 --trim 4:13` -> первый кадр 52, 10 кадров; `--trim 0:9` -> 48, 10 кадров (на r4663 было 48 / 6).
+enpipe (quick 261003-mj7): рантайм-гейт и образы подняты до r4665, защита от open-GOP и зонд ведущих кадров удалены, компенсации trim нет; добавлены положительные аппаратные тесты open-GOP (RASL и RADL) и test_hdr10 на open-GOP по умолчанию.

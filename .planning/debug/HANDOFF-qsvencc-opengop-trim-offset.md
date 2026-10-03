@@ -1,7 +1,9 @@
+**Статус: Решено в 8.32-vppsync7 (r4665)** — патч #6 форка Tualua/QSVEnc; проверено на A380 (--avhw и --avsw: `--seek 2.002 --trim 4:13` -> первый кадр 52, 10 кадров; `--trim 0:9` -> 48, 10 кадров; на r4663 было 48 / 6); защита enpipe снята в quick 261003-mj7
+
 # HANDOFF — qsvencc `--trim` уезжает на −N кадров на open-GOP источниках (`m_trimParam.offset` считает отброшенные RASL)
 
 **Дата:** 2026-10-03
-**Откуда:** enpipe, сессия отладки [`qsvencc-open-gop-leading.md`](./qsvencc-open-gop-leading.md)
+**Откуда:** enpipe, сессия отладки [`qsvencc-open-gop-leading.md`](./resolved/qsvencc-open-gop-leading.md)
 **Кому:** соседний проект, где чинили qsvencc (45003f1/#308, #319/#320/#322, seek-фикс в 8.32-vppsync6)
 **Где воспроизведено:** QSVEncC 8.32 (**r4663**, Tualua/QSVEnc `8.32-vppsync6` — уже с фиксом `--seek`) и r4658; A380, iHD, `--avhw`. Код ветки ниже присутствует в `rgy_input_avcodec.cpp` форка vppsync6 (стр. ~3565–3570) и в апстриме rigaya.
 
