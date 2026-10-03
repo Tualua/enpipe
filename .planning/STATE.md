@@ -4,7 +4,7 @@ milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: executing
 stopped_at: Phase 8 context gathered
-last_updated: "2026-10-03T02:04:12.929Z"
+last_updated: "2026-10-03T02:04:18.869Z"
 last_activity: 2026-10-03 -- Phase 08 execution started
 progress:
   total_phases: 5
@@ -71,6 +71,7 @@ Last activity: 2026-10-03 -- Phase 08 execution started
 | Phase 08 P01 | 25min | 2 tasks | 2 files |
 | Phase 08 P03 | 40min | 3 tasks | 3 files |
 | Phase 08 P04 | 25min | 2 tasks | 2 files |
+| Phase 08 P05 | 40min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,7 @@ Recent decisions affecting current work:
 - [Phase 08]: [Phase 08-01]: D-02 PASS на A380/qsvencc r4634 - побайтный критерий D-01 жизнеспособен; сцена 1129 с метриками побайтно не сверена
 - [Phase 08]: Гейт харнесса - sha256; отличные сессии всегда byte_mismatch, HarnessError только для идентичных с неверным числом кадров — D-01/D-03, анти-ложное-чисто
 - [Phase 08]: 08-04: HarnessError в замке не глушится, в матрице прерывает прогон FAIL; METRICS_FAILED без порога (D-12)
+- [Phase 08]: 08-05: решение о повторе по полному stderr через перехватчик на PATH; METRICS_FAILED=провал; метрики на железе красные
 
 ### Pending Todos
 
