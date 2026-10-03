@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 Phase: 8
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-10-03 - Completed quick task 261003-j55: проверка содержимого чанков (нашла open-GOP порчу в test_hdr10)
+Last activity: 2026-10-03 - Completed quick task 261003-l9x: переход на qsvencc 8.32+vppsync6 (r4663)
 
 ## Performance Metrics
 
@@ -153,6 +153,7 @@ None yet.
 | 261003-c1b | Строка ИТОГО в `run_encode` не падает с TypeError при `psnr_avg=None` (SSIM есть, PSNR нет): `format_total_line`, «н/д» для отсутствующей метрики | 2026-10-03 | 6775d35 | [261003-c1b-psnr-avg-pipeline-py-319](./quick/261003-c1b-psnr-avg-pipeline-py-319/) |
 | 261003-hph | DV-тесты: подсчёт `Dolby Vision Metadata` (ffmpeg 9/libdav1d), `ENPIPE_TEST_FFPROBE` для проверочного ffprobe, проверка DV-конфига выхода, новый `test_dv_profile5` (P5→10.0) | 2026-10-03 | cc02840 | [261003-hph-dv-test-dv-dolby-vision-metadata-ffmpeg-](./quick/261003-hph-dv-test-dv-dolby-vision-metadata-ffmpeg-/) |
 | 261003-j55 | Аппаратная проверка содержимого чанков (PSNR первого кадра vs кадр источника S, негативный контроль S+Δ); xfail(strict) на баг qsvencc firstpkt-seek и test_dv_profile5; test_hdr10 падает на open-GOP | 2026-10-03 | 22a81a4 | [261003-j55-md5-vs-keyframe](./quick/261003-j55-md5-vs-keyframe/) |
+| 261003-l9x | qsvencc → 8.32+vppsync6 (r4663, фикс --seek firstpkt): пин URL+sha256 в обоих Dockerfile, минимальная ревизия 4663 (и для метрик), test_dv_profile5 без xfail, синтетика → test_chunk_content_open_gop (xfail open-GOP) | 2026-10-03 | c134df0 | [261003-l9x-qsvencc-8-32-vppsync6-r4663-url-sha256-d](./quick/261003-l9x-qsvencc-8-32-vppsync6-r4663-url-sha256-d/) |
 | 260709-711 | Плавный ПОКАДРОВЫЙ прогресс-бар в параллельном режиме: `progress_cb`-хук в `QsvPipeStream.read()` двигает общий бар из всех сегмент-потоков (было: скачки по завершении целого сегмента, висело на 0%). Ветка `show_progress=False`, cut-математика и порядок `results` не тронуты | 2026-07-09 | 05c8ab6 | [260709-711-smooth-per-frame-progress-bar](./quick/260709-711-smooth-per-frame-progress-bar/) |
 | 260709-89t | `enpipe run/detect/encode <папка>` — новый leaf-модуль `shared/batch.py` (дискавери + collect-then-report оркестратор), `--recursive`, skip-existing, guard'ы схлопывания выходов (-o-файл/--workdir/--csv/--scenes -> die). Одиночный файл byte-identical | 2026-07-09 | f7f8fb7 | [260709-89t-folder-batch-input-enpipe-run-detect-enc](./quick/260709-89t-folder-batch-input-enpipe-run-detect-enc/) |
 | 260709-gs0 | Слим-рантайм-образ enpipe (multi-stage `Dockerfile` + `.dockerignore` + `docker/README.md`); builder: `uv sync --frozen --no-dev --no-editable`; runtime: медиа-стек дословно из `.devcontainer/Dockerfile` (без tmux) + venv-copy. Образ здесь не собран (нет docker) — сборку/GPU-прогон проверяет пользователь на хосте | 2026-07-09 | cbae949 | [260709-gs0-compact-slim-runtime-container-image-for](./quick/260709-gs0-compact-slim-runtime-container-image-for/) |

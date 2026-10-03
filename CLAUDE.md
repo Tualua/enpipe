@@ -45,12 +45,12 @@
 - scenedetect[opencv-headless] == 0.7 - PyOpenCV-based scene-cut detection engine
 - numpy == 2.5.1 - numerical array operations for frame buffers
 - ffmpeg / ffprobe (Ubuntu 24.04 apt packages) - QSV-accelerated decode, audio transcode, metadata probing via `src/enpipe/shared/proc.py`
-- qsvencc 8.32+vppsync4 (Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
+- qsvencc 8.32+vppsync6 (r4663, tag 8.32-vppsync6, sha256 f7be83b6…; Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
 - mkvmerge (mkvtoolnix apt package) - final `.mkv` muxing via `src/enpipe/encoding/pipeline.py`
 - dovi_tool (x86_64-unknown-linux-musl static binary, GitHub releases) - Dolby Vision RPU extraction; currently unused (DEBT-04, reserved for Phase 4)
 - Intel Media driver (iHD, from Intel PPA `kobuk-team/intel-graphics`) - VA-API for Intel Arc A380
 - oneVPL (libvpl2, libmfx-gen1.2 from Ubuntu 24.04 + Intel PPA) - GPU dispatcher and runtime
-- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable on r4658: 0 failures from 640 sessions)
+- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable, measured on r4658: 0 failures from 640 sessions)
 - vainfo (libva-utils) - VA-API diagnostics
 ## Configuration
 - `ICQ` (default "23") - qsvencc quality (lower = better)
@@ -245,7 +245,7 @@
 ### Hand-rolled Binary Format Parsing Embedded in Production Code
 ### Silent Frame-Count Mismatches Due to Seek/Trim Math
 ## Error Handling
-- **Preflight**: `shutil.which()` loop checks qsvencc/ffprobe/ffmpeg/mkvmerge before any real work (`src/enpipe/encoding/pipeline.py:108`). `ensure_qsvencc_fixed()` verifies qsvencc version ≥ r4634 (upstream fix 45003f1 for cross-session frame corruption); the pinned build is the Tualua fork r4658.
+- **Preflight**: `shutil.which()` loop checks qsvencc/ffprobe/ffmpeg/mkvmerge before any real work (`src/enpipe/encoding/pipeline.py:108`). `ensure_qsvencc_fixed()` verifies qsvencc version ≥ r4663 (includes upstream fix 45003f1 for cross-session frame corruption and the `--seek` fix); the pinned build is the Tualua fork 8.32+vppsync6 (r4663).
 - **Background thread errors**: `encode_audio()` returns `(bool, Optional[str])` (success, error message) instead of raising, because it runs in a background thread. The main thread calls `.result()` on the future and checks the error tuple, then calls `die()` if needed—keeping error handling on the main thread.
 - **Batch-vs-immediate failure**: In parallel chunk encoding, all in-flight futures complete even if one fails. Errors are collected in an `errors` list, capped at 10, and reported once before calling `die()` (drain-then-die). This gives users visibility into all failures, not just the first one.
 - **Cleanup on error**: `try/finally` blocks in `QsvPipeStream` ensure `close()` (force-kill subprocess) is always called on early exit or exception.
