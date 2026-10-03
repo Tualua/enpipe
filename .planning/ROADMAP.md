@@ -125,3 +125,12 @@ Plans:
 
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.5: Конвертация Dolby Vision profile 5 → HDR10 через libplacebo (BACKLOG)
+
+**Goal:** [Captured for future planning] Решейпинг базового слоя DV profile 5 (IPTPQc2) по RPU в BT.2020 PQ, чтобы у таких источников был HDR10-фолбэк. Сейчас (проверено на A380 2026-10-03) P5 корректно уходит в AV1 DV 10.0 (bl_compat 0), HDR-фолбэка нет; P8.1 → 10.1. Варианты: ffmpeg `vf_libplacebo` (`apply_dolbyvision=1`, есть в ffmpeg 6.1; нужен Vulkan — для Arc `mesa-vulkan-drivers`/ANV, в контейнере сейчас `VK_ERROR_INCOMPATIBLE_DRIVER`) или `qsvencc --vpp-libplacebo-tonemapping` (в сборке r4658 libplacebo disabled). Открытые вопросы: предпроход в промежуточный файл vs пайп в qsvencc (потеря `--avhw`), статические HDR10-метаданные из RPU L6 (`dovi_tool`), скорость и качество на A380 (фрагмент: `/data/downloads/enpipe-fixtures/dv-p5.mkv`).
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
