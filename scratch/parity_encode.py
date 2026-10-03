@@ -53,15 +53,24 @@ Note: scratch/*.mkv / *.obu / *.scenes are gitignored (Plan 01-01).
 from __future__ import annotations
 
 import csv
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from argparse import Namespace
 from pathlib import Path
 from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "tests" / "integration"))
+try:
+    import _concurrency_harness as harness
+except ImportError as exc:
+    raise SystemExit(
+        f"cannot import tests/integration/_concurrency_harness.py: {exc}"
+    )
 
 SAMPLE = REPO_ROOT / "scratch" / "parity_encode_sample.mkv"
 ORACLE_SCENES = SAMPLE.with_name(SAMPLE.name + ".scenes")
@@ -78,20 +87,19 @@ JOBS = 1  # identical, deterministic jobs value on every side (matches Plan 01-0
 SSIM_EPS = 1e-4
 PSNR_EPS_DB = 0.05
 
-# ENVIRONMENT LIMITATION NOTE (discovered running this script, symmetric on
-# both oracle and migrated sides — NOT a migration bug): qsvencc's --psnr/
-# --ssim metric computation requires an OpenCL device, and this devcontainer
-# confirms (per .planning/codebase/STACK.md) Intel's own OpenCL ICD is
-# unavailable on Debian trixie ("clGetPlatformIDs: unknown error" ->
-# QSVEncC.exe finished with error, rc=255) — reproduced identically against
-# legacy/encode_scenes.py itself, so this is a pre-existing devcontainer
-# limitation, not something introduced by the migration. This gate therefore
-# runs with metrics disabled (no_metrics=True / --no-metrics) on BOTH the
-# oracle and migrated sides, keeping the comparison symmetric; parse_metrics
-# itself is already covered by the TEST-01 fast tier
-# (tests/unit/encoding/test_chunk.py), so metrics-parsing logic is not an
-# uncovered gap.
-METRICS_UNAVAILABLE = True
+# The devcontainer runs on Ubuntu 24.04 + the Intel PPA (OpenCL present), so
+# qsvencc --psnr/--ssim work and the parity run uses metrics by default on BOTH
+# sides. The metrics subsystem is unstable (known defect, backlog), so each side
+# is retried up to METRICS_ATTEMPTS times, but only when every failed qsvencc
+# call of the attempt failed in the metrics subsystem, judged by the FULL
+# stderr captured by the PATH tap (die() keeps only the last 500 characters).
+# Any other failure is an immediate error. PARITY_METRICS=0 gives the symmetric
+# run without metrics.
+METRICS_ENABLED = os.environ.get("PARITY_METRICS", "1") != "0"
+METRICS_ATTEMPTS = 5
+
+# Set by main() when METRICS_ENABLED: the tap's log directory.
+_TAP_LOGS: Optional[Path] = None
 
 
 def _hardware_available() -> bool:
@@ -133,29 +141,78 @@ def _detect_oracle_scenes() -> None:
         raise RuntimeError(f"oracle detector did not write {ORACLE_SCENES}")
 
 
-def _run_legacy_encode(workdir: Path, out: Path) -> None:
-    if workdir.exists():
-        shutil.rmtree(workdir)
+def _reset_tap() -> None:
+    if _TAP_LOGS is not None:
+        for f in _TAP_LOGS.glob("*"):
+            f.unlink()
+
+
+def _run_legacy_encode(workdir: Path, out: Path) -> int:
+    """Returns the 1-based number of the successful attempt."""
     cmd = [sys.executable, str(REPO_ROOT / "legacy" / "encode_scenes.py"),
            str(SAMPLE), str(ORACLE_SCENES),
            "-o", str(out), "--workdir", str(workdir), "--keep",
            "--jobs", str(JOBS), "--no-audio"]
-    if METRICS_UNAVAILABLE:
+    if not METRICS_ENABLED:
+        if workdir.exists():
+            shutil.rmtree(workdir)
         cmd.append("--no-metrics")
-    subprocess.run(cmd, check=True, cwd=REPO_ROOT, capture_output=True)
+        subprocess.run(cmd, check=True, cwd=REPO_ROOT, capture_output=True)
+        return 1
+    assert _TAP_LOGS is not None
+    last = ""
+    for n in range(1, METRICS_ATTEMPTS + 1):
+        _reset_tap()
+        if workdir.exists():
+            shutil.rmtree(workdir)
+        out.unlink(missing_ok=True)
+        Path(str(out) + ".metrics.csv").unlink(missing_ok=True)
+        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return n
+        last = proc.stderr
+        if not harness.metrics_only_failure(harness.tap_failures(_TAP_LOGS), last):
+            raise RuntimeError(
+                f"legacy encode failed (not a metrics-only failure, "
+                f"rc={proc.returncode}): {last[-1500:]}"
+            )
+    raise RuntimeError(
+        f"METRICS_FAILED x{METRICS_ATTEMPTS} (D-12, legacy): {last[-500:]}"
+    )
 
 
-def _run_migrated_encode(workdir: Path, out: Path) -> None:
+def _run_migrated_encode(workdir: Path, out: Path) -> int:
+    """Returns the 1-based number of the successful attempt."""
     from enpipe.encoding.pipeline import run_encode
 
-    if workdir.exists():
-        shutil.rmtree(workdir)
     args = Namespace(
         video=SAMPLE, scenes=ORACLE_SCENES, out=out,
         frm=0, to=None, workdir=workdir, keep=True, jobs=JOBS,
-        no_audio=True, no_metrics=METRICS_UNAVAILABLE, csv=None,
+        no_audio=True, no_metrics=not METRICS_ENABLED, csv=None,
     )
-    run_encode(args)
+    if not METRICS_ENABLED:
+        if workdir.exists():
+            shutil.rmtree(workdir)
+        run_encode(args)
+        return 1
+    assert _TAP_LOGS is not None
+    last = ""
+    for n in range(1, METRICS_ATTEMPTS + 1):
+        _reset_tap()
+        if workdir.exists():
+            shutil.rmtree(workdir)
+        out.unlink(missing_ok=True)
+        Path(str(out) + ".metrics.csv").unlink(missing_ok=True)
+        try:
+            run_encode(args)
+            return n
+        except SystemExit as exc:
+            last = str(exc)
+            if not harness.metrics_only_failure(harness.tap_failures(_TAP_LOGS), last):
+                raise RuntimeError(
+                    f"migrated encode failed (not a metrics-only failure): {last[-1500:]}"
+                )
+    raise RuntimeError(f"METRICS_FAILED x{METRICS_ATTEMPTS} (D-12, migrated): {last[-500:]}")
 
 
 def _cmp_bytes(a: Path, b: Path) -> bool:
@@ -178,10 +235,26 @@ def _count_frames(path: Path) -> int:
 
 
 def main() -> int:
+    global _TAP_LOGS
     if not _hardware_available():
         print("SKIP: no Arc hardware (/dev/dri/renderD128 or qsvencc absent)")
         return 0
     print("Arc hardware present (/dev/dri/renderD128 + qsvencc) — proceeding")
+    tap_root: Optional[Path] = None
+    if METRICS_ENABLED:
+        # The tap serves both the legacy subprocess and the in-process run_encode.
+        tap_root = Path(tempfile.mkdtemp(prefix="parity_tap_"))
+        _TAP_LOGS = tap_root / "logs"
+        harness.install_qsvencc_tap(tap_root / "bin", _TAP_LOGS)
+        os.environ["PATH"] = f"{tap_root / 'bin'}{os.pathsep}{os.environ['PATH']}"
+    try:
+        return _main_inner()
+    finally:
+        if tap_root is not None:
+            shutil.rmtree(tap_root, ignore_errors=True)
+
+
+def _main_inner() -> int:
 
     print("== generating synthetic sample ==")
     _generate_sample()
@@ -190,8 +263,8 @@ def main() -> int:
     _detect_oracle_scenes()
 
     print("== determinism pre-check: legacy encode x2 ==")
-    _run_legacy_encode(WD_LEGACY1, OUT_LEGACY1)
-    _run_legacy_encode(WD_LEGACY2, OUT_LEGACY2)
+    attempts_legacy1 = _run_legacy_encode(WD_LEGACY1, OUT_LEGACY1)
+    attempts_legacy2 = _run_legacy_encode(WD_LEGACY2, OUT_LEGACY2)
     obu1, obu2 = WD_LEGACY1 / "movie.obu", WD_LEGACY2 / "movie.obu"
     if not obu1.exists() or not obu2.exists():
         print(f"FAIL: expected movie.obu at {obu1} and {obu2}")
@@ -200,7 +273,7 @@ def main() -> int:
     print(f"qsvencc deterministic on this box: {deterministic}")
 
     print("== migrated run_encode ==")
-    _run_migrated_encode(WD_NEW, OUT_NEW)
+    attempts_new = _run_migrated_encode(WD_NEW, OUT_NEW)
     obu_new = WD_NEW / "movie.obu"
     if not obu_new.exists():
         print(f"FAIL: migrated run did not produce {obu_new}")
@@ -215,11 +288,10 @@ def main() -> int:
         if not identical:
             print("FAIL: primary byte-identical gate failed")
             ok = False
-    elif METRICS_UNAVAILABLE:
-        print("qsvencc non-deterministic on this box AND metrics unavailable "
-              "(OpenCL absent, see METRICS_UNAVAILABLE note) -> falling back "
-              "to frame-count match ONLY (no SSIM/PSNR epsilon check "
-              "possible in this environment)")
+    elif not METRICS_ENABLED:
+        print("qsvencc non-deterministic on this box AND metrics disabled "
+              "(PARITY_METRICS=0) -> falling back to frame-count match ONLY "
+              "(no SSIM/PSNR epsilon check possible)")
         n1, n_new = _count_frames(obu1), _count_frames(obu_new)
         print(f"frame counts (pre-mux .obu): legacy1={n1} migrated={n_new}")
         if n1 != n_new:
@@ -254,6 +326,15 @@ def main() -> int:
     if n1_final != n_new_final:
         print("FAIL: secondary frame-count gate failed")
         ok = False
+
+    if METRICS_ENABLED:
+        print(f"metrics attempts: legacy1={attempts_legacy1} "
+              f"legacy2={attempts_legacy2} migrated={attempts_new}")
+        for label, o in (("legacy1", OUT_LEGACY1), ("migrated", OUT_NEW)):
+            t = _totals_row(Path(str(o) + ".metrics.csv"))
+            print(f"ИТОГО {label}: ssim_all={t and t.get('ssim_all')} "
+                  f"psnr_avg={t and t.get('psnr_avg')} "
+                  "(informational; qsvencc metric values are unreliable, D-12)")
 
     if ok:
         print("PARITY OK")
