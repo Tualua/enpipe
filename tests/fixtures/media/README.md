@@ -25,7 +25,10 @@ with an explanatory message -- they never fake a pass.
 Place operator-supplied sample files here:
 
 - `tests/fixtures/media/hdr10plus.mkv` -- a real HDR10+ (dynamic metadata) sample
-- `tests/fixtures/media/dv.mkv` -- a real Dolby Vision (RPU) sample
+- `tests/fixtures/media/dv.mkv` -- a real Dolby Vision profile 8.1 sample
+  (HDR10-compatible base layer, bl_signal_compatibility_id 1); may be a symlink
+- `tests/fixtures/media/dv-p5.mkv` -- a real Dolby Vision profile 5 sample
+  (bl_signal_compatibility_id 0), used by `test_dv_profile5`
 
 ## Location override
 
@@ -34,6 +37,20 @@ directory containing the same filenames, e.g.:
 
 ```bash
 ENPIPE_TEST_MEDIA=/data/media/enpipe-fixtures uv run pytest -m hardware
+```
+
+## Verification ffprobe (ENPIPE_TEST_FFPROBE)
+
+The DV checks need an ffprobe from ffmpeg >= 7 with AV1 Dolby Vision support
+(the libdav1d decoder exports "Dolby Vision Metadata" and the `dovi_rpu`
+bitstream filter lists av1). The system ffmpeg 6.1 on Ubuntu 24.04 cannot do
+this, so the DV tests skip honestly there. `ENPIPE_TEST_FFPROBE` affects ONLY
+the read-only verification probes; the pipeline under test keeps using
+ffmpeg/ffprobe from PATH. The self-check uses the ffmpeg sitting next to that
+ffprobe. Example (BtbN static build):
+
+```bash
+ENPIPE_TEST_MEDIA=/data/downloads/enpipe-fixtures ENPIPE_TEST_FFPROBE=/opt/ffmpeg-9/bin/ffprobe uv run pytest -m hardware -k dv
 ```
 
 ## Why these files are not committed
@@ -51,10 +68,15 @@ locally or point `ENPIPE_TEST_MEDIA` at a directory that already has them
   against `hdr10plus.mkv` on real Arc hardware and independently verifies
   per-chunk/total frame counts and keyframe alignment (the same invariants
   `test_sdr`/`test_hdr10` check).
-- `test_dv`: additionally self-checks that the installed `ffmpeg`'s
-  `dovi_rpu` bitstream filter reports AV1 support (a read-only `-h`
-  inspection, never used to mutate/verify media), then asserts the output's
-  per-frame Dolby Vision RPU side-data count matches the **source**
-  fixture's RPU frame count -- both on the final muxed `.mkv` and on the
-  pre-mux per-scene `.obu` chunks -- proving RPU survives the chunk
-  splice/mux, not merely "some RPU exists somewhere".
+- `test_dv`: self-checks that the ffmpeg next to `ENPIPE_TEST_FFPROBE`
+  (default: `ffmpeg` on PATH) has a `dovi_rpu` bitstream filter reporting AV1
+  support (a read-only `-h` inspection, never used to mutate/verify media),
+  then asserts the number of frames carrying "Dolby Vision Metadata" side data
+  (not "Dolby Vision RPU Data" -- that entry exists only on the HEVC source and
+  is absent on AV1 after libdav1d) matches the **source** fixture's count, both
+  on the final muxed `.mkv` and on the pre-mux per-scene `.obu` chunks --
+  proving RPU survives the chunk splice/mux. It also checks the output's
+  "DOVI configuration record": `dv_profile` 10 and
+  `dv_bl_signal_compatibility_id` equal to the source's (8.1 -> 10.1).
+- `test_dv_profile5`: the same on `dv-p5.mkv`; expects profile 10 with
+  compat 0 (P5 -> 10.0). The record is derived by mkvmerge from the stream.
