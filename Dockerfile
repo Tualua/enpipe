@@ -172,7 +172,13 @@ RUN set -eux; \
 # 60 запросов/час НА ОБЩИЙ IP раннера (флаки-403 на shared CI-раннерах);
 # секрет опционален (required=false), локальная сборка без него ведёт
 # себя как раньше; с токеном лимит поднимается до 5000/час.
-RUN --mount=type=secret,id=github_token,required=false set -eux; \
+# xtrace отключён вокруг чтения секрета и обоих авторизованных curl (как в блоке
+# qsvencc выше): при `set -x` оболочка печатает уже раскрытый
+# `set -- -H 'Authorization: Bearer ...'` и curl-строки, т.е. токен попал бы в
+# лог сборки (WR-04). `set --` в конце сбрасывает заголовок из позиционных
+# параметров до включения xtrace обратно.
+RUN --mount=type=secret,id=github_token,required=false set -eu; \
+    set +x; \
     if [ -s /run/secrets/github_token ]; then \
         set -- -H "Authorization: Bearer $(cat /run/secrets/github_token)"; \
     else \
@@ -182,6 +188,8 @@ RUN --mount=type=secret,id=github_token,required=false set -eux; \
           | jq -r '.assets[].browser_download_url | select(test("x86_64-unknown-linux-musl.tar.gz$"))' | head -1)"; \
     test -n "$url"; \
     curl -fsSL "$@" -o /tmp/dovi.tgz "$url"; \
+    set --; \
+    set -x; \
     tmpd="$(mktemp -d)"; \
     tar -xzf /tmp/dovi.tgz -C "$tmpd"; \
     install -m0755 "$(find "$tmpd" -type f -name dovi_tool | head -1)" /usr/local/bin/dovi_tool; \
