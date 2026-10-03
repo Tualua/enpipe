@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 Phase: 8
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-10-03 - Completed quick task 261003-lpo: защита от open-GOP источников
+Last activity: 2026-10-03 - Completed quick task 261003-mj7: переход на qsvencc 8.32+vppsync7 (r4665)
 
 ## Performance Metrics
 
@@ -155,6 +155,7 @@ None yet.
 | 261003-j55 | Аппаратная проверка содержимого чанков (PSNR первого кадра vs кадр источника S, негативный контроль S+Δ); xfail(strict) на баг qsvencc firstpkt-seek и test_dv_profile5; test_hdr10 падает на open-GOP | 2026-10-03 | 22a81a4 | [261003-j55-md5-vs-keyframe](./quick/261003-j55-md5-vs-keyframe/) |
 | 261003-l9x | qsvencc → 8.32+vppsync6 (r4663, фикс --seek firstpkt): пин URL+sha256 в обоих Dockerfile, минимальная ревизия 4663 (и для метрик), test_dv_profile5 без xfail, синтетика → test_chunk_content_open_gop (xfail open-GOP) | 2026-10-03 | c134df0 | [261003-l9x-qsvencc-8-32-vppsync6-r4663-url-sha256-d](./quick/261003-l9x-qsvencc-8-32-vppsync6-r4663-url-sha256-d/) |
 | 261003-lpo | Защита от open-GOP: `run_encode` отказывает (die) на источниках с ведущими кадрами после используемых keyframe (баг qsvencc trim-offset); test_hdr10 → closed GOP; test_open_gop_source_refused, test_chunk_content_closed_gop | 2026-10-03 | b164776 | [261003-lpo-keyframe-open-gop-qsvencc-trim-offset](./quick/261003-lpo-keyframe-open-gop-qsvencc-trim-offset/) |
+| 261003-mj7 | qsvencc → 8.32+vppsync7 (r4665, фикс open-GOP trim): пин, минимальная ревизия 4665, снят отказ на open-GOP и проба ведущих кадров; test_chunk_content_open_gop[rasl,radl], test_hdr10 снова open-GOP | 2026-10-03 | 0b769b4 | [261003-mj7-qsvencc-8-32-vppsync7-r4665-open-gop-tri](./quick/261003-mj7-qsvencc-8-32-vppsync7-r4665-open-gop-tri/) |
 | 260709-711 | Плавный ПОКАДРОВЫЙ прогресс-бар в параллельном режиме: `progress_cb`-хук в `QsvPipeStream.read()` двигает общий бар из всех сегмент-потоков (было: скачки по завершении целого сегмента, висело на 0%). Ветка `show_progress=False`, cut-математика и порядок `results` не тронуты | 2026-07-09 | 05c8ab6 | [260709-711-smooth-per-frame-progress-bar](./quick/260709-711-smooth-per-frame-progress-bar/) |
 | 260709-89t | `enpipe run/detect/encode <папка>` — новый leaf-модуль `shared/batch.py` (дискавери + collect-then-report оркестратор), `--recursive`, skip-existing, guard'ы схлопывания выходов (-o-файл/--workdir/--csv/--scenes -> die). Одиночный файл byte-identical | 2026-07-09 | f7f8fb7 | [260709-89t-folder-batch-input-enpipe-run-detect-enc](./quick/260709-89t-folder-batch-input-enpipe-run-detect-enc/) |
 | 260709-gs0 | Слим-рантайм-образ enpipe (multi-stage `Dockerfile` + `.dockerignore` + `docker/README.md`); builder: `uv sync --frozen --no-dev --no-editable`; runtime: медиа-стек дословно из `.devcontainer/Dockerfile` (без tmux) + venv-copy. Образ здесь не собран (нет docker) — сборку/GPU-прогон проверяет пользователь на хосте | 2026-07-09 | cbae949 | [260709-gs0-compact-slim-runtime-container-image-for](./quick/260709-gs0-compact-slim-runtime-container-image-for/) |
