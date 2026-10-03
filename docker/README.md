@@ -68,16 +68,57 @@ DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpi
 
 ## Метрики (PSNR/SSIM)
 
-Флаги `--psnr`/`--ssim` требуют OpenCL-VPP-фильтр `qsvencc`, а в Debian
-trixie пакета `intel-opencl-icd` нет (как и в `.devcontainer/Dockerfile`) —
-эти метрики в данном образе НЕ работают. Для прод-энкода используйте
-`--no-metrics`.
+Образ на Ubuntu 24.04 + PPA `kobuk-team/intel-graphics` содержит
+`intel-opencl-icd`, поэтому `--psnr`/`--ssim` работают.
 
-## Почему `python:3.12-slim-trixie`
+Известная нестабильность: qsvencc иногда падает с
+`VIDEOMETRIC: Failed to copy input surface` / `allocVA` (rc != 0, чанк
+теряется), особенно при параллельных чанках. Это дефект D-12 (в бэклоге), а
+не образа. Обход: повторить прогон или использовать `--no-metrics`.
 
-Trixie выбран ради glibc >= 2.39, требуемого prebuilt-сборкой `qsvencc`;
-Debian bookworm (glibc 2.36) для этого не годится — та же причина, что и в
-`.devcontainer/Dockerfile`.
+## Почему `ubuntu:24.04`
+
+- PPA Intel с OpenCL для Arc (`intel-opencl-icd`), без которого метрики не
+  работают;
+- glibc 2.39 требуется .deb-сборке `qsvencc`;
+- тот же стек, что в девконтейнере.
+
+Обе стадии сборки на одной базе: venv хранит ссылку на интерпретатор,
+которым создан, поэтому у builder и runtime должен быть один и тот же
+`/usr/bin/python3.12`. PPA подключается deb822-файлом `.sources`, ключ
+скачивается по закреплённому отпечатку и сверяется до записи в keyring.
+
+## Проверка на хосте
+
+На хосте с Intel Arc, в корне чекаута:
+
+```bash
+DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpipe:ubuntu2404 .
+docker run --rm --device /dev/dri --entrypoint clinfo enpipe:ubuntu2404 -l
+docker run --rm --device /dev/dri --entrypoint sh enpipe:ubuntu2404 -c \
+  'vainfo 2>&1 | grep -i "driver version"; dpkg-query -W intel-opencl-icd intel-media-va-driver-non-free libmfx-gen1.2; qsvencc --version | head -1'
+```
+
+`clinfo -l` должен показать `Intel(R) Arc(TM) A380 Graphics`. Затем короткий
+прогон с метриками (до 3 повторов из-за D-12): сгенерировать 10-секундный
+`testsrc` через ffmpeg и выполнить `enpipe run s.mkv -o s.av1.mkv --no-audio`.
+Успех: `rc=0` и в `s.av1.mkv.metrics.csv` строка `ИТОГО` с `ssim_all`/`psnr_avg`.
+
+## Переход с образа на Debian trixie
+
+Что изменилось:
+
+- база `ubuntu:24.04` вместо образа на Debian trixie;
+- интерпретатор `/usr/bin/python3.12` вместо `/usr/local/bin/python3.12`
+  (кто запускал контейнер со своим `--entrypoint` и путём к python, должен
+  сменить путь);
+- venv по-прежнему `/opt/venv`, `ENTRYPOINT ["enpipe"]` и CLI без изменений;
+- `--psnr`/`--ssim` теперь работают, `--no-metrics` больше не обязателен
+  (но см. нестабильность D-12 выше).
+
+Теги: `latest` и новые semver/sha-теги указывают на образ Ubuntu; образы на
+trixie остаются доступны по прежним semver и `sha-<коммит>` тегам и больше не
+обновляются. Требования к хосту прежние: `--device /dev/dri`, Intel Arc.
 
 ## Честная ремарка про эту среду
 

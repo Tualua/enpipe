@@ -11,7 +11,7 @@
 
 - **Tech stack**: Python 3.12; external binaries `ffmpeg`/`ffprobe`, `qsvencc` (Rigaya QSVEnc), `mkvmerge` invoked via `subprocess` — no persistent daemon. Must stay compatible with existing behavior.
 - **Hardware**: Intel Arc GPU (Alchemist, e.g. A380) with QSV/VA-API (`iHD` driver) and `/dev/dri` passthrough required; reference storage is a spinning-disk ZFS pool.
-- **Environment**: Development and runtime happen inside the `.devcontainer/` (Docker/Podman); Debian 13 "trixie" is required for `qsvencc`'s glibc ≥ 2.39.
+- **Environment**: Development and runtime happen inside the `.devcontainer/` (Docker/Podman); Ubuntu 24.04 (devcontainer: intel/dlstreamer base; runtime image: ubuntu:24.04 + Intel graphics PPA) — qsvencc .deb needs glibc ≥ 2.39; intel-opencl-icd from the PPA enables --psnr/--ssim.
 - **Correctness**: Frame-count verification and keyframe-alignment invariants must be preserved through any refactor — silent output corruption is the primary risk.
 <!-- GSD:project-end -->
 
@@ -51,7 +51,7 @@
 - `qsvencc` (Rigaya QSVEnc) - latest GitHub release .deb, installed in `.devcontainer/Dockerfile` with dependency patching (strips `intel-opencl-icd`/`libmfx1` deps not available on Debian trixie) - AV1 hardware encoder driving Intel Arc QSV; invoked via `subprocess` in `legacy/encode_scenes.py::chunk_command`
 - `ffmpeg` / `ffprobe` (Debian trixie apt package) - QSV-accelerated decode/downscale pipe for scene detection (`legacy/scene_detection.py::QsvPipeStream`), audio transcode (`legacy/encode_scenes.py::encode_audio`), and metadata probing throughout
 - `mkvmerge` (mkvtoolnix, apt) - final muxing of encoded video/audio/subs/chapters (`legacy/encode_scenes.py::main`)
-- `intel-media-va-driver-non-free` (iHD driver), `libva2`/`libva-drm2`/`vainfo`, `libvpl2` (oneVPL dispatcher), `libmfx-gen1.2`/`libmfxgen1`/`libmfx-gen1` (oneVPL GPU runtime, package name varies by distro release — Dockerfile tries all three), `ocl-icd-libopencl1` (OpenCL loader, required by qsvencc for VPP filters though Intel's own OpenCL ICD is unavailable on trixie, so OpenCL-based VPP filters are noted as non-functional) - all installed in `.devcontainer/Dockerfile`
+- `intel-media-va-driver-non-free` (iHD driver), `libva2`/`libva-drm2`/`vainfo`, `libvpl2` (oneVPL dispatcher), `libmfx-gen1.2`/`libmfxgen1`/`libmfx-gen1` (oneVPL GPU runtime, package name varies by distro release — Dockerfile tries all three), `ocl-icd-libopencl1` (OpenCL loader, required by qsvencc for VPP filters Intel's OpenCL ICD (intel-opencl-icd) comes from the kobuk-team PPA; qsvencc metrics work but are flaky under concurrency (VIDEOMETRIC, Phase 8 D-12)) - all installed in `.devcontainer/Dockerfile`
 - `dovi_tool` (quietvoid, static musl binary from GitHub releases) - installed in `.devcontainer/Dockerfile` but **not referenced anywhere in `legacy/*.py`** — Dolby Vision RPU handling is done per-chunk by `qsvencc --dolby-vision-rpu copy` instead, making this dependency currently unused/vestigial in the existing code
 - `tmux` - apt package, interactive session persistence tool, not invoked by any script
 ## Configuration
