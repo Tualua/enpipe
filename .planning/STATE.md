@@ -134,6 +134,8 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-05: решение о повторе по полному stderr через перехватчик на PATH; METRICS_FAILED=провал; метрики на железе красные
 - [Phase 08]: 08-06: гейт COR-02 побайтный доказан на r4658 (8.32-vppsync4): D-10c на r4604 даёт 3 расхождения (непустота), замок 2 passed, матрица 640 сессий 0 расхождений и 0 METRICS_FAILED, D-05 эталоны on/off совпадают, тир 7 passed/2 skipped, паритет OK; бинарь r4634 заменён на r4658 (quick 261003-8qq); рантайм на Ubuntu 24.04 + PPA с OpenCL, метрики стабильны на r4658; остаток в бэклоге 999.4 (трек апстрима #319/#320, 500-симв. усечение stderr, нет retry)
 
+- 2026-10-03: перепроверка на qsvencc 8.32+vppsync7 (r4665, системно в devcontainer) на A380 — всё зелёное: замок COR-02 3/3 PASSED (24+24 сессий, byte_mismatch=0, METRICS_FAILED=0, 468 с); стресс-матрица JOBS 3/5/8 × метрики off/on: 640 сессий, 0 byte-mismatch, 0 SESSION_FAILED, 0 METRICS_FAILED, 0 corrupt (scratch/gate_stress_matrix_20261003T165918Z.log); пробник D-02 PASS 18/18 byte_identical (scratch/probe_d02_20261003T175831Z.log, ячейка metrics=on 1129 теперь сверена); parity_encode PARITY OK (movie.obu побайтно legacy↔migrated); real-media hardware module 13/13 PASSED (quick 261003-mj7). Остаётся: сборка образов на хосте (в devcontainer нет docker/podman).
+
 ### Pending Todos
 
 None yet.
