@@ -3,8 +3,9 @@
 Why this exists: `qsvencc --seek` used to count from `firstpkt->pts` and could
 silently start one GOP late (fixed in r4663, see
 .planning/debug/HANDOFF-qsvencc-seek-firstpkt.md); the check still guards
-against seek regressions and the open-GOP leading-frame issue
-(.planning/debug/qsvencc-open-gop-leading.md).
+against seek regressions and the open-GOP `--trim` offset regression (chunk
+starting N leading pictures early, fixed in r4665, see
+.planning/debug/resolved/qsvencc-open-gop-leading.md).
 `--trim`/`--frames` still yield the expected number of frames and rc=0, so the
 frame-count and keyframe-alignment checks stay green while the chunk holds the
 wrong span of the movie. Only comparing pixels catches that.

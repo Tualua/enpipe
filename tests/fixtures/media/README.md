@@ -98,8 +98,10 @@ Why: the content check guards against `qsvencc --seek` landing one GOP late
 with rc=0 and the expected frame count (fixed in qsvencc 8.32-vppsync6, r4663,
 now the required minimum; see `.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md`).
 
-`test_dv_profile5` is a normal test now. The synthetic open-GOP HEVC mp4 is
-**refused** by enpipe's open-GOP guard (`test_open_gop_source_refused`; qsvencc
-shifts `--trim` by -N on such sources, see
-`.planning/debug/HANDOFF-qsvencc-opengop-trim-offset.md`); its closed-GOP twin
-(`test_chunk_content_closed_gop`) runs the content check. Hardware tests require qsvencc >= r4663 on PATH.
+`test_dv_profile5` is a normal test now. The synthetic open-GOP HEVC mp4
+sources (RASL after CRA and RADL after IDR_W_RADL) are encoded and
+content-checked (`test_chunk_content_open_gop[rasl|radl]`): qsvencc shifted
+`--trim` by -N on such sources until r4665 (8.32-vppsync7), see
+`.planning/debug/HANDOFF-qsvencc-opengop-trim-offset.md`. Their closed-GOP twin
+is `test_chunk_content_closed_gop`, and `test_hdr10` uses x265's default open
+GOP. Hardware tests require qsvencc >= r4665 on PATH.

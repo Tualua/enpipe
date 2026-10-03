@@ -28,14 +28,14 @@ every kept chunk is compared by PSNR with the SOURCE frame S that starts the
 scene (decoded by the ffmpeg next to $ENPIPE_TEST_FFPROBE), plus a negative
 control against source frame S+(K_next-K). It catches `qsvencc --seek` landing
 one GOP late (fixed in qsvencc r4663, see
-.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md); that failure mode keeps frame
-counts and rc intact. Open-GOP sources (leading pictures after a seek keyframe)
-are not run through this check: enpipe refuses them up front because qsvencc
-shifts --trim by -N on them (see
-.planning/debug/HANDOFF-qsvencc-opengop-trim-offset.md);
-test_open_gop_source_refused covers the refusal and
-test_chunk_content_closed_gop the content check on the same layout with
-open-gop=0.
+.planning/debug/HANDOFF-qsvencc-seek-firstpkt.md) and `--trim` shifted by -N on
+open-GOP sources (fixed in qsvencc r4665 / 8.32-vppsync7, see
+.planning/debug/HANDOFF-qsvencc-opengop-trim-offset.md); both keep frame counts
+and rc intact. Open-GOP sources (RASL after CRA, RADL after IDR_W_RADL) are
+encoded and content-checked: test_chunk_content_open_gop[rasl|radl] and
+test_chunk_content_closed_gop run the check on the same mid-GOP layout, and
+test_hdr10 uses x265's default open GOP so open-GOP and HDR10 are covered
+together. The module requires qsvencc >= r4665 on PATH.
 
 DV RPU verification NEVER uses the mutating dovi_rpu ffmpeg bitstream
 filter to write, and NEVER uses dovi_tool's RPU-extraction subcommand
@@ -86,7 +86,6 @@ from enpipe.encoding.keyframes import (
     kf_before,
     keyframe_table,
     keyframe_table_ffprobe,
-    probe_leading_frames,
 )
 from enpipe.encoding.pipeline import probe_fps
 from enpipe.encoding.scenes_io import read_scenes
@@ -404,13 +403,12 @@ _HDR10_CODEC_ARGS: List[str] = [
     "-pix_fmt", "yuv420p10le",
     "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc",
     "-c:v", "libx265", "-preset", "ultrafast",
-    # x265 defaults to open-gop=1; enpipe refuses open-GOP sources (qsvencc
-    # trim-offset bug) and test_hdr10 is about the HDR10 path, so its source
-    # must be closed GOP.
+    # x265's default open-gop=1 is kept on purpose: RASL after CRA and HDR10
+    # are exercised in one test (needs qsvencc >= r4665).
     "-x265-params",
     "hdr10=1:hdr10-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:"
     "colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)"
-    "WP(15635,16450)L(10000000,1):max-cll=1000,400:open-gop=0",
+    "WP(15635,16450)L(10000000,1):max-cll=1000,400",
 ]
 
 
@@ -982,13 +980,21 @@ def test_dv(tmp_path: Path) -> None:
     _run_dv_case(tmp_path, fixture, "dv")
 
 
-def _make_open_gop_source(dst: Path, *, open_gop: bool) -> None:
+_GOP_X265_PARAMS = {
+    "closed": "open-gop=0",
+    "open": "open-gop=1",
+    # closed GOP whose IDRs carry RADL pictures (IDR_W_RADL)
+    "radl": "open-gop=0:radl=2",
+}
+
+
+def _make_mid_gop_source(dst: Path, *, gop: str) -> None:
     """12 s 1280x720 10-bit HEVC mp4 (software x265): keyframes every 48 frames
     (0,48,96,144,192,240), B-frames on, four visibly different MOVING scenes
-    of 70/80/70/68 frames -> cuts at 70, 150 and 220, all mid-GOP (a scene
-    starting exactly on a keyframe is avoided here). `open_gop` sets x265's
-    open-gop explicitly (never the default): True gives CRA + leading pictures
-    (enpipe must refuse it), False a closed-GOP twin with the same layout.
+    of 70/74/76/68 frames -> cuts at 70 (mid-GOP), 144 (exactly on a keyframe)
+    and 220 (mid-GOP). `gop` sets the GOP flavour explicitly (never the x265
+    default): "open" gives CRA + RASL leading pictures, "radl" IDR_W_RADL
+    leading pictures, "closed" a twin without any leading pictures.
     mp4 rather than TS: a TS start_time of ~0.083 s breaks the pipeline's own
     keyframe table before encoding, while mp4 has start_time 0."""
     rate = "24000/1001"
@@ -1000,7 +1006,7 @@ def _make_open_gop_source(dst: Path, *, open_gop: bool) -> None:
         f"life=size={size}:rate={rate}:mold=10:ratio=0.1:"
         f"death_color=#C83232:life_color=#00ff00",
     ]
-    lengths = [70, 80, 70, 68]
+    lengths = [70, 74, 76, 68]
     inputs: List[str] = []
     fc = ""
     for i, (srcspec, n) in enumerate(zip(sources, lengths)):
@@ -1017,20 +1023,54 @@ def _make_open_gop_source(dst: Path, *, open_gop: bool) -> None:
          "-c:v", "libx265", "-preset", "ultrafast",
          "-x265-params",
          f"keyint=48:min-keyint=48:scenecut=0:bframes=4:log-level=error:"
-         f"open-gop={1 if open_gop else 0}",
+         f"{_GOP_X265_PARAMS[gop]}",
          str(dst)],
         check=True, capture_output=True,
     )
 
 
-def _prepare_mid_gop_source(tmp_path: Path, *, open_gop: bool):
+def _leading_counts(src: Path, fps: float, keyframes: List[int]) -> Dict[int, int]:
+    """{keyframe frame: number of leading pictures} via one full ffprobe packet
+    scan: packets following a keyframe in decode order whose pts is earlier
+    than the keyframe's, up to the next keyframe packet."""
+    res = subprocess.run(
+        [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0",
+         "-show_packets", "-show_entries", "packet=pts_time,flags",
+         "-of", "csv=p=0", str(src)],
+        check=True, capture_output=True, text=True,
+    )
+    wanted = set(keyframes)
+    counts: Dict[int, int] = {}
+    cur: Optional[int] = None
+    cur_pts = 0.0
+    for line in res.stdout.splitlines():
+        parts = line.strip().split(",")
+        if len(parts) < 2:
+            continue
+        try:
+            t = float(parts[0])
+        except ValueError:
+            continue
+        if "K" in parts[1]:
+            frame = round(t * fps)
+            cur = frame if frame in wanted else None
+            cur_pts = t
+            if cur is not None:
+                counts[cur] = 0
+        elif cur is not None and t < cur_pts - 1e-6:
+            counts[cur] += 1
+    return counts
+
+
+def _prepare_mid_gop_source(tmp_path: Path, *, gop: str):
     """Build the synthetic source, run detect, check layout preconditions
-    (pytest.fail, not assert). Returns (src, scenes_path, scenes, included)."""
+    (pytest.fail, not assert). Returns (src, scenes_path, scenes, included,
+    fps, table)."""
     if not _encoder_available("libx265"):
         pytest.skip("libx265 encoder not available in this ffmpeg build")
 
     src = tmp_path / "syn.mp4"
-    _make_open_gop_source(src, open_gop=open_gop)
+    _make_mid_gop_source(src, gop=gop)
 
     _run_cli(["detect", str(src), "--jobs", "2"])
     scenes_path = src.with_name(src.name + ".scenes")
@@ -1044,6 +1084,11 @@ def _prepare_mid_gop_source(tmp_path: Path, *, open_gop: bool):
     kfs = {f for f, _ in table}
     if not any(s not in kfs for s, _ in included):
         pytest.fail(f"precondition: no scene starts mid-GOP: {scenes}, kf={sorted(kfs)}")
+    if not any(s in kfs and s != 0 for s, _ in included):
+        pytest.fail(
+            f"precondition: no included scene starts on a non-zero keyframe: "
+            f"{scenes}, kf={sorted(kfs)}"
+        )
     if any(e > last_kf for _, e in included):
         pytest.fail(
             f"precondition: included scenes must end <= last keyframe {last_kf}: {scenes}"
@@ -1051,37 +1096,11 @@ def _prepare_mid_gop_source(tmp_path: Path, *, open_gop: bool):
     return src, scenes_path, scenes, included, fps, table
 
 
-def test_open_gop_source_refused(tmp_path: Path) -> None:
-    """An open-GOP source (leading pictures after a seek keyframe) must be
-    refused by enpipe before any chunk is encoded: qsvencc shifts --trim by -N
-    on such sources, which keeps frame counts but silently corrupts content."""
-    src, scenes_path, scenes, included, fps, table = _prepare_mid_gop_source(
-        tmp_path, open_gop=True)
-
-    used = sorted({kf_before(table, s) for s, _ in scenes[:-1]})
-    leading = probe_leading_frames(src, fps, used)
-    if not any(n > 0 for n in leading.values()):
-        pytest.fail(f"precondition: no leading frames after used keyframes: {leading}")
-
-    out = tmp_path / "syn.av1.mkv"
-    workdir = tmp_path / "syn.chunks"
-    with pytest.raises(SystemExit) as excinfo:
-        _enpipe_main([
-            "encode", str(src), str(scenes_path),
-            "-o", str(out), "--workdir", str(workdir), "--keep", "--no-audio",
-            "--no-metrics", "--jobs", "2", "--from", "0", "--to", str(len(scenes) - 1),
-        ])
-    assert "open-GOP" in str(excinfo.value)
-    assert not list(workdir.glob("chunk_*.obu"))
-
-
-def test_chunk_content_closed_gop(tmp_path: Path) -> None:
-    """Same mid-GOP layout as the open-GOP source but closed GOP: the chunk
-    content check must pass (covers the qsvencc r4663 seek fix on mid-GOP
-    cuts). Precondition problems and encode failures use pytest.fail()."""
-    src, scenes_path, scenes, included, _fps, _table = _prepare_mid_gop_source(
-        tmp_path, open_gop=False)
-
+def _encode_and_check_content(tmp_path: Path, prepared) -> None:
+    """Encode the included scenes, verify per-chunk and total frame counts and
+    the chunk first-frame content check (with a non-vacuous negative control).
+    Encode and precondition problems use pytest.fail()."""
+    src, scenes_path, scenes, included, _fps, _table = prepared
     out = tmp_path / "syn.av1.mkv"
     workdir = tmp_path / "syn.chunks"
     # The last scene is excluded so no included scene overruns the end of the
@@ -1103,6 +1122,31 @@ def test_chunk_content_closed_gop(tmp_path: Path) -> None:
     disc = _verify_chunk_first_frames(src, workdir, included, tmp_path / "content")
     if disc == 0:
         pytest.fail("negative control never discriminated -- check is vacuous")
+
+
+@pytest.mark.parametrize("gop", ["open", "radl"], ids=["rasl", "radl"])
+def test_chunk_content_open_gop(tmp_path: Path, gop: str) -> None:
+    """Open-GOP source (RASL after CRA / RADL after IDR_W_RADL) with scenes cut
+    mid-GOP and exactly on a keyframe that has leading pictures: chunk content
+    must match the source (covers the qsvencc r4665 `--trim` fix)."""
+    prepared = _prepare_mid_gop_source(tmp_path, gop=gop)
+    src, _sp, _scenes, included, fps, table = prepared
+
+    used = sorted({kf_before(table, s)[0] for s, _ in included} - {0})
+    leading = _leading_counts(src, fps, used)
+    if not used or any(leading.get(k, 0) <= 0 for k in used):
+        pytest.fail(
+            f"precondition: every used seek keyframe != 0 must have leading "
+            f"pictures: used={used}, leading={leading}"
+        )
+    _encode_and_check_content(tmp_path, prepared)
+
+
+def test_chunk_content_closed_gop(tmp_path: Path) -> None:
+    """Same mid-GOP layout as the open-GOP sources but closed GOP: the chunk
+    content check must pass (covers the qsvencc r4663 seek fix on mid-GOP
+    cuts)."""
+    _encode_and_check_content(tmp_path, _prepare_mid_gop_source(tmp_path, gop="closed"))
 
 
 def test_dv_profile5(tmp_path: Path) -> None:
