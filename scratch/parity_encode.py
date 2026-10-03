@@ -53,6 +53,7 @@ Note: scratch/*.mkv / *.obu / *.scenes are gitignored (Plan 01-01).
 from __future__ import annotations
 
 import csv
+import math
 import os
 import shutil
 import subprocess
@@ -60,7 +61,7 @@ import sys
 import tempfile
 from argparse import Namespace
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -229,6 +230,66 @@ def _totals_row(csv_path: Path) -> Optional[dict]:
     return None
 
 
+def _scene_rows(csv_path: Path) -> Optional[Dict[str, dict]]:
+    """Построчные (per-scene) строки CSV метрик по номеру сцены, без ИТОГО."""
+    if not csv_path.exists():
+        return None
+    with csv_path.open() as f:
+        return {r["scene"]: r for r in csv.DictReader(f) if r.get("scene") != "ИТОГО"}
+
+
+def _metric_value(row: dict, key: str) -> Optional[float]:
+    """Значение метрики сцены или None, если оно пустое/нечисловое/nan.
+    inf допустим (плоскость без потерь) и сравнивается как inf == inf."""
+    raw = (row.get(key) or "").strip()
+    if not raw:
+        return None
+    try:
+        v = float(raw)
+    except ValueError:
+        return None
+    return None if math.isnan(v) else v
+
+
+def _per_scene_metric_gate(
+    rows1: Dict[str, dict], rows_new: Dict[str, dict]
+) -> Tuple[bool, List[str]]:
+    """Запасной гейт ΔSSIM/ΔPSNR ПОСТРОЧНО (WR-06). Итоги ИТОГО legacy и
+    нового metrics.py несопоставимы: legacy усредняет дБ, новый считает PSNR
+    через MSE (разрыв Йенсена легко больше PSNR_EPS_DB). Значения сцен обе
+    реализации берут из одного и того же вывода qsvencc, поэтому сравнимы.
+    Пустое/нечисловое значение - FAIL с понятной причиной, а не ValueError."""
+    problems: List[str] = []
+    if set(rows1) != set(rows_new):
+        problems.append(
+            f"наборы сцен различаются: legacy={sorted(rows1)} migrated={sorted(rows_new)}"
+        )
+        return False, problems
+    if not rows1:
+        problems.append("в CSV метрик нет ни одной строки сцены")
+        return False, problems
+    for scene in sorted(rows1, key=lambda k: int(k) if k.isdigit() else k):
+        for key, eps in (("ssim_all", SSIM_EPS), ("psnr_avg", PSNR_EPS_DB)):
+            a = _metric_value(rows1[scene], key)
+            b = _metric_value(rows_new[scene], key)
+            if a is None or b is None:
+                problems.append(
+                    f"сцена {scene}: {key} пусто/нечисло/nan "
+                    f"(legacy={rows1[scene].get(key)!r}, migrated={rows_new[scene].get(key)!r})"
+                )
+                continue
+            if math.isinf(a) or math.isinf(b):
+                if a != b:
+                    problems.append(f"сцена {scene}: {key} legacy={a} migrated={b}")
+                continue
+            if abs(a - b) > eps:
+                problems.append(
+                    f"сцена {scene}: |Δ{key}|={abs(a - b):.6f} > eps {eps} "
+                    f"(legacy={a}, migrated={b})"
+                )
+    return not problems, problems
+
+
 def _count_frames(path: Path) -> int:
     from enpipe.encoding.chunk import count_frames
     return count_frames(path)
@@ -306,19 +367,22 @@ def _main_inner() -> int:
         if n1 != n_new:
             print("FAIL: fallback frame-count gate failed")
             ok = False
-        totals1 = _totals_row(Path(str(OUT_LEGACY1) + ".metrics.csv"))
-        totals_new = _totals_row(Path(str(OUT_NEW) + ".metrics.csv"))
-        if totals1 and totals_new and totals1.get("ssim_all") and totals_new.get("ssim_all"):
-            d_ssim = abs(float(totals1["ssim_all"]) - float(totals_new["ssim_all"]))
-            d_psnr = abs(float(totals1["psnr_avg"]) - float(totals_new["psnr_avg"]))
-            print(f"|ΔSSIM|={d_ssim:.6f} (eps {SSIM_EPS}), "
-                  f"|ΔPSNR|={d_psnr:.3f}dB (eps {PSNR_EPS_DB})")
-            if d_ssim > SSIM_EPS or d_psnr > PSNR_EPS_DB:
-                print("FAIL: fallback SSIM/PSNR epsilon gate failed")
-                ok = False
-        else:
+        # WR-06: сравнение построчно по сценам, а не по ИТОГО (формулы итога
+        # у legacy и metrics.py намеренно разные).
+        rows1 = _scene_rows(Path(str(OUT_LEGACY1) + ".metrics.csv"))
+        rows_new = _scene_rows(Path(str(OUT_NEW) + ".metrics.csv"))
+        if rows1 is None or rows_new is None:
             print("FAIL: could not read metrics CSV for fallback SSIM/PSNR gate")
             ok = False
+        else:
+            gate_ok, gate_problems = _per_scene_metric_gate(rows1, rows_new)
+            print(f"построчный гейт SSIM/PSNR: {len(rows1)} сцен(ы), "
+                  f"eps ΔSSIM={SSIM_EPS}, ΔPSNR={PSNR_EPS_DB}dB")
+            for line in gate_problems:
+                print(f"  {line}")
+            if not gate_ok:
+                print("FAIL: fallback SSIM/PSNR epsilon gate failed")
+                ok = False
 
     print("== SECONDARY GATE: final .mkv frame counts ==")
     n1_final, n_new_final = _count_frames(OUT_LEGACY1), _count_frames(OUT_NEW)
