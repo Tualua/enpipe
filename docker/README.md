@@ -104,6 +104,31 @@ docker run --rm --device /dev/dri --entrypoint sh enpipe:ubuntu2404 -c \
 `testsrc` через ffmpeg и выполнить `enpipe run s.mkv -o s.av1.mkv --no-audio`.
 Успех: `rc=0` и в `s.av1.mkv.metrics.csv` строка `ИТОГО` с `ssim_all`/`psnr_avg`.
 
+### Podman (rootless)
+
+Сборка и запуск те же, с тремя отличиями:
+
+```bash
+podman build -t enpipe:ubuntu2404 .
+podman run --rm --device /dev/dri --group-add keep-groups --entrypoint clinfo enpipe:ubuntu2404 -l
+mkdir -p /tmp/enpipe-ck && podman run --rm --device /dev/dri --group-add keep-groups \
+  -v /tmp/enpipe-ck:/w:Z --entrypoint sh enpipe:ubuntu2404 -c \
+  'ffmpeg -y -hide_banner -loglevel error -f lavfi -i testsrc=duration=10:size=640x360:rate=24 -pix_fmt yuv420p -c:v libx264 /w/s.mkv && enpipe run /w/s.mkv -o /w/s.av1.mkv --workdir /w/wd --no-audio; echo rc=$?; cat /w/s.av1.mkv.metrics.csv'
+```
+
+- `--secret` не нужен: секрет `github_token` объявлен `required=false`, репозиторий
+  публичный. Передать его (`--secret id=github_token,env=GITHUB_TOKEN`) стоит
+  только при упоре в лимиты загрузки с github.com.
+- `--group-add keep-groups`: rootless Podman (crun) иначе сбрасывает членство
+  в группе `render`, и `/dev/dri/renderD128` в контейнере не открывается
+  (тот же флаг, что в `.devcontainer/devcontainer.json`).
+- `:Z` у тома: на хостах с SELinux без перемаркировки контейнер не пишет в
+  bind-mount. Если устройство всё равно не видно, добавить
+  `--security-opt label=disable`.
+
+Проверено на A380 (NAS, rootless Podman, 2026-10-03): `clinfo -l` видит A380,
+`enpipe run` с метриками — rc=0 с первой попытки.
+
 ## Переход с образа на Debian trixie
 
 Что изменилось:

@@ -37,7 +37,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 
 - [x] **Phase 6: Concurrency-Immunity Spike + Image Rebuild (GATE)** — Rebuild the devcontainer to ffmpeg-8.1 and prove ffmpeg av1_qsv is corruption-free at production+stress JOBS with per-frame content verification, before any backend code exists. (completed 2026-07-23)
 - [x] **Phase 7: Adopt Fixed qsvencc + Concurrency Regression Lock** — Ship qsvencc ≥ `45003f1` in the devcontainer, fail fast on older builds, and prove 0 corrupt frames at production+stress JOBS with the corruption triad active. (completed 2026-10-02)
-- [ ] **Phase 8: Усиление замка COR-02: триада на каждой сессии, сверка кадров, путь с метриками** — Промоутировано из backlog 999.2 (пробелы WR-01..03 верификации фазы 7).
+- [x] **Phase 8: Усиление замка COR-02: триада на каждой сессии, сверка кадров, путь с метриками** — Промоутировано из backlog 999.2 (пробелы WR-01..03 верификации фазы 7). (completed 2026-10-03)
 
 ## Phase Details
 
@@ -78,7 +78,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 **Requirements**: TBD (покрытие по решениям D-01..D-14 из 08-CONTEXT.md)
 **Plans**: 6 plans
 - [x] 08-01-PLAN.md — D-02: аппаратный стоп-гейт побайтного детерминизма r4634 на сценах 923/928/1129 (+ предварительно D-05, доля METRICS_FAILED; --self-test классификатора)
-- [ ] 08-02-PLAN.md — D-06/D-07/D-14: рантайм-образ на ubuntu:24.04 + Intel PPA (deb822, ключ по отпечатку), самопроверка сборки, раздел перехода, человеческий чекпоинт на хосте
+- [x] 08-02-PLAN.md — D-06/D-07/D-14: рантайм-образ на ubuntu:24.04 + Intel PPA (deb822, ключ по отпечатку), самопроверка сборки, раздел перехода, человеческий чекпоинт на хосте
 - [x] 08-03-PLAN.md — D-01/D-03/D-04/D-05/D-08/D-09/D-12/D-13: харнесс — примитивы гейта, 4-я нога триады, ретраи эталона и классификация run_concurrent (три атомарные задачи)
 - [x] 08-04-PLAN.md — D-04/D-05/D-08/D-12: замок parametrize(metrics), стресс-матрица по двум вариантам (прерывание на HarnessError, оценка времени)
 - [x] 08-05-PLAN.md — D-10d/D-12: перехватчик полного stderr qsvencc, аппаратный тир и паритет с legacy с метриками
@@ -95,7 +95,7 @@ Eliminate the concurrent-encode silent frame corruption. **Re-scoped 2026-10-02:
 | 5. Single-Command Pipeline Entry Point                | v1.1      | 1/1            | Complete    | 2026-07-09 |
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3 | Complete   | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5 | Complete    | 2026-10-02 |
-| 8. Усиление замка COR-02                            | v1.2      | 5/6 | In Progress|  |
+| 8. Усиление замка COR-02                            | v1.2      | 6/6 | Complete   | 2026-10-03 |
 
 ## Backlog
 

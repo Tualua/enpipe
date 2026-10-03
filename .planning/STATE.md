@@ -140,7 +140,7 @@ None yet.
 ### Blockers/Concerns
 
 - Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual
-- Фаза 08: блокер «236/240 при rc=0 с метриками» снят сборкой qsvencc 8.32+vppsync4 (r4658, quick 261003-8qq). Перепроверено 2026-10-03 на A380: test_sdr[metrics] и [no-metrics] PASSED (metrics attempts=1); scratch/parity_encode.py с метриками 3/3 PARITY OK (attempts 1/1/1, movie.obu побайтно идентичен legacy↔migrated). 08-06 выполнен на r4658 (2026-10-03, все гейты зелёные, см. 08-06-SUMMARY); эталоны фаз 07–08 сняты на r4634 — учесть при сверке. 08-02 ждёт чекпоинт D-07 на хосте.
+- Фаза 08: блокер «236/240 при rc=0 с метриками» снят сборкой qsvencc 8.32+vppsync4 (r4658, quick 261003-8qq). Перепроверено 2026-10-03 на A380: test_sdr[metrics] и [no-metrics] PASSED (metrics attempts=1); scratch/parity_encode.py с метриками 3/3 PARITY OK (attempts 1/1/1, movie.obu побайтно идентичен legacy↔migrated). 08-06 выполнен на r4658 (2026-10-03, все гейты зелёные, см. 08-06-SUMMARY); эталоны фаз 07–08 сняты на r4634 — учесть при сверке. 08-02 чекпоинт D-07 пройден на хосте (rootless Podman, 2026-10-03).
 
 ### Quick Tasks Completed
 
