@@ -52,7 +52,7 @@ sha256` lines of both logs. Cell lines are printed as soon as a cell finishes
 (flushed), so a partial log is usable for a report.
 
 HARDWARE-GATED: without /dev/dri/renderD128 + qsvencc (or the fixture, or
-ffmpeg-8.1 for --backend ffmpeg) it prints a loud SKIP and exits 0.
+an av1_qsv-capable ffmpeg n9.0.2 for --backend ffmpeg) it prints a loud SKIP and exits 0.
 Exit code: 0 on PASS (or SKIP), 1 on FAIL.
 
 Each iteration uses a fresh mkdtemp workdir removed right after its tally is
@@ -161,8 +161,11 @@ def main(argv: Optional[List[str]] = None) -> int:  # noqa: C901 -- linear evide
     if not _hardware_available():
         print("SKIP: no Arc hardware (/dev/dri/renderD128 or qsvencc absent)")
         return 0
-    if backend == "ffmpeg" and not harness.ffmpeg81_available():
-        print("SKIP: ffmpeg-8.1 not on PATH (rebuild the devcontainer image)")
+    if backend == "ffmpeg" and not harness.ffmpeg_av1qsv_available():
+        print(
+            "SKIP: ffmpeg/ffprobe without av1_qsv on PATH "
+            "(expected ffmpeg n9.0.2 from /opt/ffmpeg-9; rebuild the devcontainer image)"
+        )
         return 0
     if not harness.fixture_available():
         print(f"SKIP: fixture not found at {harness.FIXTURE}")
