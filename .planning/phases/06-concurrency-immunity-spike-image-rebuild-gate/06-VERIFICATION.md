@@ -1,7 +1,7 @@
 ---
 phase: 06-concurrency-immunity-spike-image-rebuild-gate
 verified: 2026-07-23T00:00:00Z
-status: human_needed
+status: passed
 score: 4/4 must-haves verified
 has_blocking_gaps: false
 overrides_applied: 0
@@ -99,3 +99,9 @@ The phase goal is achieved on the record. Status is `human_needed` (not `passed`
 
 _Verified: 2026-07-23_
 _Verifier: Claude (gsd-verifier)_
+
+## Human Verification Resolution (2026-10-04)
+
+Оба пункта human_verification закрыты в 06-HUMAN-UAT.md (status: complete, 2/2 pass), переведённые на текущее окружение (ffmpeg n9.0.2, qsvencc r4665, iHD 26.3.2):
+1. ENV-01 на ffmpeg 9: ffmpeg/ffprobe из /opt/ffmpeg-9/bin, av1_qsv/libopus/av1_metadata/dovi_rpu(av1) на месте, ENV01_OK=1.
+2. COR-01: `test_ffmpeg_av1qsv_immune_at_production_jobs` PASSED; стресс-матрица ffmpeg JOBS 3/5/8 — 320 сессий, 0 испорченных кадров, 0 SESSION_FAILED, PASS. Контроль «qsvencc портит» снят: r4665 исправлен, непустота замка доказана на r4604 в 08-06.

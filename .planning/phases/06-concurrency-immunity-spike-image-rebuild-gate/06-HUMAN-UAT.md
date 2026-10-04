@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 06-concurrency-immunity-spike-image-rebuild-gate
 source: [06-VERIFICATION.md]
 started: 2026-07-23T00:00:00Z
-updated: 2026-10-04T16:45:00Z
+updated: 2026-10-04T17:10:00Z
 ---
 
 ## Current Test
@@ -27,15 +27,15 @@ evidence: "оператор 2026-10-04: readlink → /opt/ffmpeg-9/bin/{ffmpeg,f
 ### 2. COR-01: ffmpeg av1_qsv без порчи при параллельном кодировании на A380
 expected: `pytest tests/integration/test_concurrency_immunity.py -m hardware -k ffmpeg` PASSED (0 испорченных кадров при JOBS=3, 0 сессий, не стартовавших, триада intact); стресс-матрица `scratch/gate_stress_matrix.py --backend ffmpeg` даёт 0 порченых кадров на JOBS 3/5/8, 0 SESSION_FAILED, вердикт PASS.
 supersedes: "Re-run hardware gate (ffmpeg immune + qsvencc control corrupts)"
-result: issue
-reported: "pytest: test_ffmpeg_av1qsv_immune_at_production_jobs PASSED, 1 passed in 111.73s. gate_stress_matrix.py --backend ffmpeg: AttributeError: module '_concurrency_harness' has no attribute 'ffmpeg81_available'. Did you mean: 'ffmpeg_av1qsv_available'?"
-severity: blocker
+result: pass
+evidence: "оператор 2026-10-04: pytest -m hardware -k ffmpeg — 1 passed (111.73s). После quick 261004-mse (be62b4c, b44dd85) gate_stress_matrix.py --backend ffmpeg: JOBS 3/5/8 = 60/100/160 ok, 0 byte-mismatch, 0 triad violations, 0 SESSION_FAILED, diag corrupt frames 0, PASS, rc=0 (scratch/gate_stress_matrix_20261004T163058Z.log). Независимый прогон оркестратора 20261004T162632Z — тот же результат; два прогона частично шли одновременно."
+previous_issue: "AttributeError ffmpeg81_available (хвост 261004-h8e) — исправлено в 261004-mse"
 
 ## Summary
 
 total: 2
-passed: 1
-issues: 1
+passed: 2
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -43,7 +43,8 @@ blocked: 0
 ## Gaps
 
 - truth: "Стресс-матрица scratch/gate_stress_matrix.py --backend ffmpeg отрабатывает на JOBS 3/5/8 и выдаёт вердикт (0 порченых кадров, 0 SESSION_FAILED, PASS)"
-  status: failed
+  status: resolved
+  resolved_by: "quick 261004-mse (be62b4c, b44dd85); перепроверено на A380 2026-10-04"
   reason: "User reported: AttributeError: module '_concurrency_harness' has no attribute 'ffmpeg81_available'. Did you mean: 'ffmpeg_av1qsv_available'? (pytest-часть COR-01 при этом PASSED)"
   severity: blocker
   test: 2
