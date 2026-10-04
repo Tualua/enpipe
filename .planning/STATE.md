@@ -136,6 +136,8 @@ Recent decisions affecting current work:
 
 - 2026-10-03: перепроверка на qsvencc 8.32+vppsync7 (r4665, системно в devcontainer) на A380 — всё зелёное: замок COR-02 3/3 PASSED (24+24 сессий, byte_mismatch=0, METRICS_FAILED=0, 468 с); стресс-матрица JOBS 3/5/8 × метрики off/on: 640 сессий, 0 byte-mismatch, 0 SESSION_FAILED, 0 METRICS_FAILED, 0 corrupt (scratch/gate_stress_matrix_20261003T165918Z.log); пробник D-02 PASS 18/18 byte_identical (scratch/probe_d02_20261003T175831Z.log, ячейка metrics=on 1129 теперь сверена); parity_encode PARITY OK (movie.obu побайтно legacy↔migrated); real-media hardware module 13/13 PASSED (quick 261003-mj7). Остаётся: сборка образов на хосте (в devcontainer нет docker/podman).
 
+- 2026-10-04: решение пользователя — остаёмся на форке Tualua/QSVEnc (8.32-vppsyncN). rigaya: «--seek is not intended for exact frame selection, use --trim only» ⇒ схема enpipe `--seek floor_ms(K) --trim (S−K):(E−1−K)` апстримом официально не поддерживается; корректность держится на фиксах форка (vppsync6 seek, vppsync7 open-GOP trim). Замер r4665 (Silo 4K, чанк на 48-й мин): seek+trim 5.3 с, только --trim 127.6 с, вывод побайтно идентичен. Вопросы с апстримом решаются в соседнем проекте форка. Риск: гейт по номеру ревизии не отличает форк от официальной сборки ≥ r4665 без фиксов — защита только пин sha256 в образах; при переходе на официальный релиз сначала проверить seek/trim (тест содержимого чанков).
+
 ### Pending Todos
 
 None yet.
