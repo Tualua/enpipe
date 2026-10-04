@@ -246,17 +246,11 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 
 ### FFmpeg Version Dependency
 
-**Status:** Pinned via devcontainer, but no explicit version check.
+**Status:** RESOLVED - ffmpeg/ffprobe are BtbN static n9.0.2 pinned by URL + SHA256 (`ARG FFMPEG_URL`/`ARG FFMPEG_SHA256`) at /opt/ffmpeg-9 symlinked into /usr/local/bin in both images; the pin is kept in sync by `tests/unit/shared/test_ffmpeg_pin_sync.py`.
 
-**Files:** `.devcontainer/Dockerfile` (Debian 13 apt package), `Dockerfile` (ubuntu:24.04 apt package)
+**Residual risk (URL longevity):** BtbN prunes old autobuild releases, so `FFMPEG_URL` will eventually return 404. The image build fails loudly (not silently wrong).
 
-**Concern:** Both Dockerfiles install ffmpeg/ffprobe from apt without pinning a specific version. An Ubuntu/Debian point release could pull a newer ffmpeg with changed CLI semantics (rare, but possible).
-
-**Mitigation:** 
-- Codebase uses stable ffmpeg flags; risk of incompatibility is low.
-- CI tests run against devcontainer-packaged ffmpeg, so regressions would be caught.
-
-**Note:** If a future ffmpeg upgrade causes failures, version pinning would be straightforward (apt-get install ffmpeg=VERSION).
+**Follow-up:** mirror the tarball as a GitHub Release asset in the project repo (precedent: deps-qsvencc-r4634) and switch `FFMPEG_URL` in both Dockerfiles; SHA256 stays unchanged.
 
 ---
 

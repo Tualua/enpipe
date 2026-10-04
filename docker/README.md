@@ -66,6 +66,19 @@ DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpi
 ведёт себя ровно как раньше. Современный Docker включает BuildKit по
 умолчанию; на старых движках нужен явный `DOCKER_BUILDKIT=1`.
 
+## ffmpeg
+
+`ffmpeg`/`ffprobe` в образе - статическая сборка BtbN n9.0.2 (GPL),
+закреплённая по URL и SHA256 (`ARG FFMPEG_URL`/`ARG FFMPEG_SHA256`, одинаковые
+в обоих Dockerfile; страж `tests/unit/shared/test_ffmpeg_pin_sync.py`). Архив
+ставится в `/opt/ffmpeg-9/bin`, симлинки в `/usr/local/bin`. apt-пакет `ffmpeg`
+(6.1) из рантайм-образа убран: `qsvencc` не линкует `libav*`, `mkvtoolnix` ffmpeg
+не требует. Сборка нужна ради `dovi_rpu` для AV1 и libdav1d с DV-метаданными.
+
+URL longevity: BtbN чистит старые autobuild-релизы, URL со временем станет 404
+(сборка упадёт громко). Дальнейший шаг - зеркалировать архив ассетом GitHub
+Release проекта и сменить `FFMPEG_URL`; SHA256 остаётся прежним.
+
 ## Метрики (PSNR/SSIM)
 
 Образ на Ubuntu 24.04 + PPA `kobuk-team/intel-graphics` содержит
@@ -101,13 +114,26 @@ DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpi
 DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpipe:ubuntu2404 .
 docker run --rm --device /dev/dri --entrypoint clinfo enpipe:ubuntu2404 -l
 docker run --rm --device /dev/dri --entrypoint sh enpipe:ubuntu2404 -c \
-  'vainfo 2>&1 | grep -i "driver version"; dpkg-query -W intel-opencl-icd intel-media-va-driver-non-free libmfx-gen1.2; qsvencc --version | head -1'
+  'vainfo 2>&1 | grep -i "driver version"; dpkg-query -W intel-opencl-icd intel-media-va-driver-non-free libmfx-gen1.2; qsvencc --version | head -1; ffmpeg -version | head -1'
 ```
 
-`clinfo -l` должен показать `Intel(R) Arc(TM) A380 Graphics`. Затем короткий
-прогон с метриками: сгенерировать 10-секундный
+`clinfo -l` должен показать `Intel(R) Arc(TM) A380 Graphics`, а `ffmpeg -version | head -1` -
+`n9.0.2`. Затем короткий прогон с метриками: сгенерировать 10-секундный
 `testsrc` через ffmpeg и выполнить `enpipe run s.mkv -o s.av1.mkv --no-audio`.
 Успех: `rc=0` и в `s.av1.mkv.metrics.csv` строка `ИТОГО` с `ssim_all`/`psnr_avg`.
+
+Аудио-проверка: тот же `testsrc` плюс две аудиодорожки из `sine` (5.1 `pcm_s16le`
+и stereo `ac3`) в `s.mkv` (видео libx264); `enpipe run` БЕЗ `--no-audio`; затем
+`ffprobe` по выходу должен показать кодеки `av1`, `flac`, `opus`:
+
+```bash
+ffmpeg -y -hide_banner -loglevel error -f lavfi -i testsrc=duration=10:size=640x360:rate=24 \
+  -f lavfi -i sine=duration=10 -f lavfi -i sine=duration=10 \
+  -map 0:v -map 1:a -map 2:a -pix_fmt yuv420p -c:v libx264 \
+  -c:a:0 pcm_s16le -ac:a:0 6 -c:a:1 ac3 -ac:a:1 2 s.mkv
+enpipe run s.mkv -o s.av1.mkv --workdir wd
+ffprobe -v error -show_entries stream=codec_name -of csv=p=0 s.av1.mkv
+```
 
 ### Podman (rootless)
 
@@ -116,6 +142,7 @@ docker run --rm --device /dev/dri --entrypoint sh enpipe:ubuntu2404 -c \
 ```bash
 podman build -t enpipe:ubuntu2404 .
 podman run --rm --device /dev/dri --group-add keep-groups --entrypoint clinfo enpipe:ubuntu2404 -l
+podman run --rm --entrypoint sh enpipe:ubuntu2404 -c 'ffmpeg -version | head -1'
 mkdir -p /tmp/enpipe-ck && podman run --rm --device /dev/dri --group-add keep-groups \
   -v /tmp/enpipe-ck:/w:Z --entrypoint sh enpipe:ubuntu2404 -c \
   'ffmpeg -y -hide_banner -loglevel error -f lavfi -i testsrc=duration=10:size=640x360:rate=24 -pix_fmt yuv420p -c:v libx264 /w/s.mkv && enpipe run /w/s.mkv -o /w/s.av1.mkv --workdir /w/wd --no-audio; echo rc=$?; cat /w/s.av1.mkv.metrics.csv'

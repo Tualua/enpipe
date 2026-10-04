@@ -21,7 +21,7 @@ All code is local/single-user; no API keys, tokens, or credentials are present.
   - qsvencc --version output: "8.32 (r4665)" — minimum revision checked at runtime via `src/enpipe/shared/qsvencc_version.py` (threshold: r4665)
 
 - `api.github.com/repos/quietvoid/dovi_tool/releases/latest` - fetch latest dovi_tool static musl binary
-  - Called in: `Dockerfile` line 195, `.devcontainer/Dockerfile` line 120 (alternative: ffmpeg 8.1 build from BtbN)
+  - Called in: `Dockerfile` line 195, `.devcontainer/Dockerfile` line 120 
   - Auth: optional BuildKit secret `github_token` (same rate-limit consideration)
   - No SHA256 verification (moving target via `:latest`)
   - Currently unused in pipeline (DEBT-04); reserved for Phase 4 DV verification
@@ -41,7 +41,7 @@ All invoked via subprocess; no SDK wrappers or client libraries:
   - `src/enpipe/encoding/hdr.py` - HDR10/HDR10+/Dolby Vision metadata detection via side_data
   - `src/enpipe/encoding/audio.py` - audio stream probing and transcode/copy
 - Requires: `LIBVA_DRIVER_NAME=iHD` + `/dev/dri/renderD128` for QSV decode path
-- Package: Ubuntu 24.04 apt (system ffmpeg 6.1.1); devcontainer optionally includes ffmpeg 8.1 from BtbN
+- Package: BtbN static n9.0.2 pinned URL+SHA256 at /opt/ffmpeg-9 symlinked into /usr/local/bin in both images (runtime image no longer installs apt ffmpeg; devcontainer shadows dlstreamer ffmpeg 6.1.1)
 - Entry point:  via `src/enpipe/shared/proc.py::run()` wrapper
 
 **qsvencc (Tualua/QSVEnc 8.32+vppsync7):**

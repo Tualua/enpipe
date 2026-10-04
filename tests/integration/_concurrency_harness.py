@@ -82,8 +82,21 @@ def _hardware_available() -> bool:
     return Path("/dev/dri/renderD128").exists() and shutil.which("qsvencc") is not None
 
 
-def ffmpeg81_available() -> bool:
-    return shutil.which("ffmpeg-8.1") is not None and shutil.which("ffprobe-8.1") is not None
+def ffmpeg_av1qsv_available() -> bool:
+    """True when PATH carries ffmpeg+ffprobe and ffmpeg lists the av1_qsv encoder.
+
+    Capability-based, not name-based: a system ffmpeg 6.1 build may lack
+    av1_qsv, so merely finding the binary is not enough."""
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        return False
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True, text=True, timeout=30,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "av1_qsv" in out
 
 
 def fixture_available() -> bool:
@@ -103,7 +116,7 @@ def ffmpeg_av1qsv_command(seek: str, frames: int, out: Path) -> List[str]:
     (assert_triad) has an init log to parse; the caller is responsible for
     capturing stderr to a file (see run_session)."""
     return [
-        "ffmpeg-8.1", "-v", "verbose",
+        "ffmpeg", "-v", "verbose",
         "-init_hw_device", "qsv=hw:/dev/dri/renderD128",
         "-hwaccel", "qsv", "-hwaccel_output_format", "qsv",
         "-c:v", "h264_qsv", "-ss", seek, "-i", str(FIXTURE),

@@ -43,11 +43,20 @@ ENPIPE_TEST_MEDIA=/data/media/enpipe-fixtures uv run pytest -m hardware
 
 The DV checks need an ffprobe from ffmpeg >= 7 with AV1 Dolby Vision support
 (the libdav1d decoder exports "Dolby Vision Metadata" and the `dovi_rpu`
-bitstream filter lists av1). The system ffmpeg 6.1 on Ubuntu 24.04 cannot do
-this, so the DV tests skip honestly there. `ENPIPE_TEST_FFPROBE` affects ONLY
-the read-only verification probes; the pipeline under test keeps using
-ffmpeg/ffprobe from PATH. The self-check uses the ffmpeg sitting next to that
-ffprobe. Example (BtbN static build):
+bitstream filter lists av1). Both images (runtime and devcontainer) now ship
+ffmpeg 9 (BtbN static, n9.0.2, pinned by URL + SHA256) as the primary
+`ffmpeg`/`ffprobe` (`/usr/local/bin` -> `/opt/ffmpeg-9/bin`), so the DV checks run
+with the default `ffprobe` on PATH. The system ffmpeg 6.1 on Ubuntu 24.04 cannot
+verify AV1 DV, so the DV tests would skip honestly there.
+`ENPIPE_TEST_FFPROBE` stays as an override and affects ONLY the read-only
+verification probes; the pipeline under test keeps using ffmpeg/ffprobe from
+PATH. The self-check uses the ffmpeg sitting next to that ffprobe.
+
+```bash
+ENPIPE_TEST_MEDIA=/data/downloads/enpipe-fixtures uv run pytest -m hardware -k dv
+```
+
+Override example (another build, e.g. outside the images):
 
 ```bash
 ENPIPE_TEST_MEDIA=/data/downloads/enpipe-fixtures ENPIPE_TEST_FFPROBE=/opt/ffmpeg-9/bin/ffprobe uv run pytest -m hardware -k dv

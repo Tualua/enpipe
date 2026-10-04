@@ -146,8 +146,8 @@ def _run_immunity(backend: str, workdir: Path, metrics: bool) -> _Tally:
 
 
 def test_ffmpeg_av1qsv_immune_at_production_jobs(tmp_path: Path) -> None:
-    if not harness.ffmpeg81_available():
-        pytest.skip("ffmpeg-8.1 absent on PATH -- ffmpeg COR-01 test only (backlog 999.1)")
+    if not harness.ffmpeg_av1qsv_available():
+        pytest.skip("ffmpeg with av1_qsv absent on PATH -- ffmpeg COR-01 test only (backlog 999.1)")
     tally = _run_immunity("ffmpeg", tmp_path, metrics=False)
 
     problems: List[str] = []

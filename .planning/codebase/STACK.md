@@ -55,7 +55,7 @@ Development:
 - numpy == 2.5.1 - numerical array operations for frame buffers
 
 **External Binaries (subprocess invocations):**
-- ffmpeg / ffprobe (Ubuntu 24.04 apt packages) - QSV-accelerated decode, audio transcode, metadata probing via `src/enpipe/shared/proc.py`
+- ffmpeg / ffprobe (BtbN static n9.0.2, pinned URL+SHA256, /opt/ffmpeg-9 symlinked into /usr/local/bin in both images) - QSV-accelerated decode, audio transcode, metadata probing via `src/enpipe/shared/proc.py`
 - qsvencc 8.32+vppsync7 (r4665, tag 8.32-vppsync7, sha256 297d474c…; Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
 - mkvmerge (mkvtoolnix apt package) - final `.mkv` muxing via `src/enpipe/encoding/pipeline.py`
 - dovi_tool (x86_64-unknown-linux-musl static binary, GitHub releases) - Dolby Vision RPU extraction; currently unused (DEBT-04, reserved for Phase 4)
