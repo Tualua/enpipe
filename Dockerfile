@@ -3,7 +3,7 @@
 # node/tmux/git/AI-CLI/GSD для интерактивной разработки внутри Claude Code).
 # Здесь - только то, что нужно, чтобы выполнить `enpipe run <video>` в проде:
 # venv с пакетом enpipe (НЕ editable, из pinned uv.lock) + медиа-рантайм
-# (iHD/oneVPL/OpenCL/ffmpeg/mkvtoolnix/qsvencc/dovi_tool).
+# (iHD/oneVPL/OpenCL/mkvtoolnix/qsvencc/dovi_tool + ffmpeg 9.0.2 static, пин по sha256).
 
 # ==================== STAGE 1: builder ====================
 # Ставим пакет enpipe в чистый /opt/venv настоящим wheel'ом (build-backend
@@ -111,7 +111,6 @@ RUN set -eux; \
       intel-media-va-driver-non-free libmfx-gen1.2 libvpl2 \
       libva2 libva-drm2 vainfo \
       intel-opencl-icd ocl-icd-libopencl1 clinfo \
-      ffmpeg \
       mkvtoolnix \
       python3.12; \
     rm -rf /var/lib/apt/lists/*
@@ -164,6 +163,48 @@ RUN --mount=type=secret,id=github_token,required=false set -eu; \
     rev="$(printf '%s\n' "$ver" | sed -n '1s/.*(r\([0-9]*\)).*/\1/p')"; \
     test "${rev:-0}" -ge 4665; \
     rm -f /tmp/qsvencc.deb; rm -rf /var/lib/apt/lists/*
+
+# --- FFmpeg 9.0.2 (BtbN static GPL) — ОСНОВНОЙ ffmpeg/ffprobe, пин по URL + sha256 ---
+# apt-пакет ffmpeg (6.1) из образа убран: `ldd $(command -v qsvencc)` не показывает
+# libav*/libsw*/libpostproc (qsvencc их не линкует), mkvtoolnix ffmpeg не требует.
+# Почему BtbN static: в сборке есть bitstream-фильтр `dovi_rpu` с поддержкой AV1 и
+# libdav1d с метаданными Dolby Vision (проверка DV в AV1-выходе), av1_qsv/hevc_qsv/
+# vpp_qsv/scale_qsv, libopus/flac. Системный ffmpeg 6.1 AV1 DV проверить не умеет.
+# Точная сборка (n9.0.2-22-g46d8f462ee, autobuild 2026-10-01) проверена на A380:
+# `enpipe detect` даёт побайтно идентичные .scenes с ffmpeg 6.1 (dv-p81, hdr10plus).
+# Пин — неизменяемый тег autobuild + sha256 (проверка ДО распаковки): сборка
+# детерминирована, подмена архива роняет сборку образа. Оба Dockerfile обязаны нести
+# одинаковые ARG FFMPEG_URL/FFMPEG_SHA256 (страж: tests/unit/shared/test_ffmpeg_pin_sync.py).
+# Ставятся только ffmpeg и ffprobe в /opt/ffmpeg-9/bin; симлинки в /usr/local/bin
+# (он на PATH раньше /usr/bin) делают их основными. Побочный довод: ffmpeg av1_qsv
+# держит пулы поверхностей per-process и иммунен к межпроцессной порче кадров
+# qsvencc (backlog 999.1).
+# ОГРАНИЧЕНИЕ: BtbN чистит старые autobuild-релизы, URL РАНО ИЛИ ПОЗДНО даст 404 —
+# сборка упадёт громко, а не молча. План: зеркалировать архив ассетом GitHub Release
+# проекта (прецедент: deps-qsvencc-r4634) и сменить FFMPEG_URL; sha256 остаётся прежним.
+ARG FFMPEG_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-01-13-06/ffmpeg-n9.0.2-22-g46d8f462ee-linux64-gpl-9.0.tar.xz
+ARG FFMPEG_SHA256=a6170faecf757381ad0338d7a6ba26e97c2ebe2b9c1568633421e15d1ed436a9
+RUN set -eux; \
+    curl -fsSL -o /tmp/ffmpeg.tar.xz "$FFMPEG_URL"; \
+    echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -; \
+    tmpd="$(mktemp -d)"; \
+    tar -xJf /tmp/ffmpeg.tar.xz -C "$tmpd"; \
+    mkdir -p /opt/ffmpeg-9/bin; \
+    install -m0755 "$(find "$tmpd" -type f -name ffmpeg | head -1)" /opt/ffmpeg-9/bin/ffmpeg; \
+    install -m0755 "$(find "$tmpd" -type f -name ffprobe | head -1)" /opt/ffmpeg-9/bin/ffprobe; \
+    ln -sf /opt/ffmpeg-9/bin/ffmpeg /usr/local/bin/ffmpeg; \
+    ln -sf /opt/ffmpeg-9/bin/ffprobe /usr/local/bin/ffprobe; \
+    test "$(command -v ffmpeg)" = /usr/local/bin/ffmpeg; \
+    test "$(command -v ffprobe)" = /usr/local/bin/ffprobe; \
+    ver="$(ffmpeg -hide_banner -version | head -1)"; \
+    printf '%s\n' "$ver"; \
+    case "$ver" in *n9.0.2*) ;; *) echo "ожидался ffmpeg n9.0.2" >&2; exit 1;; esac; \
+    enc="$(ffmpeg -hide_banner -encoders)"; \
+    bsf="$(ffmpeg -hide_banner -bsfs)"; \
+    case "$enc" in *av1_qsv*) ;; *) echo "нет av1_qsv" >&2; exit 1;; esac; \
+    case "$enc" in *libopus*) ;; *) echo "нет libopus" >&2; exit 1;; esac; \
+    case "$bsf" in *dovi_rpu*) ;; *) echo "нет dovi_rpu" >&2; exit 1;; esac; \
+    rm -rf "$tmpd" /tmp/ffmpeg.tar.xz
 
 # --- Самопроверка стека (D-07) ---
 # При сборке GPU нет, поэтому проверяются только файлы; видимость устройства

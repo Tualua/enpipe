@@ -101,10 +101,22 @@ def test_intel_packages():
     code = _code()
     for pkg in (
         "intel-media-va-driver-non-free", "libmfx-gen1.2", "libvpl2",
-        "intel-opencl-icd", "ocl-icd-libopencl1", "clinfo", "ffmpeg",
+        "intel-opencl-icd", "ocl-icd-libopencl1", "clinfo",
         "mkvtoolnix", "python3.12",
     ):
         assert re.search(rf"(?<![\w.-]){re.escape(pkg)}(?![\w-])", code), pkg
+
+
+def test_apt_does_not_install_ffmpeg():
+    # ffmpeg ставится статикой BtbN отдельным блоком; apt-пакет ffmpeg 6.1 не нужен
+    # (слово ffmpeg законно встречается в других местах - смотрим только списки
+    # пакетов команд apt-get install, до ближайшей `;`).
+    lists = [
+        part.split(";", 1)[0] for part in _code().split("apt-get install")[1:]
+    ]
+    assert lists
+    for pkgs in lists:
+        assert not re.search(r"(?<![\w./-])ffmpeg(?![\w./-])", pkgs), pkgs
 
 
 def test_d07_selfcheck_present():

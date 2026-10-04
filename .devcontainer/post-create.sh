@@ -98,30 +98,42 @@ vainfo 2>/dev/null | grep -iE 'Driver version|VAProfileAV1|VAProfileHEVCMain10' 
 echo "  ffmpeg QSV-энкодеры:"
 ffmpeg -hide_banner -encoders 2>/dev/null | grep -iE 'av1_qsv|hevc_qsv' | sed 's/^/    /' \
     || echo "    QSV-энкодеров нет"
-# ENV-01: ffmpeg-8.1 — opt-in параллельная сборка (BtbN static), не заменяет
-# системный ffmpeg. Это load-bearing предпосылка для COR-01 (ffmpeg av1_qsv —
-# иммунный к межпроцессной порче кадров путь энкода), поэтому проверка ниже
-# ТРЕКАЕТ pass/fail через ENV01_OK, а не просто печатает grep — сломанная
-# пересборка не должна молча выглядеть как успех. Тем не менее сам скрипт
-# остаётся best-effort под set -euo pipefail: ни одна ОШИБКА здесь не делает
-# mid-script `exit 1` (это было бы стилистическим выбросом на фоне остальных
-# проверок файла) — вместо этого итог печатается одной сводной строкой в
-# конце скрипта.
-echo "  ffmpeg-8.1 (opt-in, BtbN static):"
+# ENV-01: основной ffmpeg/ffprobe — BtbN static n9.0.2 (/opt/ffmpeg-9/bin,
+# симлинки в /usr/local/bin затеняют ffmpeg 6.1.1 из dlstreamer-базы). Это
+# load-bearing предпосылка: DV-проверки AV1 (dovi_rpu для av1) и COR-01 (ffmpeg
+# av1_qsv — иммунный к межпроцессной порче кадров путь энкода), поэтому проверка
+# ниже ТРЕКАЕТ pass/fail через ENV01_OK, а не просто печатает grep — сломанная
+# пересборка не должна молча выглядеть как успех. Сам скрипт остаётся best-effort
+# под set -euo pipefail: ни одна ОШИБКА здесь не делает mid-script `exit 1` —
+# итог печатается одной сводной строкой в конце скрипта.
+echo "  ffmpeg (основной, BtbN static n9.0.2):"
 ENV01_OK=1
-if command -v ffmpeg-8.1 >/dev/null 2>&1; then
-    ffmpeg-8.1 -hide_banner -version 2>/dev/null | head -1 | sed 's/^/    /' \
-        || echo "    версию получить не удалось"
-    # Вывод -encoders/-bsfs захватываем СНАЧАЛА в переменную, потом grep по
-    # here-string. Прямое `ffmpeg-8.1 ... | grep -qi` под `set -o pipefail` даёт
+if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+    for _env01_bin in ffmpeg ffprobe; do
+        case "$(readlink -f "$(command -v "$_env01_bin")")" in
+            /opt/ffmpeg-9/bin/*) ;;
+            *) echo "    ОШИБКА: $_env01_bin на PATH не из /opt/ffmpeg-9/bin (затенён другим ffmpeg?)"; ENV01_OK=0 ;;
+        esac
+    done
+    _env01_ver=$(ffmpeg -hide_banner -version 2>/dev/null | head -1 || true)
+    echo "    ${_env01_ver:-версию получить не удалось}"
+    if ! grep -qF 'n9.0.2' <<<"$_env01_ver"; then
+        echo "    ОШИБКА: версия ffmpeg не n9.0.2"; ENV01_OK=0
+    fi
+    # Вывод -encoders/-bsfs/-h захватываем СНАЧАЛА в переменную, потом grep по
+    # here-string. Прямое `ffmpeg ... | grep -qi` под `set -o pipefail` даёт
     # ГОНКУ: grep -q закрывает читающий конец пайпа на первом совпадении, ffmpeg
     # (ещё пишущий остаток -encoders) ловит SIGPIPE→141, pipefail роняет пайплайн,
     # и `if !` печатает ЛОЖНЫЙ «не найден» на КОРРЕКТНОМ образе. Command
     # substitution дожидается полного вывода ffmpeg — гонки нет.
-    _env01_enc=$(ffmpeg-8.1 -hide_banner -encoders 2>/dev/null || true)
-    _env01_bsfs=$(ffmpeg-8.1 -hide_banner -bsfs 2>/dev/null || true)
+    _env01_enc=$(ffmpeg -hide_banner -encoders 2>/dev/null || true)
+    _env01_bsfs=$(ffmpeg -hide_banner -bsfs 2>/dev/null || true)
+    _env01_dovi=$(ffmpeg -hide_banner -h bsf=dovi_rpu 2>&1 || true)
     if ! grep -qi 'av1_qsv' <<<"$_env01_enc"; then
         echo "    ОШИБКА: av1_qsv кодер не найден"; ENV01_OK=0
+    fi
+    if ! grep -qi 'libopus' <<<"$_env01_enc"; then
+        echo "    ОШИБКА: libopus кодер не найден"; ENV01_OK=0
     fi
     if ! grep -qi 'av1_metadata' <<<"$_env01_bsfs"; then
         echo "    ОШИБКА: av1_metadata BSF не найден"; ENV01_OK=0
@@ -129,11 +141,11 @@ if command -v ffmpeg-8.1 >/dev/null 2>&1; then
     if ! grep -qi 'dovi_rpu' <<<"$_env01_bsfs"; then
         echo "    ОШИБКА: dovi_rpu BSF не найден"; ENV01_OK=0
     fi
-    if ! command -v ffprobe-8.1 >/dev/null 2>&1; then
-        echo "    ОШИБКА: ffprobe-8.1 не найден на PATH (нужен для PSNR-свипа COR-01)"; ENV01_OK=0
+    if ! grep -qi 'av1' <<<"$_env01_dovi"; then
+        echo "    ОШИБКА: dovi_rpu не перечисляет av1 среди кодеков"; ENV01_OK=0
     fi
 else
-    echo "    ОШИБКА: ffmpeg-8.1 не найден на PATH (пересобери образ)"; ENV01_OK=0
+    echo "    ОШИБКА: ffmpeg/ffprobe не найдены на PATH (пересобери образ)"; ENV01_OK=0
 fi
 # QSV-01: порог 4665 совпадает с рантайм-гейтом enpipe.shared.qsvencc_version.
 # QSVENCC_MIN_REV (синхронность проверяет tests/unit/shared/
@@ -217,11 +229,11 @@ for d in /data/media /data/downloads; do
 done
 
 # ENV-01 сводка: единая pass/fail строка по флагу ENV01_OK, накопленному в
-# блоке ffmpeg-8.1 выше. Не роняет скрипт — только сигнализирует состояние.
+# блоке ffmpeg выше. Не роняет скрипт — только сигнализирует состояние.
 if [ "${ENV01_OK:-0}" -eq 1 ]; then
-    echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): OK"
+    echo "ENV-01 (ffmpeg n9.0.2 primary + ffprobe + av1_qsv/libopus + av1_metadata/dovi_rpu(av1)): OK"
 else
-    echo "ENV-01 (ffmpeg-8.1/ffprobe-8.1 + av1_qsv + av1_metadata/dovi_rpu BSF): ПРОВАЛЕН — см. ОШИБКА выше"
+    echo "ENV-01 (ffmpeg n9.0.2 primary + ffprobe + av1_qsv/libopus + av1_metadata/dovi_rpu(av1)): ПРОВАЛЕН — см. ОШИБКА выше"
 fi
 
 # QSV-01 сводка по флагу QSV01_OK (см. блок qsvencc выше).

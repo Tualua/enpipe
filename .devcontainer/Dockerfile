@@ -1,10 +1,10 @@
 # Медиа-стек для проекта: Intel Arc A380 (Alchemist) QSV/VA-API AV1.
 # База — intel/dlstreamer (Ubuntu 24.04): медиа-стек (драйвер iHD, oneVPL/vpl-gpu-rt,
-# ffmpeg(QSV)) поставляется ВМЕСТЕ с образом, не собирается вручную из Debian
+# ffmpeg 6.1.1) поставляется ВМЕСТЕ с образом, не собирается вручную из Debian
 # non-free пакетов. Свежий iHD/oneVPL 26.2.2 под Arc AV1, меньше поверхности для
 # ручного патчинга драйверов при смене базового дистрибутива. Поверх образа всё
 # равно доставляем то, чего в dlstreamer нет: qsvencc (Rigaya), dovi_tool,
-# mkvtoolnix, tmux. Node/Claude Code — через devcontainer features (devcontainer.json).
+# mkvtoolnix, tmux и основной ffmpeg 9 (BtbN static, пин по sha256) поверх базового 6.1.1. Node/Claude Code — через devcontainer features (devcontainer.json).
 #
 # Тег можно закрепить на конкретной еженедельной сборке ради воспроизводимости
 # (пример: intel/dlstreamer:2026.2.0-YYYYMMDD-weekly-ubuntu24) вместо :latest.
@@ -18,8 +18,8 @@ ENV https_proxy="http://10.224.30.233:20171"
 ENV DEBIAN_FRONTEND=noninteractive
 
 # --- Инструменты, которых нет в dlstreamer ---
-# Базовый медиа-стек (iHD/oneVPL/ffmpeg(QSV)) уже в dlstreamer — apt-пакеты драйвера
-# и ffmpeg(QSV) здесь НЕ ставим (в отличие от старой Debian-базы). vainfo/ocl-icd-libopencl1/
+# Базовый медиа-стек (iHD/oneVPL) уже в dlstreamer — apt-пакеты драйвера
+# и ffmpeg здесь НЕ ставим (основной ffmpeg 9 — отдельным блоком ниже) (в отличие от старой Debian-базы). vainfo/ocl-icd-libopencl1/
 # python3* ставим оборонительно (--no-install-recommends, безвредно, если уже есть):
 # vainfo — диагностика VA-API в post-create; ocl-icd-libopencl1 — загрузчик OpenCL,
 # который qsvencc линкует как libOpenCL.so.1 для VPP-фильтров; python3/python3-venv/
@@ -133,44 +133,48 @@ RUN set -eux; \
     install -m0755 "$(find "$tmpd" -type f -name dovi_tool | head -1)" /usr/local/bin/dovi_tool; \
     rm -rf "$tmpd" /tmp/dovi.tgz
 
-# --- FFmpeg 8.1 (BtbN static GPL) — OPT-IN, side-by-side, НЕ заменяет системный ffmpeg ---
-# Это ОТДЕЛЬНАЯ, параллельная сборка FFmpeg 8.1: ставится в /opt/ffmpeg-8.1 и
-# выставляется на PATH как ffmpeg-8.1/ffprobe-8.1. Системный ffmpeg 6.1.1 из
-# dlstreamer-базы НЕ трогается (никаких /usr/local/bin/ffmpeg-симлинков) — весь
-# проверенный медиа-стек остаётся как есть, 8.1 доступен строго по явному вызову.
-#
-# ЗАЧЕМ это важно:
-#  1) ffmpeg `av1_qsv` (и `hevc_qsv`) — путь энкода, ИММУННЫЙ к порче кадров:
-#     конкурентный qsvencc при 10-bit + B-кадрах алиасит reference-surface'ы
-#     между процессами (пересечение пулов поверхностей), что даёт рассинхрон
-#     счётчика кадров — см. `.planning/debug/scene-chunk-frame-mismatch.md`.
-#     У ffmpeg покомпонентные пулы поверхностей на процесс, поэтому этот класс
-#     порчи ему не грозит. Это опорная причина держать 8.1 наготове.
-#  2) 8.1 дополнительно приносит bitstream-фильтр `dovi_rpu` для проброса Dolby
-#     Vision RPU, которого системный ffmpeg 6.1.1 НЕ умеет.
-#
-# КОМПРОМИСС ПО ПИНУ (осознанно принят, вариант «a»):
-# BtbN публикует ПОДВИЖНЫЙ rolling-тег `latest` — ИМЯ ассета стабильно
-# (ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz), но его СОДЕРЖИМОЕ меняется ежедневно
-# (сейчас резолвится в n8.1.2). Значит, сборки НЕ детерминированы. Мы сознательно
-# принимаем это ради единообразия с тем, как qsvencc/dovi_tool выше уже тянут
-# "последний GitHub-релиз". SHA256-верификация НЕ добавляется намеренно: у
-# подвижного тега нет стабильной опубликованной контрольной суммы, к которой можно
-# было бы привязаться (фиксируем это явно, а не умалчиваем). Ассет — public,
-# тянется по HTTPS с GitHub, ставится в изолированный /opt-путь (не затеняет
-# системный ffmpeg).
+# --- FFmpeg 9.0.2 (BtbN static GPL) — ОСНОВНОЙ ffmpeg/ffprobe, пин по URL + sha256 ---
+# Системный ffmpeg 6.1.1 из dlstreamer-базы (/usr/bin/ffmpeg) остаётся на диске
+# (часть базы, может использоваться dlstreamer/gstreamer), но затенён: /usr/local/bin
+# стоит на PATH раньше /usr/bin.
+# Почему BtbN static: в сборке есть bitstream-фильтр `dovi_rpu` с поддержкой AV1 и
+# libdav1d с метаданными Dolby Vision (проверка DV в AV1-выходе), av1_qsv/hevc_qsv/
+# vpp_qsv/scale_qsv, libopus/flac. Системный ffmpeg 6.1 AV1 DV проверить не умеет.
+# Точная сборка (n9.0.2-22-g46d8f462ee, autobuild 2026-10-01) проверена на A380:
+# `enpipe detect` даёт побайтно идентичные .scenes с ffmpeg 6.1 (dv-p81, hdr10plus).
+# Пин — неизменяемый тег autobuild + sha256 (проверка ДО распаковки): сборка
+# детерминирована, подмена архива роняет сборку образа. Оба Dockerfile обязаны нести
+# одинаковые ARG FFMPEG_URL/FFMPEG_SHA256 (страж: tests/unit/shared/test_ffmpeg_pin_sync.py).
+# Ставятся только ffmpeg и ffprobe в /opt/ffmpeg-9/bin; симлинки в /usr/local/bin
+# (он на PATH раньше /usr/bin) делают их основными. Побочный довод: ffmpeg av1_qsv
+# держит пулы поверхностей per-process и иммунен к межпроцессной порче кадров
+# qsvencc (backlog 999.1).
+# ОГРАНИЧЕНИЕ: BtbN чистит старые autobuild-релизы, URL РАНО ИЛИ ПОЗДНО даст 404 —
+# сборка упадёт громко, а не молча. План: зеркалировать архив ассетом GitHub Release
+# проекта (прецедент: deps-qsvencc-r4634) и сменить FFMPEG_URL; sha256 остаётся прежним.
+ARG FFMPEG_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-01-13-06/ffmpeg-n9.0.2-22-g46d8f462ee-linux64-gpl-9.0.tar.xz
+ARG FFMPEG_SHA256=a6170faecf757381ad0338d7a6ba26e97c2ebe2b9c1568633421e15d1ed436a9
 RUN set -eux; \
-    curl -fsSL -o /tmp/ffmpeg-8.1.tar.xz \
-      https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz; \
+    curl -fsSL -o /tmp/ffmpeg.tar.xz "$FFMPEG_URL"; \
+    echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -; \
     tmpd="$(mktemp -d)"; \
-    tar -xJf /tmp/ffmpeg-8.1.tar.xz -C "$tmpd"; \
-    mkdir -p /opt/ffmpeg-8.1/bin; \
-    install -m0755 "$(find "$tmpd" -type f -name ffmpeg | head -1)" /opt/ffmpeg-8.1/bin/ffmpeg; \
-    install -m0755 "$(find "$tmpd" -type f -name ffprobe | head -1)" /opt/ffmpeg-8.1/bin/ffprobe; \
-    ln -sf /opt/ffmpeg-8.1/bin/ffmpeg /usr/local/bin/ffmpeg-8.1; \
-    ln -sf /opt/ffmpeg-8.1/bin/ffprobe /usr/local/bin/ffprobe-8.1; \
-    /usr/local/bin/ffmpeg-8.1 -hide_banner -version | head -1; \
-    rm -rf "$tmpd" /tmp/ffmpeg-8.1.tar.xz
+    tar -xJf /tmp/ffmpeg.tar.xz -C "$tmpd"; \
+    mkdir -p /opt/ffmpeg-9/bin; \
+    install -m0755 "$(find "$tmpd" -type f -name ffmpeg | head -1)" /opt/ffmpeg-9/bin/ffmpeg; \
+    install -m0755 "$(find "$tmpd" -type f -name ffprobe | head -1)" /opt/ffmpeg-9/bin/ffprobe; \
+    ln -sf /opt/ffmpeg-9/bin/ffmpeg /usr/local/bin/ffmpeg; \
+    ln -sf /opt/ffmpeg-9/bin/ffprobe /usr/local/bin/ffprobe; \
+    test "$(command -v ffmpeg)" = /usr/local/bin/ffmpeg; \
+    test "$(command -v ffprobe)" = /usr/local/bin/ffprobe; \
+    ver="$(ffmpeg -hide_banner -version | head -1)"; \
+    printf '%s\n' "$ver"; \
+    case "$ver" in *n9.0.2*) ;; *) echo "ожидался ffmpeg n9.0.2" >&2; exit 1;; esac; \
+    enc="$(ffmpeg -hide_banner -encoders)"; \
+    bsf="$(ffmpeg -hide_banner -bsfs)"; \
+    case "$enc" in *av1_qsv*) ;; *) echo "нет av1_qsv" >&2; exit 1;; esac; \
+    case "$enc" in *libopus*) ;; *) echo "нет libopus" >&2; exit 1;; esac; \
+    case "$bsf" in *dovi_rpu*) ;; *) echo "нет dovi_rpu" >&2; exit 1;; esac; \
+    rm -rf "$tmpd" /tmp/ffmpeg.tar.xz
 
 # --- Фикс сборки под podman/buildah ---
 # Devcontainer-фичи (node) запускают apt-get; apt роняет привилегии на непривилегированного
