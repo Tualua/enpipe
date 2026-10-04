@@ -401,7 +401,11 @@ def test_sdr(tmp_path: Path, request: pytest.FixtureRequest, metrics: bool) -> N
 
 _HDR10_CODEC_ARGS: List[str] = [
     "-pix_fmt", "yuv420p10le",
-    "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc",
+    # Colour tags live ONLY in the x265 VUI below: with ffmpeg 9 the output
+    # options -color_primaries/-color_trc make the Matroska muxer drop the
+    # primaries/transfer Colour elements (ffprobe then reports "unknown" and
+    # detect_hdr sees an SDR clip); the VUI alone yields correct tags on both
+    # ffmpeg 6.1 and 9.
     "-c:v", "libx265", "-preset", "ultrafast",
     # x265's default open-gop=1 is kept on purpose: RASL after CRA and HDR10
     # are exercised in one test (needs qsvencc >= r4665).

@@ -584,7 +584,7 @@ def output_is_10bit(obu: Path) -> bool:
     yuv420p10le). The corruption-triad's P010 leg CANNOT be read from the
     `-v verbose` ENCODE log: under QSV every stage reports opaque 'video
     memory surface' / 'format qsv' and the concrete pixel format never
-    appears (confirmed against a real Arc-hardware ffmpeg-8.1 capture). The
+    appears (confirmed against a real Arc-hardware ffmpeg 8.1 capture and re-run on 9.0.2). The
     ground truth is the encoded output's pixel format, so probe it directly
     (system ffprobe, matching count_frames' probe convention)."""
     proc = subprocess.run(
@@ -620,8 +620,8 @@ def assert_triad(verbose_log: str, output_obu: Path) -> List[str]:
         missing.append("GopRefDist:6 not confirmed")
     if not re.search(r"BRefType:\s*pyramid", verbose_log, re.I):
         missing.append("BRefType:pyramid not confirmed")
-    # HW-decode leg: regex CONFIRMED against a real Arc-hardware ffmpeg-8.1
-    # `-v verbose` capture -- the decoder init logs `[h264_qsv @ 0x...]`
+    # HW-decode leg: regex CONFIRMED against a real Arc-hardware ffmpeg 8.1
+    # `-v verbose` capture (re-run on ffmpeg 9.0.2) -- the decoder init logs `[h264_qsv @ 0x...]`
     # (RESEARCH Open Q1, locked). A forced-SW decode has no such line.
     if not re.search(r"\[h264_qsv\b", verbose_log):
         missing.append("HW h264_qsv decoder init not confirmed")
