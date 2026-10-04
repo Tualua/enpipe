@@ -4,14 +4,14 @@ milestone: v1.2
 milestone_name: Concurrent-encode correctness
 status: milestone_complete
 stopped_at: Milestone complete (Phase 8 was final phase)
-last_updated: 2026-10-03T08:09:50.847Z
-last_activity: "2026-10-03 - Completed quick task 261003-8qq: qsvencc 8.32+vppsync4 (форк Tualua)"
+last_updated: 2026-10-04T17:30:00.000Z
+last_activity: "2026-10-04 - UAT фазы 06 закрыт (2/2 pass), quick 261004-mse"
 progress:
-  total_phases: 6
-  completed_phases: 2
-  total_plans: 18
-  completed_plans: 25
-  percent: 33
+  total_phases: 3
+  completed_phases: 3
+  total_plans: 14
+  completed_plans: 14
+  percent: 100
 ---
 
 # Project State
@@ -93,7 +93,7 @@ Recent decisions affecting current work:
 - Roadmap (v1.2): Risk-first 5-phase shape from research SUMMARY adopted under coarse granularity — Phase 6 (ENV-01+COR-01) is a GATE proving ffmpeg av1_qsv immunity at production+stress JOBS with per-frame content verification BEFORE any backend code; if it fails the migration premise is invalid
 - Roadmap (v1.2, 2026-10-02): RE-SCOPE — qsvencc concurrent-encode corruption fixed upstream (rigaya/QSVEnc 45003f1, issue #308: missing MFX VPP output sync before encode with VA memory), verified on our Arc A380 by the user (co-author of the fix). ffmpeg migration (former Phases 7–10, BK/FF/HDR reqs) parked as backlog 999.1; new Phase 7 = adopt fixed qsvencc + concurrency regression lock (QSV-01, QSV-02, COR-02). Decisions below about Phases 7–10 are superseded.
 - Roadmap (v1.2): Refactor-before-feature — Phase 7 (BK-02) lands the `backends/` seam validated byte-identical vs the legacy oracle (qsvencc-only) before Phase 8 adds ffmpeg encode code
-- Roadmap (v1.2): SDR→HDR→DV ordering — Phase 8 (FF-01/02/03 + BK-01 default flip) carries the load-bearing invariants; Phase 9 (HDR-01) is solved-but-relocated (encoder→mkvmerge tags); Phase 10 (HDR-03+HDR-02) is the POC-gated highest-risk DV/HDR10+ decision, deferred last so it cannot block core value
+- Roadmap (v1.2): SDR→HDR→DV ordering — Phase 8 (FF-01/02/03 + BK-01 default flip) carries the load-bearing invariants; бывш. ф.9 (HDR-01) is solved-but-relocated (encoder→mkvmerge tags); бывш. ф.10 (HDR-03+HDR-02) is the POC-gated highest-risk DV/HDR10+ decision, deferred last so it cannot block core value — *исторично: до пересмотра 2026-10-02 фазы 8–10 были ffmpeg-миграцией, перенесена в backlog 999.1; нынешняя фаза 8 — усиление замка COR-02*
 - Roadmap (v1.2): BK-01 maps to Phase 8 (requirement = ffmpeg default realized), though its `--backend` flag scaffold is stubbed in Phase 7
 - Roadmap (v1.2): v1.2 correctness basis is per-frame CONTENT parity (PSNR/VMAF) + quality/size band, NOT byte-identity to qsvencc (ICQ-23 ≠ av1_qsv "23"); `legacy/` stays the frozen parity oracle throughout
 - Roadmap (v1.2): Phases 6 (concurrency methodology) and 10 (DV/HDR10+) flagged for deeper per-phase research at plan time; Phases 7/8/9 are standard patterns
