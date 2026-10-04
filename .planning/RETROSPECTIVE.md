@@ -4,6 +4,52 @@ Living retrospective across milestones. Newest milestone section on top; cross-m
 
 ---
 
+## Milestone: v1.2 — Concurrent-encode correctness
+
+**Shipped:** 2026-10-04
+**Phases:** 3 (Phases 6–8) | **Plans:** 14
+
+### What Was Built
+
+- **Phase 6 GATE:** a per-frame concurrency harness that proved ffmpeg `av1_qsv` immune to the corruption (320 sessions, 0 corrupt) while qsvencc corrupted in the same harness — the evidence that later became the qsvencc lock. Re-confirmed on ffmpeg n9.0.2 at close.
+- **Phase 7:** adopted the upstream-fixed qsvencc (`45003f1`) behind a fail-closed revision gate (runtime + post-create) and inverted the Phase 6 control into the COR-02 regression lock, non-vacuous on r4604.
+- **Phase 8:** hardened the lock to byte identity vs an isolated reference, frame-count triangulation, triad on every session and both metrics variants (640-session matrix, 0 mismatches); runtime image on ubuntu:24.04 + Intel PPA.
+- Around the phases: qsvencc pinned to the Tualua fork (vppsync4 → 6 → 7, r4665) as `--seek` and open-GOP `--trim` bugs were found, handed off and fixed; both images moved to pinned BtbN ffmpeg n9.0.2.
+
+### What Worked
+
+- **Gate before building.** Phase 6 proved (or could have disproved) the migration premise on real hardware before any backend code; when the root cause turned up in qsvencc, nothing had to be thrown away — the harness became the lock.
+- **Fixing upstream instead of routing around.** Root-causing into qsvencc (45003f1, co-authored by the owner) and the fork handoff workflow (`HANDOFF-*.md` → fix → raise `QSVENCC_MIN_REV`) kept the DV/HDR10+ path untouched and avoided a costly encoder migration.
+- **Non-vacuity as a first-class check.** Every lock run is paired with an old-binary run (r4604) that must fail — so "0 corrupt" is never vacuous.
+- **Byte identity over thresholds.** Once hardware determinism was confirmed, sha256 equality replaced the PSNR ≥ 30 dB gate that could miss partial corruption.
+
+### What Was Inefficient
+
+- **Mid-milestone re-scope** (2026-10-02) left a trail: four parked PLANs under 999.1 that health/progress tools count as in-progress, and SDK counters (STATE frontmatter, `milestone.complete`) that mixed backlog plans into milestone totals and had to be corrected by hand twice.
+- **Environment churn outran the scripts.** The ffmpeg 8.1 → 9 switch (quick 261004-h8e) renamed a harness function but missed `scratch/gate_stress_matrix.py`; it surfaced only in the Phase 06 UAT re-run (fixed in 261004-mse, guard extended to `scratch/`).
+- **Stale human-verification items** (Phase 06 written against ffmpeg-8.1 and a "qsvencc corrupts" control) had to be translated to the current environment before they could be closed.
+
+### Patterns Established
+
+- Fail-closed version gate with a single threshold constant synced between runtime code and post-create (test-enforced), raised each time an upstream fix lands.
+- Lock = byte identity + frame-count triangulation + triad-on-every-session + paired non-vacuity run on a known-bad binary.
+- Upstream bug workflow: `.planning/debug/HANDOFF-*.md` with repro/evidence → owner fixes in the fork → enpipe raises the gate; loud refusal until then.
+- Pin-sync guards (`test_ffmpeg_pin_sync.py`, qsvencc threshold sync) to stop partial updates between the two images and helper scripts.
+
+### Key Lessons
+
+- **Find the real root cause before migrating.** The driver-aliasing hypothesis was wrong; the actual defect was a missing VPP→encoder sync in qsvencc. A migration would have "fixed" it while leaving the reason unknown.
+- **Hardware-only correctness needs hardware-only tests — and they rot quietly.** Scripts under `scratch/` are part of the evidence chain and need the same stale-reference guards as the images.
+- **"Frame count correct" ≠ "frames correct" (v1.1 lesson) is now enforced** by byte identity in the lock.
+
+### Cost Observations
+
+- Model mix: planning on opus, execution on sonnet (per config); per-session cost not tracked.
+- Sessions: not tracked.
+- Notable: most wall-clock went to hardware runs (stress matrices of 320–640 sessions, ~25–60 min each) and upstream qsvencc debugging, not to in-repo code.
+
+---
+
 ## Milestone: v1.1 — Single-command pipeline entry point
 
 **Shipped:** 2026-07-23
@@ -52,5 +98,6 @@ Living retrospective across milestones. Newest milestone section on top; cross-m
 |-----------|---------|--------|-------|----------|
 | v1.0 Productionization | 2026-07-08 | 4 | 10 | Installable, pinned, tested package behind a `shared.proc` seam; `legacy/` frozen as oracle |
 | v1.1 Single-command pipeline | 2026-07-23 | 1 (Phase 5) | 1 | `enpipe run <video>` one-command sequential transcode |
+| v1.2 Concurrent-encode correctness | 2026-10-04 | 3 (Phases 6–8) | 14 | Concurrent qsvencc corruption fixed upstream, gated and locked by byte-identity hardware test |
 
-**Recurring theme:** correctness-by-construction verified against the `legacy/` oracle has held for every in-repo refactor; the one place it cannot reach — real-hardware concurrent-encode behavior — is exactly where the open, unresolved risk now sits.
+**Recurring theme:** correctness-by-construction verified against the `legacy/` oracle has held for every in-repo refactor. v1.2 closed the gap it could not reach — real-hardware concurrent-encode behavior — with a hardware byte-identity lock plus a known-bad-binary non-vacuity run; the remaining risk now sits in upstream qsvencc releases, guarded by the fail-closed revision gate.
