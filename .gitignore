@@ -244,3 +244,7 @@ tests/fixtures/media/*
 *.av1.mkv
 *.Encoded.*
 *.mkv
+
+# Claude Code: личные локальные настройки и runtime-lock — не в репозиторий
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

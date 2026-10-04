@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('/root/.local/share/opencode/auth.json'\\)\\);print\\({k:{kk:'<redacted>' for kk in v} if isinstance\\(v,dict\\) else '<redacted>' for k,v in d.items\\(\\)}\\)\")"
+    ]
+  }
+}

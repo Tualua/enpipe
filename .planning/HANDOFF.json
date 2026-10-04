@@ -1,0 +1,329 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-10-04T13:44:38.457Z",
+  "source": "auto-postool",
+  "partial": true,
+  "phase": "8",
+  "phase_name": "cor02-lock-hardening",
+  "phase_dir": ".planning/phases/08-cor02-lock-hardening",
+  "plan": null,
+  "task": null,
+  "total_tasks": 6,
+  "status": "auto-checkpoint",
+  "completed_tasks": [
+    {
+      "id": "01",
+      "name": "Task 1: Пробник побайтного детерминизма D-02 (scratch, без правок харнесса) с режимом --self-test",
+      "status": "done"
+    },
+    {
+      "id": "02",
+      "name": "Task 1: Корневой Dockerfile на ubuntu:24.04 + Intel PPA (deb822, закреплённый ключ) с самопроверкой D-07",
+      "status": "done"
+    },
+    {
+      "id": "03",
+      "name": "Task 1: Примитивы — байтовый гейт, сверка кадров, METRICS_FAILED, metrics-параметр argv, -xerror в свипе",
+      "status": "done"
+    },
+    {
+      "id": "04",
+      "name": "Task 1: Коммитный замок — parametrize metrics, триада на каждой сессии, побайтный критерий, сбор-потом-падение",
+      "status": "done"
+    },
+    {
+      "id": "05",
+      "name": "Task 1: Перехватчик полного stderr qsvencc и правило повтора в харнессе (fast-tier без GPU)",
+      "status": "done"
+    },
+    {
+      "id": "06",
+      "name": "Task 1: D-10c непустота на r4604 (sha256-гейт), затем D-10a замок и D-10b стресс-матрица на r4634",
+      "status": "done"
+    }
+  ],
+  "remaining_tasks": [],
+  "blockers": [
+    {
+      "description": "Carried from v1.0: self-hosted GitHub Actions runner with `/dev/dri` passthrough remains a nontrivial, security-sensitive setup for hardware-gated CI; real DV/HDR10+ source material sourcing remains manual",
+      "type": "technical",
+      "workaround": ""
+    },
+    {
+      "description": "Фаза 08: блокер «236/240 при rc=0 с метриками» снят сборкой qsvencc 8.32+vppsync4 (r4658, quick 261003-8qq). Перепроверено 2026-10-03 на A380: test_sdr[metrics] и [no-metrics] PASSED (metrics attempts=1); scratch/parity_encode.py с метриками 3/3 PARITY OK (attempts 1/1/1, movie.obu побайтно идентичен legacy↔migrated). 08-06 выполнен на r4658 (2026-10-03, все гейты зелёные, см. 08-06-SUMMARY); эталоны фаз 07–08 сняты на r4634 — учесть при сверке. 08-02 чекпоинт D-07 пройден на хосте (rootless Podman, 2026-10-03).",
+      "type": "technical",
+      "workaround": ""
+    }
+  ],
+  "human_actions_pending": [],
+  "decisions": [
+    {
+      "decision": "Roadmap: Package scaffold + dependency pinning (Phase 1) must precede everything else — nearly all other deliverables require stable import paths",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap: Fast test tier + `shared.proc` seam (Phase 1) must exist before any refactor of correctness-critical code (EBML isolation, seek/trim extraction — Phase 2)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap: ThreadPool-vs-ProcessPool resolution (DEBT-03) must land before the parallel==sequential regression baseline (TEST-03) is captured — both placed in Phase 3",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap: Unified CLI entry point (PKG-01) deliberately deferred to Phase 4, after both detect and encode stages are independently verified",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.1): Phase numbering continues from v1.0 (starts at Phase 5, not reset to 1)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.1): All 4 RUN-* requirements collapsed into a single Phase 5 — coarse granularity + this is a thin sequential wrapper over already-verified v1.0 stages, not a multi-capability milestone; no natural sub-boundary to split on",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.1): Phase 5 depends only on Phase 4 (needs `run_detect`/`run_encode` + the unified CLI dispatcher to exist and be hardware-verified before wrapping them)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2): Phase numbering continues from v1.1 (starts at Phase 6, not reset to 1); v1.0/v1.1 groupings preserved in ROADMAP.md, v1.2 appended",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2): Risk-first 5-phase shape from research SUMMARY adopted under coarse granularity — Phase 6 (ENV-01+COR-01) is a GATE proving ffmpeg av1_qsv immunity at production+stress JOBS with per-frame content verification BEFORE any backend code; if it fails the migration premise is invalid",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2, 2026-10-02): RE-SCOPE — qsvencc concurrent-encode corruption fixed upstream (rigaya/QSVEnc 45003f1, issue #308: missing MFX VPP output sync before encode with VA memory), verified on our Arc A380 by the user (co-author of the fix). ffmpeg migration (former Phases 7–10, BK/FF/HDR reqs) parked as backlog 999.1; new Phase 7 = adopt fixed qsvencc + concurrency regression lock (QSV-01, QSV-02, COR-02). Decisions below about Phases 7–10 are superseded.",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2): Refactor-before-feature — Phase 7 (BK-02) lands the `backends/` seam validated byte-identical vs the legacy oracle (qsvencc-only) before Phase 8 adds ffmpeg encode code",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2): SDR→HDR→DV ordering — Phase 8 (FF-01/02/03 + BK-01 default flip) carries the load-bearing invariants; Phase 9 (HDR-01) is solved-but-relocated (encoder→mkvmerge tags); Phase 10 (HDR-03+HDR-02) is the POC-gated highest-risk DV/HDR10+ decision, deferred last so it cannot block core value",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2): BK-01 maps to Phase 8 (requirement = ffmpeg default realized), though its `--backend` flag scaffold is stubbed in Phase 7",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2): v1.2 correctness basis is per-frame CONTENT parity (PSNR/VMAF) + quality/size band, NOT byte-identity to qsvencc (ICQ-23 ≠ av1_qsv \"23\"); `legacy/` stays the frozen parity oracle throughout",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "Roadmap (v1.2): Phases 6 (concurrency methodology) and 10 (DV/HDR10+) flagged for deeper per-phase research at plan time; Phases 7/8/9 are standard patterns",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-01]: Confirmed scenedetect exact pin ==0.7 matches installed/working version (PEP 440 0.7.0); no other 0.7.x exists on PyPI",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-01]: Ran uv lock immediately after writing pyproject.toml deps (fail-fast) before scaffolding source files, per plan instruction",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-02]: jobs=1 used on both sides of the D-14 detection parity check (oracle CLI and migrated detect_scenes) for a deterministic comparison, isolating mechanical-migration correctness from the separately-verified parallel-jobs circular-import path",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-02]: use_qsv probed once via Path('/dev/dri/renderD128').exists() (True in this devcontainer) and applied explicitly/identically to both the legacy oracle CLI and DetectionConfig(use_qsv=...) for the parity check",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-03]: Preflight (shutil.which + video.is_file()) retained in run_encode as the sanctioned minimal structural change while stripping argparse - D-13 zero-logic-change contract stays explicit",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-03]: Switched pytest to --import-mode=importlib to resolve test_chunk.py/test_keyframes.py basename collision between tests/unit/encoding and tests/subprocess/encoding",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-03]: Determinism pre-check confirmed qsvencc deterministic on this box - byte-identical pre-mux movie.obu used as the primary D-14 parity gate",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 01-03]: qsvencc --psnr/--ssim require OpenCL, unavailable in this devcontainer (pre-existing) - Task 3 parity gate runs with metrics disabled symmetrically on both oracle and migrated sides",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 02-01]: Used exact RESEARCH.md hex blobs for Cases A-D rather than re-deriving them with the builder (avoids transcription-error risk on nested SeekHead/Tracks/Cues structures)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 02-01]: Reworded mkv/ebml.py module docstring to avoid tripping the Task 1 purity check's naive substring search on the literal word 'subprocess'",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 02-02]: Used the 2-tuple (seek, trim) return for compute_chunk_seek_trim per D-04's minimal-diff allowance",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 02-02]: contiguous_run annotated Union[Dict[int,int], Set[int]] using typing generics (D-11), not PEP 604 |",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 02-02]: chunk_command wrapped (not stubbed) in the wiring test so real command-building logic runs while recording seek/trim args",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-01]: DEBT-03: measured Layer-1 (0.67x-0.80x speedup) and Layer-2 (1.43x ratio) both fall short of the quantified switch thresholds -- kept ThreadPoolExecutor, rewrote the contradictory comment with measured rationale",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-01]: DEBT-04: kept dovi_tool installed in devcontainer, documented retention for planned Phase-4 TEST-04 DV RPU work without overclaiming AV1 support (extract-rpu is HEVC-only)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-02]: TEST-03 clip recipe (four ~55s color/smptebars segments, 220s@24fps) verified via ffprobe to clear the jobs*min_span gate for jobs=[2,3] with margin",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-02]: Engagement proof primary target is enpipe.detection.detect.detect_scenes (deferred fallback), call_count==0, executor-agnostic; _segment_worker call_count>1 refinement gated on active executor to avoid PicklingError under ProcessPoolExecutor",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-03]: ruff pinned exactly (==0.15.20) to match project's exact-pin convention, rather than uv add's default >= constraint",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-03]: select = [\"F\", \"E9\"] only for ruff — fuller E/W set fires 15x E702 on the deliberately dense mkv/ebml.py parser",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-03]: mkvtoolnix install kept as a separate continue-on-error CI step so an unavailable mkvmerge package cannot block the ffmpeg-only TEST-03 regression test",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 03-03]: Comment-only hardware-tier exclusion in ci.yml (no stub self-hosted job) per RESEARCH Open Question 3 discretion",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 04-01]: run_detect docstring documents the intentionally-absent shutil.which preflight as a sanctioned deviation, mirroring run_encode's docstring style but for the opposite deviation",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 04-01]: cli/main.py uses typing.Optional[Sequence[str]] for main(argv=...), not RESEARCH.md's draft PEP 604 syntax, per typing-generics requirement",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 04-01]: uv sync used (not uv pip install -e .) since the lockfile still resolved cleanly for the console_script wiring",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 04-02]: Empirical correction: HDR10 mastering-display/max-CLL survival is checked via ffprobe FRAME-level side data (frame=side_data_list), not STREAM-level -- this pipeline's mkvmerge-muxed raw-OBU AV1 output has no stream-level side_data_list at all",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 04-02]: Multi-scene synthetic clips (SDR + HDR10) reuse test_parallel_regression.py's 4-segment color=/smptebars= lavfi cut recipe, shortened to 10s/segment (40s total, 3 cuts) for fast real-hardware wall time",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 05]: run_pipeline additive shutil.which preflight before run_detect; run_encode keeps its own preflight unchanged (D-02 zero-behavior-change invariant)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 05]: Detect-jobs and encode-jobs flags resolve the jobs collision; no bare jobs flag on enpipe run (D-03)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 05]: Optional scenes-path override implemented (Claude's discretion, D-04), routing to both detect output and encode scenes",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 06-02]: run_concurrent takes an explicit refs: Dict[int, Path] param (not a same-workdir naming convention) so isolated references can be built once and reused across many ephemeral per-iteration stress-matrix workdirs",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 06-02]: IMMUNITY_ITERS defaults to 8 (env-tunable) -- survival-probability math (0.35^8..0.65^8 ~= 2e-4..3e-2) justifies a modest, fast-rerun iteration count distinct from the one-time 20-iter stress tier",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 08]: [Phase 08-01]: D-02 PASS на A380/qsvencc r4634 - побайтный критерий D-01 жизнеспособен; сцена 1129 с метриками побайтно не сверена",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 08]: Гейт харнесса - sha256; отличные сессии всегда byte_mismatch, HarnessError только для идентичных с неверным числом кадров — D-01/D-03, анти-ложное-чисто",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 08]: 08-04: HarnessError в замке не глушится, в матрице прерывает прогон FAIL; METRICS_FAILED без порога (D-12)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 08]: 08-05: решение о повторе по полному stderr через перехватчик на PATH; METRICS_FAILED=провал; метрики на железе красные",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "[Phase 08]: 08-06: гейт COR-02 побайтный доказан на r4658 (8.32-vppsync4): D-10c на r4604 даёт 3 расхождения (непустота), замок 2 passed, матрица 640 сессий 0 расхождений и 0 METRICS_FAILED, D-05 эталоны on/off совпадают, тир 7 passed/2 skipped, паритет OK; бинарь r4634 заменён на r4658 (quick 261003-8qq); рантайм на Ubuntu 24.04 + PPA с OpenCL, метрики стабильны на r4658; остаток в бэклоге 999.4 (трек апстрима #319/#320, 500-симв. усечение stderr, нет retry)",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "2026-10-03: перепроверка на qsvencc 8.32+vppsync7 (r4665, системно в devcontainer) на A380 — всё зелёное: замок COR-02 3/3 PASSED (24+24 сессий, byte_mismatch=0, METRICS_FAILED=0, 468 с); стресс-матрица JOBS 3/5/8 × метрики off/on: 640 сессий, 0 byte-mismatch, 0 SESSION_FAILED, 0 METRICS_FAILED, 0 corrupt (scratch/gate_stress_matrix_20261003T165918Z.log); пробник D-02 PASS 18/18 byte_identical (scratch/probe_d02_20261003T175831Z.log, ячейка metrics=on 1129 теперь сверена); parity_encode PARITY OK (movie.obu побайтно legacy↔migrated); real-media hardware module 13/13 PASSED (quick 261003-mj7). Остаётся: сборка образов на хосте (в devcontainer нет docker/podman).",
+      "rationale": "",
+      "phase": "8"
+    },
+    {
+      "decision": "2026-10-04: решение пользователя — остаёмся на форке Tualua/QSVEnc (8.32-vppsyncN). rigaya: «--seek is not intended for exact frame selection, use --trim only» ⇒ схема enpipe `--seek floor_ms(K) --trim (S−K):(E−1−K)` апстримом официально не поддерживается; корректность держится на фиксах форка (vppsync6 seek, vppsync7 open-GOP trim). Замер r4665 (Silo 4K, чанк на 48-й мин): seek+trim 5.3 с, только --trim 127.6 с, вывод побайтно идентичен. Вопросы с апстримом решаются в соседнем проекте форка. Риск: гейт по номеру ревизии не отличает форк от официальной сборки ≥ r4665 без фиксов — защита только пин sha256 в образах; при переходе на официальный релиз сначала проверить seek/trim (тест содержимого чанков).",
+      "rationale": "",
+      "phase": "8"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Milestone complete",
+  "context_notes": "Status: Milestone complete\n\nStopped at: Milestone complete (Phase 8 was final phase)"
+}
