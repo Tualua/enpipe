@@ -31,7 +31,11 @@
   // запускающий контейнер, должен состоять в группе-владельце датасетов /data (см. STATE).
   "runArgs": [
     "--device=/dev/dri:/dev/dri",
-    "--group-add", "keep-groups"
+    "--group-add", "keep-groups",
+    // Доступ к сокету хостового rootless podman (см. mounts ниже): на Fedora-хосте
+    // SELinux не пускает процесс контейнера (container_t) к сокету в /run/user/*.
+    // label=disable снимает SELinux-изоляцию со ВСЕГО devcontainer — осознанная цена.
+    "--security-opt", "label=disable"
     // Фолбэк, если keep-groups не покрыл запись в /data (хост-юзер не в группе-владельце):
     // сопоставить хост-юзера с контейнерным vscode 1:1 через user namespace. Тогда всё, что
     // хост-юзер может писать на /data, сможет и vscode. Раскомментировать вместо/вместе с
@@ -65,7 +69,16 @@
     "source=enpipe-claude,target=/root/.claude,type=volume",
     "source=enpipe-qwen,target=/root/.qwen,type=volume",
     "source=enpipe-opencode-data,target=/root/.local/share/opencode,type=volume",
-    "source=enpipe-opencode-config,target=/root/.config/opencode,type=volume"
+    "source=enpipe-opencode-config,target=/root/.config/opencode,type=volume",
+    // Сокет хостового rootless podman → podman-remote в контейнере (сборка и
+    // GPU-проверка рантайм-образа enpipe без выхода на хост).
+    // ТРЕБОВАНИЕ на хосте, под ТЕМ ЖЕ пользователем, что запускает devcontainer
+    // (не root): `systemctl --user enable --now podman.socket` и
+    // `sudo loginctl enable-linger <user>`. Без сокета bind mount не найдёт источник
+    // и devcontainer НЕ запустится — тогда временно закомментируй эту строку.
+    // БЕЗОПАСНОСТЬ: доступ к сокету = права хост-пользователя (любой контейнер,
+    // любой его путь). Агенты в devcontainer получают эти права.
+    "source=${localEnv:XDG_RUNTIME_DIR}/podman/podman.sock,target=/run/podman/podman.sock,type=bind"
   ],
 
   "containerEnv": {
@@ -88,7 +101,10 @@
     // Значение /root/.claude — тот же путь, что и дефолт для каталога, так что
     // меняется ровно одно: .claude.json переезжает ВНУТРЬ тома enpipe-claude.
     // Разовую миграцию старого ~/.claude.json делает post-create.sh (секция 2a).
-    "CLAUDE_CONFIG_DIR": "/root/.claude"
+    "CLAUDE_CONFIG_DIR": "/root/.claude",
+
+    // podman-remote (симлинк podman) ходит в проброшенный сокет хоста.
+    "CONTAINER_HOST": "unix:///run/podman/podman.sock"
   },
 
   // claude-code + opencode + qwen-code (npm), персистентность авторизаций,

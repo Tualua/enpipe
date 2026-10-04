@@ -176,6 +176,27 @@ RUN set -eux; \
     case "$bsf" in *dovi_rpu*) ;; *) echo "нет dovi_rpu" >&2; exit 1;; esac; \
     rm -rf "$tmpd" /tmp/ffmpeg.tar.xz
 
+# --- podman-remote 5.8.2 (статический) — клиент к ХОСТОВОМУ rootless podman ---
+# Сам podman в devcontainer не запускается: podman-remote ходит в сокет хоста,
+# проброшенный в devcontainer.json (CONTAINER_HOST). Так рантайм-образ enpipe
+# собирается и проверяется на GPU прямо из devcontainer. Версия = podman хоста
+# (5.8.2 на NAS) — remote-API совместим в пределах мажора. Репозиторий переехал
+# в podman-container-tools/podman; sha256 сверен с digest ассета релиза v5.8.2.
+# Ссылка podman -> podman-remote: привычные команды из docker/README.md работают
+# как есть. ВНИМАНИЕ: пути в `podman run -v` — это пути ХОСТА, не контейнера
+# (общие для обоих — только /data/media и /data/downloads).
+ARG PODMAN_REMOTE_URL=https://github.com/podman-container-tools/podman/releases/download/v5.8.2/podman-remote-static-linux_amd64.tar.gz
+ARG PODMAN_REMOTE_SHA256=88f7c21e8399a8f5edd1ef7b5c2e12b29706d0a4f24463f264a0e88d887ebbbf
+RUN set -eux; \
+    curl -fsSL -o /tmp/podman-remote.tgz "$PODMAN_REMOTE_URL"; \
+    echo "$PODMAN_REMOTE_SHA256  /tmp/podman-remote.tgz" | sha256sum -c -; \
+    tmpd="$(mktemp -d)"; \
+    tar -xzf /tmp/podman-remote.tgz -C "$tmpd"; \
+    install -m0755 "$tmpd/bin/podman-remote-static-linux_amd64" /usr/local/bin/podman-remote; \
+    ln -sf podman-remote /usr/local/bin/podman; \
+    rm -rf "$tmpd" /tmp/podman-remote.tgz; \
+    podman-remote --version | grep -q 'version 5.8.2'
+
 # --- Фикс сборки под podman/buildah ---
 # Devcontainer-фичи (node) запускают apt-get; apt роняет привилегии на непривилегированного
 # пользователя _apt для apt-key, а тот не может писать в /tmp в этом окружении сборки

@@ -222,6 +222,19 @@ if [ -f "$HOME/.claude.json" ] && [ "$CC_DIR" != "$HOME" ]; then
     echo "    ВНИМАНИЕ: $HOME/.claude.json вне тома (CLAUDE_CONFIG_DIR не применился?)"
     PERSIST_OK=0
 fi
+# Хостовый podman через проброшенный сокет (devcontainer.json: mounts +
+# CONTAINER_HOST). Best-effort: недоступность не роняет скрипт, только печатает
+# причину — обычно на хосте не включён `systemctl --user enable --now podman.socket`.
+printf "  podman (хост, remote): "
+if ! command -v podman-remote >/dev/null 2>&1; then
+    echo "НЕТ podman-remote (пересобери образ)"
+elif [ ! -S /run/podman/podman.sock ]; then
+    echo "НЕТ сокета /run/podman/podman.sock (на хосте: systemctl --user enable --now podman.socket)"
+elif _pr_ver=$(podman-remote version --format '{{.Server.Version}}' 2>&1); then
+    echo "OK, сервер $_pr_ver, клиент $(podman-remote --version | awk '{print $NF}')"
+else
+    echo "ОШИБКА подключения: $(printf '%s' "$_pr_ver" | tail -1)"
+fi
 echo "  медиапапки:"
 for d in /data/media /data/downloads; do
     printf "    %-16s " "$d"
