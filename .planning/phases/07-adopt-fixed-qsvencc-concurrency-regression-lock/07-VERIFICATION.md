@@ -1,7 +1,7 @@
 ---
 phase: 07-adopt-fixed-qsvencc-concurrency-regression-lock
 verified: 2026-10-02T00:00:00Z
-status: gaps_found
+status: passed
 score: 4/4 must-haves verified (с минорными замечаниями по силе доказательств SC#3)
 has_blocking_gaps: false
 overrides_applied: 0
@@ -106,3 +106,7 @@ gaps:
 
 _Verified: 2026-10-02_
 _Verifier: Claude (bm-verifier)_
+
+## Gap Resolution (2026-10-04, закрытие v1.2)
+
+Минорные пробелы WR-01..03 (триада только на первой сессии; сверка кадров/-xerror; путь с метриками) закрыты фазой 8 «Усиление замка COR-02» (промоутирована из backlog 999.2 именно под них). 08-VERIFICATION: status passed, 6/6 критериев. Статус этого файла переведён в passed по факту закрытия.

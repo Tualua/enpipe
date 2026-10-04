@@ -10,76 +10,36 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 ## Current State
 
-**Shipped:** v1.1 Single-command pipeline entry point (2026-07-23).
+**Shipped:** v1.2 Concurrent-encode correctness (2026-10-04). Previous: v1.1 Single-command pipeline entry point (2026-07-23), v1.0 Productionization (2026-07-08).
 
-`enpipe` is now an installable, pinned, tested `src/enpipe/` package with a unified CLI: `enpipe detect`, `enpipe encode`, and the v1.1 headline command `enpipe run <video>` — one command that runs scene detection → `.scenes` → AV1 encode → mux sequentially, byte/frame-identical to the manual two-step and to the frozen `legacy/` oracle. Correctness-critical logic (EBML/Cues parser, seek/trim, high-water-mark ordering) is isolated behind pure, unit-tested functions; a fast hardware-free test tier plus a parallel==sequential regression baseline run in GitHub Actions CI on every push, with a hardware-gated real-Arc tier named out.
+`enpipe` is an installable, pinned, tested `src/enpipe/` package with a unified CLI (`enpipe detect`, `enpipe encode`, `enpipe run <video>`), byte/frame-identical to the frozen `legacy/` oracle. Parallel chunk encoding is **correct again at full JOBS**: the silent cross-session frame corruption in concurrent `qsvencc` was fixed upstream (rigaya/QSVEnc `45003f1`, issue #308, co-authored by the project owner), and enpipe now:
 
-**Correctness debt — fixed upstream (2026-10-02):** real-media use had surfaced a **silent frame-corruption bug** — concurrent `qsvencc` sessions on the Arc A380 could emit isolated frames whose pixels came from a *different* concurrent encode (frame counts stay correct, so it was silent). The real root cause turned out to be a missing sync of the MFX VPP output before encoder submit with VA memory inside qsvencc (not the driver/kernel as earlier hypothesised); it is fixed in rigaya/QSVEnc `45003f1` (issue #308), co-authored by the project owner and verified on our Arc A380. Adopting that build and locking it with a regression test is v1.2 Phase 7.
+- pins qsvencc to the Tualua/QSVEnc fork release **8.32+vppsync7 (r4665)** in both images — upstream 8.32 + `45003f1` + fixes for the metrics VPP sync, the silent flush frame drop, `--seek` landing in the next GOP (vppsync6) and open-GOP `--trim` offset (vppsync7);
+- fails fast (`QSVENCC_MIN_REV = 4665`) on any older qsvencc in `enpipe encode`/`run` and in the post-create self-check;
+- locks correctness with a hardware-gated COR-02 regression test: byte identity (sha256) against an isolated reference, packets == decoded == scene frames, the HW-decode + P010 + B-pyramid triad checked on every session, both metrics variants. A380 evidence: 640-session stress matrix, 0 mismatches; non-vacuity proven on r4604.
 
-**Phase 6 GATE complete (2026-07-23) — v1.2 premise PROVEN:** the milestone's load-bearing gate passed on real Arc A380 hardware — ffmpeg `av1_qsv` is **immune** to the cross-process frame corruption (320 concurrent sessions across JOBS 3/5/8, **0 corrupt frames, 0 failed starts**), while `qsvencc` corrupts in the identical harness (96 frames, control non-vacuous). D-12 verdict = **PROCEED** at full JOBS (no cap). ENV-01 hard-assert self-check landed in the devcontainer; the COR-01 concurrency-immunity harness + hardware-gated pytest are committed. Evidence: `.planning/debug/scene-chunk-frame-mismatch.md` (`## ФАЗА 6 (GATE)`). Documented residual: the gate evidence was captured on a side-loaded ffmpeg 8.1, not a canonical rebuilt image (`06-HUMAN-UAT.md` tracks the clean-rebuild re-confirmation). The ffmpeg path remains a proven, parked alternative (backlog 999.1).
+Both images ship BtbN static **ffmpeg n9.0.2** (URL+sha256 pinned); the runtime image is ubuntu:24.04 + Intel PPA with OpenCL (`--psnr/--ssim` reliable). ffmpeg `av1_qsv` is a proven corruption-free alternative (Phase 6 gate; re-confirmed 2026-10-04 on ffmpeg 9: 320 sessions, 0 corrupt) parked as backlog 999.1.
 
-**Phase 8 complete (2026-10-03) — COR-02 lock hardened:** the concurrency lock now uses a byte-identity criterion (sha256 vs an isolated reference), verifies packets == decoded == scene frames, checks the qsvencc triad on every session and reference, and runs both metrics variants (`--psnr --ssim` on/off). Hardware evidence on A380: 640-session stress matrix (JOBS 3/5/8 × 20 × 2) and the lock — 0 byte mismatches, 0 METRICS_FAILED; non-vacuity re-proven on r4604 (3 byte mismatches). qsvencc is now pinned to the fork release Tualua/QSVEnc `8.32-vppsync4` (r4658: upstream 8.32 + proposed fixes #319/#320 for the metrics VPP sync and the silent 236/240 frame drop on flush) until an official 8.33+ carries them (backlog 999.4). The runtime image moved to ubuntu:24.04 + Intel PPA with OpenCL; verified on the NAS host under rootless Podman.
+## Next Milestone Goals
 
-## Current Milestone: v1.2 Concurrent-encode correctness
-
-**Goal:** Eliminate the concurrent-encode silent frame corruption — restoring full-speed parallel encoding with correct output. **Re-scoped 2026-10-02:** originally planned as a migration of the default encoder to ffmpeg `av1_qsv`; since the corruption was fixed upstream in qsvencc (`45003f1`), v1.2 now adopts the fixed qsvencc instead and keeps it as the sole encoder (which also keeps DV/HDR10+ handling untouched — the reason qsvencc was chosen originally).
-
-**Target features:**
-- Devcontainer ships a qsvencc build containing `45003f1` (source build until an upstream release includes it), with the post-create self-check asserting the revision.
-- `enpipe encode`/`run` fail fast on a qsvencc build older than the fix.
-- Hardware-gated regression test: qsvencc at production+stress JOBS with the HW-decode + P010 + B-pyramid triad active → 0 corrupt frames by per-frame content verification (Phase 6 harness, inverted control).
-- Preserve the correctness invariants (per-chunk + total frame counts, keyframe alignment).
-
-**Key context:** Phase 6 built the per-frame concurrency harness and proved ffmpeg `av1_qsv` immune; that work stays as the regression harness and as the evidence base for the parked ffmpeg backend (backlog 999.1, with full Phase 7 seam-refactor planning artifacts). Debug history: `.planning/debug/scene-chunk-frame-mismatch.md`, `HANDOFF-qsvencc-frame-corruption.md`, `qsvenc-upstream-issue.md`.
+Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog:
+- 999.6 — sources with non-zero `start_time` (MPEG-TS/m2ts)
+- 999.5 — Dolby Vision profile 5 → HDR10 via libplacebo
+- 999.4 — return to an official qsvencc release once it carries the fork's fixes
+- 999.3 — qsvencc version gate in `legacy/encode_scenes.py`
+- 999.1 — ffmpeg `av1_qsv` backend (parked; planning artifacts preserved)
 
 ## Requirements
 
 ### Validated
 
-<!-- Inferred from existing legacy/ code — working per in-code documentation, though not yet run against real media (see Context). -->
+<!-- v1.2 — shipped and verified. -->
 
-- ✓ Scene detection via ffmpeg QSV decode/downscale → PySceneDetect `AdaptiveDetector`, emitting an ordered `List[Scene]` written to a `<video>.scenes` text log — existing (`legacy/scene_detection.py`)
-- ✓ Parallel segmented scene detection (`jobs`), splitting at real detected cut boundaries and stitching per-segment results — existing (`legacy/scene_detection.py`)
-- ✓ Scene-aware AV1 chunked encoding via `qsvencc`, each chunk seeked to the nearest source keyframe (mkv Cues fast path + ffprobe fallback) — existing (`legacy/encode_scenes.py`)
-- ✓ Ordered "high-water mark" reassembly of out-of-order parallel chunk completions into a bit-exact concatenated `movie.obu` — existing (`legacy/encode_scenes.py`)
-- ✓ HDR10 / HDR10+ / Dolby Vision detection and per-chunk RPU handling (`qsvencc --dolby-vision-rpu copy`) — existing (`legacy/encode_scenes.py`)
-- ✓ Parallel audio encode (lossless→FLAC, other→Opus, already-target→copy) on a background thread — existing (`legacy/encode_scenes.py`)
-- ✓ Per-scene + frame-weighted SSIM/PSNR/size metrics CSV — existing (`legacy/encode_scenes.py`)
-- ✓ Final mux via `mkvmerge` (video + audio + source subs/chapters/attachments) with frame-count verification guards — existing (`legacy/encode_scenes.py`)
-- ✓ Reproducible Intel Arc QSV dev/runtime environment (devcontainer: ffmpeg QSV, qsvencc, iHD driver, `/dev/dri` passthrough) — existing (`.devcontainer/`)
-
-### Active
-
-<!-- v1.2 Concurrent-encode correctness (re-scoped 2026-10-02) — adopt fixed qsvencc (45003f1); ffmpeg backend parked as backlog 999.1. Detailed REQ-IDs in REQUIREMENTS.md. -->
-
-- [x] qsvencc build containing upstream fix `45003f1` shipped in the devcontainer, revision asserted by the self-check (QSV-01) — Validated in Phase 7: Adopt Fixed qsvencc + Regression Lock
-- [x] Fail-fast on a qsvencc build older than the fix (QSV-02) — Validated in Phase 7: Adopt Fixed qsvencc + Regression Lock
-- [x] Concurrent-encode regression test (per-frame content verification, triad active) proving fixed qsvencc is corruption-free at production+stress JOBS (COR-02) — Validated in Phase 7: Adopt Fixed qsvencc + Regression Lock
-
-### Validated
-
-<!-- Inferred from existing legacy/ code — working per in-code documentation, though not yet run against real media (see Context). -->
-
-- ✓ Scene detection via ffmpeg QSV decode/downscale → PySceneDetect `AdaptiveDetector`, emitting an ordered `List[Scene]` written to a `<video>.scenes` text log — existing (`legacy/scene_detection.py`)
-- ✓ Parallel segmented scene detection (`jobs`), splitting at real detected cut boundaries and stitching per-segment results — existing (`legacy/scene_detection.py`)
-- ✓ Scene-aware AV1 chunked encoding via `qsvencc`, each chunk seeked to the nearest source keyframe (mkv Cues fast path + ffprobe fallback) — existing (`legacy/encode_scenes.py`)
-- ✓ Ordered "high-water mark" reassembly of out-of-order parallel chunk completions into a bit-exact concatenated `movie.obu` — existing (`legacy/encode_scenes.py`)
-- ✓ HDR10 / HDR10+ / Dolby Vision detection and per-chunk RPU handling (`qsvencc --dolby-vision-rpu copy`) — existing (`legacy/encode_scenes.py`)
-- ✓ Parallel audio encode (lossless→FLAC, other→Opus, already-target→copy) on a background thread — existing (`legacy/encode_scenes.py`)
-- ✓ Per-scene + frame-weighted SSIM/PSNR/size metrics CSV — existing (`legacy/encode_scenes.py`)
-- ✓ Final mux via `mkvmerge` (video + audio + source subs/chapters/attachments) with frame-count verification guards — existing (`legacy/encode_scenes.py`)
-- ✓ Reproducible Intel Arc QSV dev/runtime environment (devcontainer: ffmpeg QSV, qsvencc, iHD driver, `/dev/dri` passthrough) — existing (`.devcontainer/`)
-
-### Active
-
-<!-- v1.2 ffmpeg backend — dual-backend, ffmpeg av1_qsv default (corruption-free), qsvencc opt-in. Detailed REQ-IDs in REQUIREMENTS.md. -->
-
-- [ ] ffmpeg `av1_qsv` encode backend (default) reproducing the qsvencc preset + per-chunk seek/trim, corruption-free under parallel `JOBS`
-- [ ] HDR10 / HDR10+ / Dolby Vision RPU passthrough through the ffmpeg path (parity with qsvencc), via ffmpeg 8.1 `dovi_rpu` BSF
-- [ ] Selectable backend (ffmpeg default, qsvencc opt-in) with both paths tested and frame-count/keyframe invariants preserved
-- [ ] Concurrent-encode correctness regression test (per-frame content verification) proving the ffmpeg backend is corruption-free
-
-### Validated
+- ✓ Devcontainer + runtime image ship a qsvencc containing `45003f1` (now r4665), revision asserted by the self-check — v1.2 (QSV-01)
+- ✓ `enpipe encode`/`run` fail fast on a qsvencc older than the fix — v1.2 (QSV-02)
+- ✓ Hardware-gated regression lock: fixed qsvencc has 0 corrupted frames at production+stress JOBS (byte identity, triad on every session, both metrics variants) — v1.2 (COR-02, hardened in Phase 8)
+- ✓ ffmpeg `av1_qsv` proven corruption-free under concurrent JOBS with per-frame verification (evidence base for backlog 999.1) — v1.2 (COR-01)
+- ✓ Devcontainer ffmpeg self-check (av1_qsv, av1_metadata, dovi_rpu for AV1) — v1.2 (ENV-01; adjusted from ffmpeg 8.1 to n9.0.2)
 
 <!-- v1.1 — shipped and verified. -->
 
@@ -94,22 +54,40 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 - ✓ GitHub Actions CI (ruff + `pytest -m "not hardware"` on push) with the hardware tier named-out; `dovi_tool` documented — v1.0 (CI-01, DEBT-04)
 - ✓ Unified `enpipe detect` / `enpipe encode` CLI (`[project.scripts]`); hardware-gated real-media validation on real Arc (SDR/HDR10/legacy-parity), HDR10+/DV fixture-gated — v1.0 (PKG-01, TEST-04)
 
+<!-- Pre-existing behavior inherited from legacy/, validated through the v1.0 migration. -->
+
+- ✓ Scene detection via ffmpeg QSV decode/downscale → PySceneDetect `AdaptiveDetector`, emitting an ordered `List[Scene]` written to a `<video>.scenes` text log
+- ✓ Parallel segmented scene detection (`jobs`), splitting at real detected cut boundaries and stitching per-segment results
+- ✓ Scene-aware AV1 chunked encoding via `qsvencc`, each chunk seeked to the nearest source keyframe (mkv Cues fast path + ffprobe fallback)
+- ✓ Ordered "high-water mark" reassembly of out-of-order parallel chunk completions into a bit-exact concatenated `movie.obu`
+- ✓ HDR10 / HDR10+ / Dolby Vision detection and per-chunk RPU handling (`qsvencc --dolby-vision-rpu copy`)
+- ✓ Parallel audio encode (lossless→FLAC, other→Opus, already-target→copy) on a background thread
+- ✓ Per-scene + frame-weighted SSIM/PSNR/size metrics CSV
+- ✓ Final mux via `mkvmerge` (video + audio + source subs/chapters/attachments) with frame-count verification guards
+- ✓ Reproducible Intel Arc QSV dev/runtime environment (devcontainer + runtime image, `/dev/dri` passthrough)
+
+### Active
+
+<!-- Empty between milestones — defined by /gsd:new-milestone. -->
+
+(none — next milestone not yet defined)
+
 ### Out of Scope
 
 <!-- Explicit boundaries with reasoning to prevent re-adding. -->
 
-- **Overlapped / streaming orchestrator** (in-process `queue.Queue` producer/consumer running detect + encode *concurrently*) — `PIPELINE_DESIGN.md`'s own verdict is "do not build" on current spinning-disk ZFS + Arc A380 hardware: Amdahl ceiling ~10–18%, erased by disk seek contention (realistic −5% to ~0%). Deferred until the source moves to SSD/NVMe. NOTE: the v1.1 `enpipe run` command is the *sequential* (non-overlapped) single-command wrapper, which IS in scope and is distinct from this.
+- **Overlapped / streaming orchestrator** (in-process `queue.Queue` producer/consumer running detect + encode *concurrently*) — `PIPELINE_DESIGN.md`'s own verdict is "do not build" on current spinning-disk ZFS + Arc A380 hardware: Amdahl ceiling ~10–18%, erased by disk seek contention (realistic −5% to ~0%). Deferred until the source moves to SSD/NVMe. The v1.1 `enpipe run` command is the *sequential* wrapper, distinct from this.
 - Rewriting the core detect/encode algorithms or seek/trim math — the correctness-by-construction invariants (keyframe-aligned chunks, DV RPU survives `cat`) are load-bearing; productionization must preserve them, not re-derive them.
-- A non-QSV / alternative-encoder AV1 path — the toolchain is deliberately coupled to Intel Arc QSV; a software-encode fallback is not a goal.
+- A non-QSV / software AV1 encode path — the toolchain is deliberately coupled to Intel Arc QSV. (ffmpeg `av1_qsv` is still QSV and remains a parked option, backlog 999.1.)
 - Any network service, auth, or multi-user layer — this is a local/NAS CLI toolchain by design.
+- Migrating the default encoder to ffmpeg `av1_qsv` *as a corruption fix* — invalidated in v1.2: the corruption was fixed in qsvencc itself, and qsvencc keeps DV/HDR10+ handling intact.
 
 ## Context
 
-- **Current codebase:** The productionized code lives in `src/enpipe/{detection,encoding,shared,mkv,cli}` — an installable `uv`/`uv_build` package with a pinned `uv.lock` (scenedetect==0.7, numpy==2.5.1), a `shared.proc` subprocess seam, a fast hardware-free test tier plus a hardware-gated real-Arc tier, and GitHub Actions CI. `legacy/scene_detection.py` / `legacy/encode_scenes.py` remain in place, unmodified, as the byte-identical parity oracle. See `.planning/codebase/` for the original map.
-- **Verification state:** No longer "unverified against real media" — v1.0/v1.1 were hardware-validated end-to-end on a real Intel Arc A380 (SDR/HDR10 live; HDR10+/DV fixture-gated), with per-chunk/total frame counts, keyframe alignment, and legacy-oracle parity all checked.
-- **Resolved correctness debt:** the concurrent-`qsvencc` frame corruption is closed by upstream `45003f1` (r4634) with Phase 7 hardware evidence (0 corrupt frames at JOBS 3/5/8, non-vacuity proven on r4604); see `.planning/debug/scene-chunk-frame-mismatch.md`. Still open: a devcontainer `/data` bind-mount permission issue (fix pending host rebuild) and two `human_needed` Phase-03 UAT/verification markers.
-- **Resolved debt (v1.0):** dependencies are pinned+locked; the 130-line hand-rolled EBML parser is isolated into a pure `enpipe.mkv.ebml` module; the ThreadPool-vs-ProcessPool inconsistency was resolved by profiling (kept threads, comment corrected with measured numbers); `dovi_tool` retention is documented.
-- **Design doc:** `PIPELINE_DESIGN.md` (Russian) is a completed engineering analysis of a streaming-pipeline redesign whose conclusion is to keep the sequential `detect jobs=4 → encode jobs=4` workflow on current hardware. It is a baseline/decision document, not a spec for work to build now.
+- **Current codebase:** `src/enpipe/{detection,encoding,shared,mkv,cli}` — installable `uv`/`uv_build` package with a pinned `uv.lock`, a `shared.proc` subprocess seam, a fast hardware-free test tier (218+ unit tests), a hardware-gated real-Arc tier (real-media, concurrency lock, stress matrix), and GitHub Actions CI. `legacy/` remains unmodified as the byte-identical parity oracle.
+- **Upstream dependency model:** qsvencc fixes are developed by the project owner in the Tualua/QSVEnc fork and handed off from enpipe via `.planning/debug/HANDOFF-*.md`; enpipe refuses older builds loudly until a fix lands, then raises `QSVENCC_MIN_REV`.
+- **Known open items (carried):** devcontainer `/data` bind-mount permission debug (`keep-groups` fix applied; not re-verified as the `vscode` user) and two Phase-03 `human_needed` UAT/verification markers from v1.0. See STATE.md Deferred Items.
+- **Design doc:** `PIPELINE_DESIGN.md` (Russian) — completed analysis concluding to keep the sequential `detect jobs=4 → encode jobs=4` workflow on current hardware.
 
 ## Constraints
 
@@ -122,11 +100,17 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Productionize the existing sequential pipeline; do not build the streaming orchestrator | `PIPELINE_DESIGN.md` verdict: no meaningful gain on spinning-disk hardware, tail risk of regression; orchestrator gated on SSD/NVMe | — Pending |
+| Productionize the existing sequential pipeline; do not build the streaming orchestrator | `PIPELINE_DESIGN.md` verdict: no meaningful gain on spinning-disk hardware, tail risk of regression; orchestrator gated on SSD/NVMe | — Pending (hardware unchanged) |
 | Keep sequential `detect jobs=4 → encode jobs=4` as the production path | Proven faster than jobs=3 encode; sequential detect warms ZFS ARC so encode reads from RAM | — Pending |
 | Preserve existing correctness invariants rather than rewrite core algorithms | Keyframe-alignment and DV RPU handling are load-bearing and hard to re-derive safely | ✓ Good — v1.0 shipped byte-identical to legacy oracle |
-| v1.1: `enpipe run` is a SEQUENTIAL one-command wrapper (detect→.scenes→encode), not the overlapped orchestrator | Delivers the single-command UX users want at zero regression risk, reusing the verified v1.0 stages; matches PIPELINE_DESIGN.md's recommended sequential path | ✓ Good — v1.1 shipped byte/frame-identical to the manual two-step on real Arc |
-| Acknowledge (not resolve) the concurrent-`qsvencc` frame-corruption bug at v1.1 close | v1.1's own scope (the `run` wrapper) is complete; the corruption is a pre-existing hardware/driver-level defect discovered post-Phase-5, best scoped as its own milestone | ✓ Resolved by v1.2 Phase 7 — fixed upstream (45003f1, r4634), locked by regression test |
+| v1.1: `enpipe run` is a SEQUENTIAL one-command wrapper, not the overlapped orchestrator | Single-command UX at zero regression risk, reusing verified stages | ✓ Good — byte/frame-identical to the manual two-step on real Arc |
+| Acknowledge (not resolve) the concurrent-`qsvencc` frame-corruption bug at v1.1 close | v1.1's scope was complete; the corruption deserved its own milestone | ✓ Good — resolved by v1.2 |
+| v1.2: gate the ffmpeg migration on a hardware concurrency-immunity spike (Phase 6) before writing backend code | The migration premise (ffmpeg immune) had to be proven first | ✓ Good — premise proven; harness reused as the qsvencc lock |
+| v1.2 re-scope (2026-10-02): adopt fixed qsvencc instead of migrating to ffmpeg `av1_qsv`; park ffmpeg as 999.1 | Root cause found and fixed in qsvencc (45003f1); keeps DV/HDR10+ path untouched | ✓ Good — corruption eliminated with no encoder change |
+| Fail closed on old qsvencc (runtime gate + self-check) rather than warn | Silent corruption is the primary risk; a stale binary must never encode | ✓ Good — threshold raised r4634 → r4658 → r4663 → r4665 as fixes landed |
+| Pin qsvencc to the Tualua fork until an official release carries the fixes | Upstream release lags; fixes (metrics sync, flush drop, seek, open-GOP trim) needed now | ⚠️ Revisit — return to official release (backlog 999.4) |
+| Byte identity (sha256 vs isolated reference) as the lock criterion instead of PSNR threshold | Hardware encode proved deterministic; PSNR ≥ 30 dB missed partial corruption | ✓ Good — 640 sessions, 0 mismatches; r4604 still caught |
+| ffmpeg 9 (BtbN n9.0.2 static, pinned URL+sha256) as the primary ffmpeg in both images | dovi_rpu for AV1, av1_qsv; one pinned binary for dev and runtime | ✓ Good — ENV-01 and COR-01 re-verified on it 2026-10-04 |
 
 ## Evolution
 
@@ -146,4 +130,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-03 — Phase 8 complete; COR-02 lock hardened, qsvencc pinned to 8.32-vppsync4 (r4658)*
+*Last updated: 2026-10-04 after v1.2 milestone*

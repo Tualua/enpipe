@@ -1,3 +1,8 @@
+---
+status: resolved
+resolved: "Tualua/QSVEnc 8.32-vppsync6 (r4663); закрыто при закрытии v1.2 2026-10-04"
+---
+
 **Решено в 8.32-vppsync6 (r4663)**, Tualua/QSVEnc, 2026-10-03: `--seek` стартует с первого keyframe на/после цели для любого контейнера; проверено на A380 (синтетика TS/mkv open/closed GOP, dv-p5 фрагмент и полный mp4); enpipe требует r4663 (quick 261003-l9x).
 
 # HANDOFF — qsvencc `--seek` отсчитывается от `firstpkt->pts` и молча попадает в следующую GOP (`--avhw`)

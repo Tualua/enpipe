@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Concurrent-encode correctness
-status: milestone_complete
-stopped_at: Milestone complete (Phase 8 was final phase)
-last_updated: 2026-10-04T17:30:00.000Z
-last_activity: "2026-10-04 - UAT фазы 06 закрыт (2/2 pass), quick 261004-mse"
+status: Awaiting next milestone
+stopped_at: Milestone v1.2 complete and archived
+last_updated: "2026-10-04T17:06:54.306Z"
+last_activity: 2026-10-04 — Milestone v1.2 completed and archived
 progress:
   total_phases: 3
   completed_phases: 3
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-23)
+See: .planning/PROJECT.md (updated 2026-10-04)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Milestone complete
+**Current focus:** Planning next milestone (/gsd:new-milestone)
 
 ## Current Position
 
-Phase: 8
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-10-04 - Completed quick task 261004-mse: gate_stress_matrix.py на ffmpeg 9
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-04 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -178,6 +178,16 @@ None yet.
 
 ## Deferred Items
 
+Items acknowledged and deferred at the v1.2 milestone close on 2026-10-04 (pre-close artifact audit — 8 open, 5 resolved in place, 3 deferred):
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| debug | cannot-write-data-mounts — `/data` bind-mount EACCES (rootless Podman userns) | fix-applied-pending-rebuild (writable as root 2026-10-04; not re-checked as `vscode`) | v1.2 close 2026-10-04 |
+| uat_gap | Phase 03 — 03-HUMAN-UAT.md (v1.0) | partial (0 pending scenarios) | v1.2 close 2026-10-04 |
+| verification_gap | Phase 03 — 03-VERIFICATION.md (v1.0) | human_needed | v1.2 close 2026-10-04 |
+
+Resolved in place at v1.2 close: 07-VERIFICATION gaps WR-01..03 (closed by Phase 8 → status passed); debug handoffs HANDOFF-qsvencc-{frame-corruption,seek-firstpkt,opengop-trim-offset} and qsvenc-upstream-issue (fixed in r4665 → status resolved).
+
 Items acknowledged and deferred at the v1.1 milestone close on 2026-07-23 (pre-close artifact audit — 5 open items):
 
 | Category | Item | Status | Deferred At |
@@ -199,11 +209,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T07:38:31.140Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-cor02-lock-hardening/08-CONTEXT.md
-</content>
+Last session: 2026-10-04
+Stopped at: Milestone v1.2 complete and archived
+Resume file: none
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Start the next milestone with /gsd:new-milestone

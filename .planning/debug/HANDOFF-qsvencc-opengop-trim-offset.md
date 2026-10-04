@@ -1,3 +1,8 @@
+---
+status: resolved
+resolved: "Tualua/QSVEnc 8.32-vppsync7 (r4665); закрыто при закрытии v1.2 2026-10-04"
+---
+
 **Статус: Решено в 8.32-vppsync7 (r4665)** — патч #6 форка Tualua/QSVEnc; проверено на A380 (--avhw и --avsw: `--seek 2.002 --trim 4:13` -> первый кадр 52, 10 кадров; `--trim 0:9` -> 48, 10 кадров; на r4663 было 48 / 6); защита enpipe снята в quick 261003-mj7
 
 # HANDOFF — qsvencc `--trim` уезжает на −N кадров на open-GOP источниках (`m_trimParam.offset` считает отброшенные RASL)

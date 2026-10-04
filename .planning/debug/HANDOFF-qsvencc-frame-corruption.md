@@ -1,3 +1,8 @@
+---
+status: resolved
+resolved: "апстрим rigaya/QSVEnc 45003f1 (issue #308); принят в enpipe фазой 7, гейт r4665; закрыто при закрытии v1.2 2026-10-04"
+---
+
 # HANDOFF — qsvencc concurrent frame-corruption (для агента в окружении с GPU+/data)
 
 **Дата передачи:** 2026-07-23
