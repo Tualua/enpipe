@@ -4,7 +4,8 @@
 иначе dev и прод незаметно разойдутся по версии ffmpeg, а на ней держатся
 DV-проверки AV1 (dovi_rpu) и путь av1_qsv. Тест делает частичное обновление
 пина падением CI. Заодно проверяется, что в образах и post-create не осталось
-следов старого opt-in ffmpeg-8.1."""
+следов старого opt-in ffmpeg-8.1; эта проверка покрывает также скрипт
+stress-матрицы и concurrency-харнесс (пользователи ffmpeg-бэкенда)."""
 
 from __future__ import annotations
 
@@ -16,6 +17,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 DOCKERFILES = ["Dockerfile", ".devcontainer/Dockerfile"]
 ALL_FILES = DOCKERFILES + [".devcontainer/post-create.sh"]
+# Скрипты ffmpeg-бэкенда не должны ссылаться на старый opt-in бинарь,
+# но литерал n9.0.2 с них не требуется.
+STALE_SCAN_FILES = ALL_FILES + [
+    "scratch/gate_stress_matrix.py",
+    "tests/integration/_concurrency_harness.py",
+]
 
 _SHA_RE = re.compile(r"^ARG FFMPEG_SHA256=(\S+)$", re.MULTILINE)
 _URL_RE = re.compile(r"^ARG FFMPEG_URL=(\S+)$", re.MULTILINE)
@@ -49,8 +56,9 @@ def test_version_literal_present(rel):
     assert "n9.0.2" in _read(rel)
 
 
-@pytest.mark.parametrize("rel", ALL_FILES)
+@pytest.mark.parametrize("rel", STALE_SCAN_FILES)
 def test_no_stale_ffmpeg_81(rel):
     text = _read(rel)
     assert "ffmpeg-8.1" not in text
     assert "ffprobe-8.1" not in text
+    assert "ffmpeg81_available" not in text
