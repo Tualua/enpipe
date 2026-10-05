@@ -5,7 +5,7 @@ milestone_name: Concurrent-encode correctness
 status: Awaiting next milestone
 stopped_at: Milestone v1.2 complete and archived
 last_updated: "2026-10-04T17:06:54.306Z"
-last_activity: "2026-10-05 - quick 261005-4uz: --avoid-idle-clock off в чанке qsvencc"
+last_activity: "2026-10-05 - quick 261005-6jh: точный seek copy-аудио в частичном режиме"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 Phase: Milestone v1.2 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-10-05 - Completed quick task 261005-4uz: --avoid-idle-clock off в чанке qsvencc
+Last activity: 2026-10-05 - Completed quick task 261005-6jh: точный seek copy-аудио в частичном режиме
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ None yet.
 | 261004-mse | Хвост 261004-h8e: `scratch/gate_stress_matrix.py --backend ffmpeg` на `ffmpeg_av1qsv_available()`; страж ffmpeg-8.1 покрывает stress-скрипт и харнесс (гэп UAT 06, п.2) | 2026-10-04 | be62b4c | [261004-mse-gate-stress-matrix-py-ffmpeg-9-ffmpeg81-](./quick/261004-mse-gate-stress-matrix-py-ffmpeg-9-ffmpeg81-/) |
 | 261005-4uz | `--avoid-idle-clock off` в argv чанка qsvencc: старт сессии ~5.6 → ~1.6 с, выход побайтно тот же (замок COR-02 + parity на A380 зелёные) | 2026-10-05 | 2c59b83 | [261005-4uz-qsvencc-avoid-idle-clock-off-3x](./quick/261005-4uz-qsvencc-avoid-idle-clock-off-3x/) |
 | 261005-67d | Аудио: ffmpeg на дорожку параллельно; Atmos (TrueHD/E-AC3 JOC) копируется как есть. ⚠ частичный режим: рассинхрон copy-дорожек ~0.7 с (унаследовано, чинится следующей задачей); --validate: verified | 2026-10-05 | 9a51166 | [261005-67d-atmos](./quick/261005-67d-atmos/) |
+| 261005-6jh | Частичный режим: copy-аудио (Atmos/flac/opus/AUDIO_COPY) — двухшаговый seek, рассинхрон ~0.7 с устранён (28YL: E-AC3 600.000, TrueHD 600.006 = major sync); медиа-тест; --validate: verified | 2026-10-05 | 5f3fad0 | [261005-6jh-seek-copy](./quick/261005-6jh-seek-copy/) |
 | fast | devcontainer → хостовый rootless podman: проброс сокета, CONTAINER_HOST, podman-remote 5.8.2 (пин sha256), label=disable, статус в post-create | 2026-10-04 | f724ad5 | — |
 | 260709-711 | Плавный ПОКАДРОВЫЙ прогресс-бар в параллельном режиме: `progress_cb`-хук в `QsvPipeStream.read()` двигает общий бар из всех сегмент-потоков (было: скачки по завершении целого сегмента, висело на 0%). Ветка `show_progress=False`, cut-математика и порядок `results` не тронуты | 2026-07-09 | 05c8ab6 | [260709-711-smooth-per-frame-progress-bar](./quick/260709-711-smooth-per-frame-progress-bar/) |
 | 260709-89t | `enpipe run/detect/encode <папка>` — новый leaf-модуль `shared/batch.py` (дискавери + collect-then-report оркестратор), `--recursive`, skip-existing, guard'ы схлопывания выходов (-o-файл/--workdir/--csv/--scenes -> die). Одиночный файл byte-identical | 2026-07-09 | f7f8fb7 | [260709-89t-folder-batch-input-enpipe-run-detect-enc](./quick/260709-89t-folder-batch-input-enpipe-run-detect-enc/) |
