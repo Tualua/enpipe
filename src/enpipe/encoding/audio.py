@@ -17,6 +17,16 @@ cache/ARC.
 Почему Atmos копируется: транскод в FLAC/Opus теряет объектный слой
 (JOC/Atmos) — решение оператора.
 
+Почему copy-дорожки режутся двухшаговым seek: `-ss` перед `-i` в mkv
+прыгает к точке Cues (keyframe видео <= ss). Перекодируемые дорожки при
+этом точны (декодер отбрасывает всё до ss), а при `-c copy` пакеты от точки
+Cues до ss сохраняются, и муксер сдвигает их к нулю: на 28YL a:4 (E-AC3
+Atmos), ss=600, выход начинался с пакета 599.296 (рассинхрон ~0.7 с), на
+синтетике без Cues — 13 с вместо 8 (quick 261005-6jh). Поэтому для copy:
+быстрый input-seek на _COPY_SEEK_MARGIN раньше ss, затем точный output-seek
+на остаток — ffmpeg отбрасывает пакеты с pts < ss, погрешность не больше
+одного пакета. Argv перекодируемых дорожек не менялся.
+
 Почему при склейке language/title/disposition ставятся явно из ffprobe
 источника и задан `-default_mode passthrough`: муксер ffmpeg в режиме infer
 ставит default первой дорожке, если ни одна не default, и однодорожечная
@@ -33,6 +43,11 @@ from typing import List, Optional, Tuple
 from enpipe.shared import proc as _proc
 
 FLAC_LEVEL = os.environ.get("FLAC_LEVEL", "8")
+
+# Запас назад для быстрого input-seek copy-дорожек: точка Cues/keyframe
+# гарантированно оказывается до ss при любом GOP (UHD BD GOP <= ~1-2 с; без
+# Cues ffmpeg уходит к началу файла — читает дольше, корректность не страдает).
+_COPY_SEEK_MARGIN = 30.0
 
 LOSSLESS = {"pcm", "truehd", "mlp", "flac", "alac", "wavpack", "tak", "ape", "als"}
 
@@ -81,14 +96,24 @@ def _track_command(src: Path, n: int, stream: dict, part: Path,
                    ss: Optional[float], dur: Optional[float],
                    audio_copy: bool) -> List[str]:
     """Команда ffmpeg для одной дорожки источника."""
+    codec = _track_codec_args(stream, audio_copy)
+    is_copy = codec == ["-c:a", "copy"]
     cmd = ["ffmpeg", "-y", "-v", "error"]
-    if ss is not None:                       # обрезка под частичный диапазон сцен
+    two_step = ss is not None and is_copy
+    if two_step:
+        # округление до мс: in_ss + out_ss ровно дают ss без дрейфа float
+        in_ss = max(0.0, round(ss - _COPY_SEEK_MARGIN, 3))
+        out_ss = round(ss - in_ss, 3)
+        cmd += ["-ss", f"{in_ss:.3f}"]
+    elif ss is not None:                     # обрезка под частичный диапазон сцен
         cmd += ["-ss", f"{ss:.3f}"]
     cmd += ["-i", str(src)]
+    if two_step:
+        cmd += ["-ss", f"{out_ss:.3f}"]
     if dur is not None:
         cmd += ["-t", f"{dur:.3f}"]
     cmd += ["-map_chapters", "-1", "-map", f"0:a:{n}"]
-    cmd += _track_codec_args(stream, audio_copy)
+    cmd += codec
     cmd += [str(part)]
     return cmd
 

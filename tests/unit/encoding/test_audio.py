@@ -89,9 +89,58 @@ def test_track_command_full_and_range():
         "-map", "0:a:1", "-c:a", "libopus", "-b:a", "128k", "p.mka"]
     assert _track_command(Path("in.mkv"), 0, st, Path("p.mka"), 12.5, 30.0,
                           True) == [
-        "ffmpeg", "-y", "-v", "error", "-ss", "12.500", "-i", "in.mkv",
-        "-t", "30.000", "-map_chapters", "-1", "-map", "0:a:0",
+        "ffmpeg", "-y", "-v", "error", "-ss", "0.000", "-i", "in.mkv",
+        "-ss", "12.500", "-t", "30.000", "-map_chapters", "-1", "-map", "0:a:0",
         "-c:a", "copy", "p.mka"]
+
+
+def _cmd(st, ss, dur, copy=False):
+    return _track_command(Path("in.mkv"), 2, st, Path("p.mka"), ss, dur, copy)
+
+
+ATMOS = _st("eac3", 6, prof="Dolby Digital Plus + Dolby Atmos")
+
+
+def test_copy_partial_two_step_seek():
+    cmd = _cmd(ATMOS, 600.0, 60.0)
+    assert cmd == [
+        "ffmpeg", "-y", "-v", "error", "-ss", "570.000", "-i", "in.mkv",
+        "-ss", "30.000", "-t", "60.000", "-map_chapters", "-1", "-map", "0:a:2",
+        "-c:a", "copy", "p.mka"]
+    ss1, ss2 = [i for i, a in enumerate(cmd) if a == "-ss"]
+    assert ss1 < cmd.index("-i") < ss2 < cmd.index("-t")
+
+
+def test_copy_partial_without_dur():
+    cmd = _cmd(ATMOS, 600.0, None)
+    assert cmd.count("-ss") == 2 and "-t" not in cmd
+
+
+def test_copy_dur_without_ss_unchanged():
+    assert _cmd(ATMOS, None, 30.0) == [
+        "ffmpeg", "-y", "-v", "error", "-i", "in.mkv", "-t", "30.000",
+        "-map_chapters", "-1", "-map", "0:a:2", "-c:a", "copy", "p.mka"]
+
+
+def test_transcoded_partial_argv_unchanged():
+    assert _cmd(_st("aac"), 12.5, 30.0) == [
+        "ffmpeg", "-y", "-v", "error", "-ss", "12.500", "-i", "in.mkv",
+        "-t", "30.000", "-map_chapters", "-1", "-map", "0:a:2",
+        "-c:a", "libopus", "-b:a", "128k", "p.mka"]
+    assert _cmd(_st("truehd", 8), 12.5, 30.0) == [
+        "ffmpeg", "-y", "-v", "error", "-ss", "12.500", "-i", "in.mkv",
+        "-t", "30.000", "-map_chapters", "-1", "-map", "0:a:2",
+        "-c:a", "flac", "-compression_level", audio.FLAC_LEVEL, "p.mka"]
+
+
+def test_full_mode_no_ss_no_t():
+    for st, copy in ((ATMOS, False), (_st("aac"), False), (_st("aac"), True)):
+        cmd = _cmd(st, None, None, copy)
+        assert "-ss" not in cmd and "-t" not in cmd
+
+
+def test_audio_copy_flag_partial_two_step():
+    assert _cmd(_st("aac"), 600.0, 60.0, True).count("-ss") == 2
 
 
 def test_merge_command_two_parts():

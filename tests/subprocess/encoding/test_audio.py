@@ -101,17 +101,21 @@ def test_merge_failure_reports_and_cleans(fp, tmp_path):
     assert not any(p.exists() for p in parts)
 
 
-def test_ss_dur_passed_to_every_track_command(fp, tmp_path):
+def test_ss_dur_passed_to_every_track_command(fp, tmp_path, monkeypatch):
+    monkeypatch.delenv("AUDIO_COPY", raising=False)
     src, out = tmp_path / "in.mkv", tmp_path / "audio.mka"
     parts = [tmp_path / "audio.a00.mka", tmp_path / "audio.a01.mka"]
 
-    def trk(n, codec, part):
-        return ["ffmpeg", "-y", "-v", "error", "-ss", "12.500", "-i", str(src),
+    def trk(n, codec, part, copy):
+        # copy-дорожка: input -ss 0.000 + output -ss 12.500 (двухшаговый seek)
+        pre = ["-ss", "0.000"] if copy else ["-ss", "12.500"]
+        post = ["-ss", "12.500"] if copy else []
+        return ["ffmpeg", "-y", "-v", "error", *pre, "-i", str(src), *post,
                 "-t", "30.000", "-map_chapters", "-1", "-map", f"0:a:{n}",
                 *codec, str(part)]
 
     fp.register(_probe(src), stdout=json.dumps({"streams": [_aac(), _atmos()]}))
-    fp.register(trk(0, ["-c:a", "libopus", "-b:a", "128k"], parts[0]))
-    fp.register(trk(1, ["-c:a", "copy"], parts[1]))
+    fp.register(trk(0, ["-c:a", "libopus", "-b:a", "128k"], parts[0], False))
+    fp.register(trk(1, ["-c:a", "copy"], parts[1], True))
     fp.register(_merge(parts, out))
     assert encode_audio(src, out, ss=12.5, dur=30.0) == (True, None)
