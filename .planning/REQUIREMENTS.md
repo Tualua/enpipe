@@ -78,11 +78,38 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| MET-01 | Phase 9 | Pending |
+| MET-02 | Phase 9 | Pending |
+| MET-03 | Phase 9 | Pending |
+| MET-04 | Phase 9 | Pending |
+| MET-05 | Phase 9 | Pending |
+| CND-01 | Phase 9 | Pending |
+| CND-02 | Phase 9 | Pending |
+| CND-04 | Phase 9 | Pending |
+| CND-05 | Phase 9 | Pending |
+| RPT-01 | Phase 9 | Pending |
+| ALN-01 | Phase 10 | Pending |
+| ALN-02 | Phase 10 | Pending |
+| ALN-03 | Phase 10 | Pending |
+| ALN-04 | Phase 10 | Pending |
+| ANL-03 | Phase 10 | Pending |
+| ANL-01 | Phase 11 | Pending |
+| ANL-04 | Phase 11 | Pending |
+| RPT-02 | Phase 11 | Pending |
+| RPT-03 | Phase 11 | Pending |
+| RPT-04 | Phase 11 | Pending |
+| CND-06 | Phase 11 | Pending |
+| CND-03 | Phase 12 | Pending |
+| ANL-02 | Phase 12 | Pending |
+| CMP-01 | Phase 13 | Pending |
+| CAL-01 | Phase 13 | Pending |
+| CAL-02 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 26 total
-- Mapped to phases: 0 (заполняется roadmapper)
+- Mapped to phases: 26
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-10-05*
-*Last updated: 2026-10-05 after initial definition*
+*Last updated: 2026-10-05 after roadmap creation (Phases 9–13)*

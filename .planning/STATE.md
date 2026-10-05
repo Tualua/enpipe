@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Анализ качества энкода
-status: planning
+status: ready_to_plan
 last_updated: "2026-10-05T06:37:51.150Z"
 last_activity: 2026-10-05
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-04)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Planning next milestone (/gsd:new-milestone)
+**Current focus:** Phase 9 — Чистое ядро анализа и ридеры (v1.3)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 9 of 13 (Чистое ядро анализа и ридеры)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-10-05 — Milestone v1.3 started
+Status: Ready to plan
+Last activity: 2026-10-05 — Roadmap v1.3 created (Phases 9–13)
+
+Progress: [░░░░░░░░░░] 0% (0/5 phases)
 
 ## Performance Metrics
 
@@ -105,9 +107,9 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-10-04
-Stopped at: Milestone v1.2 complete and archived
+Stopped at: Roadmap v1.3 created
 Resume file: none
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd:new-milestone
+- Plan Phase 9 with /gsd:plan-phase 9
