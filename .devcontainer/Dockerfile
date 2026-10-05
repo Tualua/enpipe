@@ -103,6 +103,39 @@ RUN set -eux; \
     test "${rev:-0}" -ge 4677; \
     rm -f /tmp/qsvencc.deb; rm -rf /var/lib/apt/lists/*
 
+# --- vpl-gpu-rt 26.3.2-av1auxdata (патченный oneVPL GPU-runtime) — пин по sha256 ---
+# Provenance: тот же релиз 8.32-vppsync10 форка Tualua/QSVEnc, ассет
+# vpl-gpu-rt-26.3.2-av1auxdata.tar.gz; sha256 сверен с SHA256SUMS.runtime релиза
+# и с digest на GitHub. Содержимое: libmfx-gen.so.1.2.17 + симлинк
+# libmfx-gen.so.1.2, av1-auxdata-accept.patch, LICENSE (MIT); собран на Ubuntu
+# 24.04 (glibc 2.39), зависит только от libva, libva-drm, libdrm.
+# Зачем: даёт qsvencc `--av1-chroma-delta-q` (enpipe её пока не использует,
+# CAL-02). Почему /opt + ONEVPL_PRIORITY_PATH, а не подмена системной
+# библиотеки: так рекомендует README форка; ONEVPL_SEARCH_PATH недостаточен —
+# диспетчер всё равно берёт системный runtime. Без опции вывод энкодера
+# побайтно как у стокового (проверено на A380).
+# Защита версии: патченный runtime собран под libmfx-gen1.2 26.3.2, а системный
+# пакет приходит из непинованного PPA — при другой версии ABI не гарантирован,
+# сборка падает. Сравнение через case, а не -ge/-lt: тот шаблон ловит тест порога
+# qsvencc.
+ARG VPL_RT_URL=https://github.com/Tualua/QSVEnc/releases/download/8.32-vppsync10/vpl-gpu-rt-26.3.2-av1auxdata.tar.gz
+ARG VPL_RT_SHA256=054b7887dfa88711bfcf9290536b9676b9d0d801b8fd39f2eb39b747a2de0a35
+RUN set -eux; \
+    v="$(dpkg-query -W -f='${Version}' libmfx-gen1.2)"; \
+    case "$v" in \
+        26.3.2-*) ;; \
+        *) echo "ОШИБКА: системный libmfx-gen1.2 $v не совпадает с патченным vpl-gpu-rt 26.3.2 — возьмите tar под эту версию из релиза форка Tualua/QSVEnc и обновите ARG VPL_RT_URL/VPL_RT_SHA256" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/vpl-rt.tar.gz "$VPL_RT_URL"; \
+    echo "$VPL_RT_SHA256  /tmp/vpl-rt.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/vpl-gpu-rt-av1auxdata; \
+    tar -xzf /tmp/vpl-rt.tar.gz -C /opt/vpl-gpu-rt-av1auxdata --strip-components=1; \
+    test -e /opt/vpl-gpu-rt-av1auxdata/lib/libmfx-gen.so.1.2; \
+    rm -f /tmp/vpl-rt.tar.gz
+
+# Патченный runtime выбирается диспетчером раньше системного (qsvencc и ffmpeg QSV).
+ENV ONEVPL_PRIORITY_PATH=/opt/vpl-gpu-rt-av1auxdata/lib
+
 # --- dovi_tool (quietvoid) — статический musl-бинарь, дистрибутиво-независим ---
 # DEBT-04: сейчас dovi_tool НЕ используется ни одним путём пайплайна (текущий
 # DV-путь — qsvencc --dolby-vision-rpu copy, per-chunk, без dovi_tool). Держим

@@ -85,6 +85,11 @@
     // iHD — драйвер Intel Media для Arc/Alchemist (тот же, что на хосте)
     "LIBVA_DRIVER_NAME": "iHD",
 
+    // Патченный vpl-gpu-rt (/opt, из релиза 8.32-vppsync10) грузится диспетчером
+    // oneVPL раньше системного — для qsvencc и для ffmpeg QSV. Нужен qsvencc
+    // `--av1-chroma-delta-q`; без этой опции вывод побайтно как у стокового.
+    "ONEVPL_PRIORITY_PATH": "/opt/vpl-gpu-rt-av1auxdata/lib",
+
     // Claude Code хранит ДВЕ вещи: каталог ~/.claude (креды, плагины, настройки,
     // projects) и ОТДЕЛЬНЫЙ файл ~/.claude.json (oauthAccount, onboarding-флаги).
     // Том можно смонтировать только на каталог, а не на файл, поэтому
