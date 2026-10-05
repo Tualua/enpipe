@@ -20,6 +20,17 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 Both images ship BtbN static **ffmpeg n9.0.2** (URL+sha256 pinned); the runtime image is ubuntu:24.04 + Intel PPA with OpenCL (`--psnr/--ssim` reliable). ffmpeg `av1_qsv` is a proven corruption-free alternative (Phase 6 gate; re-confirmed 2026-10-04 on ffmpeg 9: 320 sessions, 0 corrupt) parked as backlog 999.1.
 
+## Current Milestone: v1.3 Анализ качества энкода
+
+**Goal:** enpipe сам находит и показывает проблемные места энкода — включая те, что VMAF не видит (цвет мелких деталей), — не затрагивая путь кодирования.
+
+**Target features:**
+- `enpipe analyze <src> <enc>` (файл или папка, пары по `<stem>.Encoded.mkv`) → `report.md` + `index.html` с кропами и тонмаппингом PQ→SDR.
+- Метрики кадра: сохранность цвета мелких деталей (U/V), худший тайл по Y, ниты/доля теней, сохранность детали, проверка выравнивания.
+- Источники кандидатов: внешний покадровый VMAF (необязателен), скан цвета (одна точка на сцену из `.scenes`), худшие сцены по CSV qsvencc, ручной список кадров.
+
+**Key context:** прототип `vmaf_frames.py` (сессия 2026-10-05) проверен на E01 Young Sherlock — нашёл кадр 66490 (потеря мелкого красного) и участок 3:56–4:48 (VMAF 94–98, цвет 51–63 %). Причина потери цвета — квантование цветности в QSV AV1 (handoff `.planning/debug/HANDOFF-qsvencc-av1-small-chroma-loss.md`); форк выпустил `8.32-vppsync9` с экспериментальным `--av1-chroma-delta-q`. Без новых зависимостей; `--analyze` в encode/run и свой VMAF (libvmaf) — backlog.
+
 ## Next Milestone Goals
 
 Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog:
@@ -70,7 +81,7 @@ Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog
 
 <!-- Empty between milestones — defined by /gsd:new-milestone. -->
 
-(none — next milestone not yet defined)
+- [ ] `enpipe analyze`: разбор качества энкода с проверкой цвета мелких деталей (v1.3; REQ-ID в REQUIREMENTS.md)
 
 ### Out of Scope
 
@@ -130,4 +141,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-04 after v1.2 milestone*
+*Last updated: 2026-10-05 — started milestone v1.3*
