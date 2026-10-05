@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 Phase: 9 of 13 (Чистое ядро анализа и ридеры)
 Plan: —
 Status: Ready to plan
-Last activity: 2026-10-05 — Roadmap v1.3 created (Phases 9–13)
+Last activity: 2026-10-05 — Completed quick task 261005-k5w: qsvencc vppsync10 (r4677) + патченный vpl-gpu-rt
 
 Progress: [░░░░░░░░░░] 0% (0/5 phases)
 
@@ -54,6 +54,7 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261005-k5w | qsvencc → 8.32+vppsync10 (r4677, апстрим-мастер + фикс #333): пин URL+sha256, порог 4677; патченный vpl-gpu-rt 26.3.2-av1auxdata в /opt + ONEVPL_PRIORITY_PATH (ENV/containerEnv), сверка версии libmfx-gen1.2 при сборке; на A380 вывод без опции побайтно равен стоковому, --av1-chroma-delta-q -32 работает; аппаратный тир 13+2 passed. Образы не пересобраны | 2026-10-05 | 810945c | [261005-k5w-qsvencc-8-32-vppsync10-r4677-url-sha256-](./quick/261005-k5w-qsvencc-8-32-vppsync10-r4677-url-sha256-/) |
 | 260709-4h8 | `-o` accepts a directory → `<stem>.Encoded<suffix>` inside it (fixes chunks-workdir PermissionError) | 2026-07-09 | cb49cc7 | [260709-4h8-o-accepts-a-directory-output-filename-be](./quick/260709-4h8-o-accepts-a-directory-output-filename-be/) |
 | 260709-629 | Тихий выход по Ctrl-C (SIGINT): перехват `KeyboardInterrupt` в `main()` → `SystemExit(130)`, без трейсбеков | 2026-07-09 | c942e05 | [260709-629-ctrl-c-sigint](./quick/260709-629-ctrl-c-sigint/) |
 | 260709-6jo | Живой tqdm-прогресс детекции сцен: СТАРТ/ФИНИШ-строки в stderr, штатный бар (последовательно) / агрегированный бар (параллельно); cut-математика и порядок результатов не изменились | 2026-07-09 | b39d1c9 | [260709-6jo-live-tqdm](./quick/260709-6jo-live-tqdm/) |
