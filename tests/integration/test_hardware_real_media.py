@@ -35,7 +35,7 @@ and rc intact. Open-GOP sources (RASL after CRA, RADL after IDR_W_RADL) are
 encoded and content-checked: test_chunk_content_open_gop[rasl|radl] and
 test_chunk_content_closed_gop run the check on the same mid-GOP layout, and
 test_hdr10 uses x265's default open GOP so open-GOP and HDR10 are covered
-together. The module requires qsvencc >= r4665 on PATH.
+together. The module requires qsvencc >= r4677 on PATH.
 
 DV RPU verification NEVER uses the mutating dovi_rpu ffmpeg bitstream
 filter to write, and NEVER uses dovi_tool's RPU-extraction subcommand

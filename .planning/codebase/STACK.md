@@ -56,13 +56,14 @@ Development:
 
 **External Binaries (subprocess invocations):**
 - ffmpeg / ffprobe (BtbN static n9.0.2, pinned URL+SHA256, /opt/ffmpeg-9 symlinked into /usr/local/bin in both images) - QSV-accelerated decode, audio transcode, metadata probing via `src/enpipe/shared/proc.py`
-- qsvencc 8.32+vppsync7 (r4665, tag 8.32-vppsync7, sha256 297d474c…; Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
+- qsvencc 8.32+vppsync10 (r4677, tag 8.32-vppsync10, sha256 5f42839f…; Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
 - mkvmerge (mkvtoolnix apt package) - final `.mkv` muxing via `src/enpipe/encoding/pipeline.py`
 - dovi_tool (x86_64-unknown-linux-musl static binary, GitHub releases) - Dolby Vision RPU extraction; currently unused (DEBT-04, reserved for Phase 4)
 
 **GPU/Media Stack (environment dependencies, not Python imports):**
 - Intel Media driver (iHD, from Intel PPA `kobuk-team/intel-graphics`) - VA-API for Intel Arc A380
 - oneVPL (libvpl2, libmfx-gen1.2 from Ubuntu 24.04 + Intel PPA) - GPU dispatcher and runtime
+- Patched vpl-gpu-rt 26.3.2-av1auxdata (Tualua/QSVEnc release 8.32-vppsync10, sha256 054b7887…0a35) in `/opt/vpl-gpu-rt-av1auxdata`, selected by the dispatcher via `ONEVPL_PRIORITY_PATH=/opt/vpl-gpu-rt-av1auxdata/lib` (both images + devcontainer `containerEnv`); the system libmfx-gen1.2 is not replaced and must be 26.3.2 (the image build checks this). It enables qsvencc `--av1-chroma-delta-q`; enpipe does not use the option yet (CAL-02)
 - OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable, measured on r4658: 0 failures from 640 sessions)
 - vainfo (libva-utils) - VA-API diagnostics
 
@@ -77,6 +78,7 @@ Development:
 - `FLAC_LEVEL` (default "8") - FLAC compression level in `src/enpipe/encoding/audio.py`
 - `AUDIO_COPY` ("0" or "1", default "0") - bypass audio re-encode flag in `src/enpipe/encoding/audio.py`
 - `LIBVA_DRIVER_NAME=iHD` (set in `.devcontainer/devcontainer.json` `containerEnv` and `Dockerfile` `ENV`)
+- `ONEVPL_PRIORITY_PATH=/opt/vpl-gpu-rt-av1auxdata/lib` (patched vpl-gpu-rt; set in `.devcontainer/devcontainer.json` `containerEnv` and in both Dockerfiles `ENV`)
 - `PATH=/opt/venv/bin:$PATH` (production `Dockerfile` only, for `enpipe` CLI entry point)
 
 **Build Configuration Files:**

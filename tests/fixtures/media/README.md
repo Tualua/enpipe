@@ -113,4 +113,4 @@ content-checked (`test_chunk_content_open_gop[rasl|radl]`): qsvencc shifted
 `--trim` by -N on such sources until r4665 (8.32-vppsync7), see
 `.planning/debug/HANDOFF-qsvencc-opengop-trim-offset.md`. Their closed-GOP twin
 is `test_chunk_content_closed_gop`, and `test_hdr10` uses x265's default open
-GOP. Hardware tests require qsvencc >= r4665 on PATH.
+GOP. Hardware tests require qsvencc >= r4677 on PATH.

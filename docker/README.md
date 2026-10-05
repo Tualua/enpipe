@@ -84,15 +84,24 @@ Release проекта и сменить `FFMPEG_URL`; SHA256 остаётся �
 Образ на Ubuntu 24.04 + PPA `kobuk-team/intel-graphics` содержит
 `intel-opencl-icd`, поэтому `--psnr`/`--ssim` работают.
 
-Закреплён форк qsvencc `8.32+vppsync7` (r4665): он несёт патчи #319/#320
-(на r4658 в матрице фазы 8 получено 0 отказов `METRICS_FAILED` из 640
-конкурентных сессий) и исправление `--seek` (старт с первого keyframe на или
-после цели; старые сборки стартуют на один GOP позже) и `--trim` на open-GOP
-источниках (RASL больше не входят в trim offset). Рантайм-гейт и образ
-отказываются работать со сборками старше r4665. Отказы `VIDEOMETRIC: Failed to copy input surface` (rc != 0, чанк
+Закреплён форк qsvencc `8.32+vppsync10` (r4677) = rigaya master 864a688: он
+несёт патчи #319/#320 (на r4658 в матрице фазы 8 получено 0 отказов
+`METRICS_FAILED` из 640 конкурентных сессий), исправление `--seek` (старт с
+первого keyframe на или после цели; старые сборки стартуют на один GOP позже),
+`--trim` на open-GOP источниках (RASL больше не входят в trim offset) и фикс
+rigaya #333 (потеря последних кадров на OpenCL-пути с `--psnr`/`--ssim`).
+Рантайм-гейт и образ отказываются работать со сборками старше r4677. Отказы `VIDEOMETRIC: Failed to copy input surface` (rc != 0, чанк
 теряется) из дефекта D-12 относятся к r4634 и апстримному 8.32. Если они
 появились снова, значит, в образ попала сборка без патчей #319/#320. Проверьте
-`qsvencc --version`: ожидается `8.32 (r4665)`.
+`qsvencc --version`: ожидается `8.32 (r4677)`.
+
+Кроме qsvencc в образ ставится патченный oneVPL GPU-runtime vpl-gpu-rt
+`26.3.2-av1auxdata` (тот же релиз 8.32-vppsync10, sha256 `054b7887…0a35`) в
+`/opt/vpl-gpu-rt-av1auxdata`. Диспетчер выбирает его через
+`ONEVPL_PRIORITY_PATH=/opt/vpl-gpu-rt-av1auxdata/lib` (ENV образа), системный
+libmfx-gen1.2 не подменяется и должен быть версии 26.3.2 — сборка образа это
+проверяет. Это нужно только для `--av1-chroma-delta-q` в qsvencc; без опции
+вывод энкодера побайтно совпадает со стоковым, enpipe опцию пока не использует.
 
 ## Почему `ubuntu:24.04`
 
@@ -114,7 +123,7 @@ Release проекта и сменить `FFMPEG_URL`; SHA256 остаётся �
 DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN -t enpipe:ubuntu2404 .
 docker run --rm --device /dev/dri --entrypoint clinfo enpipe:ubuntu2404 -l
 docker run --rm --device /dev/dri --entrypoint sh enpipe:ubuntu2404 -c \
-  'vainfo 2>&1 | grep -i "driver version"; dpkg-query -W intel-opencl-icd intel-media-va-driver-non-free libmfx-gen1.2; qsvencc --version | head -1; ffmpeg -version | head -1'
+  'vainfo 2>&1 | grep -i "driver version"; dpkg-query -W intel-opencl-icd intel-media-va-driver-non-free libmfx-gen1.2; qsvencc --version | head -1; ffmpeg -version | head -1; echo $ONEVPL_PRIORITY_PATH; ls /opt/vpl-gpu-rt-av1auxdata/lib'
 ```
 
 `clinfo -l` должен показать `Intel(R) Arc(TM) A380 Graphics`, а `ffmpeg -version | head -1` -

@@ -14,8 +14,9 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 
 `enpipe` is an installable, pinned, tested `src/enpipe/` package with a unified CLI (`enpipe detect`, `enpipe encode`, `enpipe run <video>`), byte/frame-identical to the frozen `legacy/` oracle. Parallel chunk encoding is **correct again at full JOBS**: the silent cross-session frame corruption in concurrent `qsvencc` was fixed upstream (rigaya/QSVEnc `45003f1`, issue #308, co-authored by the project owner), and enpipe now:
 
-- pins qsvencc to the Tualua/QSVEnc fork release **8.32+vppsync7 (r4665)** in both images — upstream 8.32 + `45003f1` + fixes for the metrics VPP sync, the silent flush frame drop, `--seek` landing in the next GOP (vppsync6) and open-GOP `--trim` offset (vppsync7);
-- fails fast (`QSVENCC_MIN_REV = 4665`) on any older qsvencc in `enpipe encode`/`run` and in the post-create self-check;
+- pins qsvencc to the Tualua/QSVEnc fork release **8.32+vppsync10 (r4677)** in both images — rigaya master 864a688 (after 8.32) with `45003f1`, the metrics VPP sync, the flush frame drop, `--seek`/`--seekto` fixes and #333 (last-frame loss on the OpenCL path), plus the fork fix for open-GOP `--trim` offset;
+- installs the patched vpl-gpu-rt 26.3.2-av1auxdata (release 8.32-vppsync10, sha256 054b7887…) into `/opt/vpl-gpu-rt-av1auxdata` and selects it via `ONEVPL_PRIORITY_PATH` (both images + devcontainer `containerEnv`); the system libmfx-gen1.2 is untouched and must be 26.3.2; it only makes qsvencc `--av1-chroma-delta-q` available (not used by enpipe yet, CAL-02);
+- fails fast (`QSVENCC_MIN_REV = 4677`) on any older qsvencc in `enpipe encode`/`run` and in the post-create self-check;
 - locks correctness with a hardware-gated COR-02 regression test: byte identity (sha256) against an isolated reference, packets == decoded == scene frames, the HW-decode + P010 + B-pyramid triad checked on every session, both metrics variants. A380 evidence: 640-session stress matrix, 0 mismatches; non-vacuity proven on r4604.
 
 Both images ship BtbN static **ffmpeg n9.0.2** (URL+sha256 pinned); the runtime image is ubuntu:24.04 + Intel PPA with OpenCL (`--psnr/--ssim` reliable). ffmpeg `av1_qsv` is a proven corruption-free alternative (Phase 6 gate; re-confirmed 2026-10-04 on ffmpeg 9: 320 sessions, 0 corrupt) parked as backlog 999.1.
@@ -46,7 +47,7 @@ Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog
 
 <!-- v1.2 — shipped and verified. -->
 
-- ✓ Devcontainer + runtime image ship a qsvencc containing `45003f1` (now r4665), revision asserted by the self-check — v1.2 (QSV-01)
+- ✓ Devcontainer + runtime image ship a qsvencc containing `45003f1` (now r4677), revision asserted by the self-check — v1.2 (QSV-01)
 - ✓ `enpipe encode`/`run` fail fast on a qsvencc older than the fix — v1.2 (QSV-02)
 - ✓ Hardware-gated regression lock: fixed qsvencc has 0 corrupted frames at production+stress JOBS (byte identity, triad on every session, both metrics variants) — v1.2 (COR-02, hardened in Phase 8)
 - ✓ ffmpeg `av1_qsv` proven corruption-free under concurrent JOBS with per-frame verification (evidence base for backlog 999.1) — v1.2 (COR-01)
@@ -118,7 +119,7 @@ Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog
 | Acknowledge (not resolve) the concurrent-`qsvencc` frame-corruption bug at v1.1 close | v1.1's scope was complete; the corruption deserved its own milestone | ✓ Good — resolved by v1.2 |
 | v1.2: gate the ffmpeg migration on a hardware concurrency-immunity spike (Phase 6) before writing backend code | The migration premise (ffmpeg immune) had to be proven first | ✓ Good — premise proven; harness reused as the qsvencc lock |
 | v1.2 re-scope (2026-10-02): adopt fixed qsvencc instead of migrating to ffmpeg `av1_qsv`; park ffmpeg as 999.1 | Root cause found and fixed in qsvencc (45003f1); keeps DV/HDR10+ path untouched | ✓ Good — corruption eliminated with no encoder change |
-| Fail closed on old qsvencc (runtime gate + self-check) rather than warn | Silent corruption is the primary risk; a stale binary must never encode | ✓ Good — threshold raised r4634 → r4658 → r4663 → r4665 as fixes landed |
+| Fail closed on old qsvencc (runtime gate + self-check) rather than warn | Silent corruption is the primary risk; a stale binary must never encode | ✓ Good — threshold raised r4634 → r4658 → r4663 → r4665 → r4677 as fixes landed |
 | Pin qsvencc to the Tualua fork until an official release carries the fixes | Upstream release lags; fixes (metrics sync, flush drop, seek, open-GOP trim) needed now | ⚠️ Revisit — return to official release (backlog 999.4) |
 | Byte identity (sha256 vs isolated reference) as the lock criterion instead of PSNR threshold | Hardware encode proved deterministic; PSNR ≥ 30 dB missed partial corruption | ✓ Good — 640 sessions, 0 mismatches; r4604 still caught |
 | ffmpeg 9 (BtbN n9.0.2 static, pinned URL+sha256) as the primary ffmpeg in both images | dovi_rpu for AV1, av1_qsv; one pinned binary for dev and runtime | ✓ Good — ENV-01 and COR-01 re-verified on it 2026-10-04 |
