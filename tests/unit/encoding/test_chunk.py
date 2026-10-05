@@ -76,6 +76,21 @@ def test_chunk_command_pins_qsv_backend():
         assert cmd.index("--backend") < cmd.index("--avhw")
 
 
+def test_chunk_command_disables_avoid_idle_clock():
+    for metrics in (False, True):
+        cmd = chunk_command(Path("in.mkv"), "00:00:01.000", "0:47",
+                            Path("out.obu"),
+                            hdr_flags=["--dolby-vision-rpu", "copy"],
+                            metrics=metrics)
+        assert cmd.count("--avoid-idle-clock") == 1
+        i = cmd.index("--avoid-idle-clock")
+        assert cmd[i + 1] == "off"
+        assert cmd.index("--scenario-info") < i < cmd.index("--dolby-vision-rpu")
+        if metrics:
+            assert cmd[-8:] == ["--psnr", "--ssim", "--seek", "00:00:01.000",
+                                "--trim", "0:47", "-o", "out.obu"]
+
+
 # --- parse_metrics: inf/nan в выводе qsvencc --- #
 
 _SSIM_INF = ("ssim/psnr: SSIM YUV: 1.000000 (inf), 1.000000 (inf), 1.000000 (inf), "

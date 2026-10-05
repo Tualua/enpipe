@@ -32,6 +32,14 @@ def chunk_command(src: Path, seek: str, trim: str, out: Path,
     # на A380 `--backend vaapi --avhw` = rc 253. Явный `qsv` превращает
     # отсутствие QSV в жёсткую ошибку. r4604 этот флаг не знает -- но
     # рантайм-гейт (QSV-02) такую сборку не пустит.
+    #
+    # `--avoid-idle-clock off`: дефолт `auto` подмешивает в сессию фиктивную
+    # GPU-нагрузку против сброса частоты в простое -- это ~4 с постоянных
+    # накладных на старт каждой сессии, на битстрим не влияет. Замер
+    # 2026-10-05 (A380, r4665, сцена 79 кадров, продакшен-argv с HDR10+ и
+    # метриками): 1 сессия 5.55 -> 1.64 с, 3 параллельно 5.63 -> 2.51 с;
+    # 10/10 выходов побайтно идентичны, Frames: 79. Флаг есть и в stock-сборках
+    # QSVEnc.
     cmd = [
         "qsvencc", "--backend", "qsv", "--avhw", "--va",
         "-i", str(src), "-c", "av1",
@@ -40,6 +48,7 @@ def chunk_command(src: Path, seek: str, trim: str, out: Path,
         "--gop-len", str(GOP_LEN), "--gop-ref-dist", "6", "--b-pyramid",
         "--tile-col", "1", "--tile-row", "1",
         "--tune", "perceptual", "--scenario-info", "archive",
+        "--avoid-idle-clock", "off",
         "--colorrange", "auto", "--colormatrix", "auto", "--colorprim", "auto",
         "--transfer", "auto", "--chromaloc", "auto",
         *hdr_flags,
