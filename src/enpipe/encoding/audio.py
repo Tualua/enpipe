@@ -1,13 +1,32 @@
 """Кодирование/копирование звуковых дорожек по правилам пресета (lossless ->
-FLAC, прочее -> Opus, уже в целевом -> copy); работает в фоновом потоке,
-поэтому НЕ бросает исключения. Перенесено дословно из
-legacy/encode_scenes.py:57,59,423-478 (D-13/D-15), с заменой `run()` на
-`enpipe.shared.proc` (D-08)."""
+FLAC, прочее -> Opus, уже в целевом -> copy, Atmos -> copy); работает в
+фоновом потоке, поэтому НЕ бросает исключения. Исходная логика перенесена из
+legacy/encode_scenes.py:57,59,423-478 (D-13/D-15), `run()` заменён на
+`enpipe.shared.proc` (D-08).
+
+Почему по процессу ffmpeg на дорожку: один ffmpeg кодирует дорожки
+последовательно, и на E02 Young Sherlock аудио (4 дорожки -> Opus) заняло
+514.6 с против 506.8 с у фазы чанков после --avoid-idle-clock off, то есть
+стало узким местом; хост имеет 16 CPU. Каждая дорожка кодируется отдельным
+процессом одновременно во временный <stem>.aNN.mka, затем части склеиваются
+`-c copy` в один out_mka (контракт для pipeline.py не меняется).
+Компромисс: каждый ffmpeg демуксит источник целиком (N чтений файла);
+параллельные чтения идут примерно синхронно и в основном попадают в page
+cache/ARC.
+
+Почему Atmos копируется: транскод в FLAC/Opus теряет объектный слой
+(JOC/Atmos) — решение оператора.
+
+Почему при склейке language/title/disposition ставятся явно из ffprobe
+источника и задан `-default_mode passthrough`: муксер ffmpeg в режиме infer
+ставит default первой дорожке, если ни одна не default, и однодорожечная
+часть получила бы ложный default."""
 
 from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -99,59 +118,62 @@ def _merge_command(parts: List[Path], streams: List[dict],
     return cmd
 
 
+def _encode_track(cmd: List[str]) -> Tuple[bool, Optional[str]]:
+    """Воркер пула: один ffmpeg на одну дорожку. Не бросает."""
+    try:
+        proc = _proc.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        return False, str(e)
+    if proc.returncode != 0:
+        return False, f"ffmpeg rc={proc.returncode}: {proc.stderr.strip()[-800:]}"
+    return True, None
+
+
 def encode_audio(src: Path, out_mka: Path,
                  ss: Optional[float] = None,
                  dur: Optional[float] = None) -> Tuple[bool, Optional[str]]:
     """Возвращает (произведено_ли_аудио, текст_ошибки). Ошибку НЕ бросает
     (крутится в фоновом потоке — падать через die() нельзя, всплыло бы криво)."""
-    # AUDIO_COPY=1 — не транскодировать, копировать дорожки как есть (сохраняет
-    # Atmos/DTS-X и т.п., но крупнее). По умолчанию — правила пресета.
-    audio_copy = os.environ.get("AUDIO_COPY", "0") == "1"
-    streams = json.loads(_proc.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a",
-         "-show_entries", "stream=index,codec_name,profile,channels,channel_layout",
-         "-of", "json", str(src)], capture_output=True, text=True).stdout
-    ).get("streams", [])
-    if not streams:
-        return False, None
-    cmd = ["ffmpeg", "-y", "-v", "error"]
-    if ss is not None:                       # обрезка под частичный диапазон сцен
-        cmd += ["-ss", f"{ss:.3f}"]
-    cmd += ["-i", str(src)]
-    if dur is not None:
-        cmd += ["-t", f"{dur:.3f}"]
-    cmd += ["-map_chapters", "-1"]
-    for n, st in enumerate(streams):
-        cmd += ["-map", f"0:a:{n}"]
-        codec = (st.get("codec_name") or "").lower()
-        prof = (st.get("profile") or "")
-        chans = int(st.get("channels") or 2)
-        layout = (st.get("channel_layout") or "")
-        lossless = (codec.startswith("pcm") or codec in LOSSLESS
-                    or (codec == "dts" and "DTS-HD MA" in prof))
-        if audio_copy:
-            cmd += [f"-c:a:{n}", "copy"]
-        elif lossless:
-            if codec == "flac":
-                cmd += [f"-c:a:{n}", "copy"]
-            else:
-                cmd += [f"-c:a:{n}", "flac", f"-compression_level:a:{n}", FLAC_LEVEL]
-        else:
-            if codec == "opus":
-                cmd += [f"-c:a:{n}", "copy"]
-            else:
-                br = "128k" if chans <= 2 else "256k"
-                cmd += [f"-c:a:{n}", "libopus", f"-b:a:{n}", br]
-                if chans > 2:
-                    # libopus не принимает layout'ы вида 5.1(side)/7.1(wide) ->
-                    # нормализуем к базовому (5.1 / 7.1). Каналы те же, меняется
-                    # только ярлык позиций, что для кодирования безразлично.
-                    target = layout.split("(")[0] if layout else \
-                        {6: "5.1", 8: "7.1"}.get(chans, "")
-                    if target:
-                        cmd += [f"-filter:a:{n}", f"aformat=channel_layouts={target}"]
-    cmd += [str(out_mka)]
-    proc = _proc.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        return False, f"ffmpeg rc={proc.returncode}: {proc.stderr.strip()[-800:]}"
-    return True, None
+    try:
+        # AUDIO_COPY=1 — не транскодировать, копировать дорожки как есть
+        # (сохраняет Atmos/DTS-X и т.п., но крупнее). По умолчанию — правила пресета.
+        audio_copy = os.environ.get("AUDIO_COPY", "0") == "1"
+        streams = json.loads(_proc.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries",
+             "stream=index,codec_name,profile,channels,channel_layout"
+             ":stream_tags=language,title:stream_disposition=default,forced",
+             "-of", "json", str(src)], capture_output=True, text=True).stdout
+        ).get("streams", [])
+        if not streams:
+            return False, None
+        # пути частей считаем ДО try: ошибка ниже не должна маскироваться NameError
+        parts = [_part_path(out_mka, n) for n in range(len(streams))]
+        cmds = [_track_command(src, n, st, parts[n], ss, dur, audio_copy)
+                for n, st in enumerate(streams)]
+        try:
+            workers = min(len(streams), os.cpu_count() or 1)
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_encode_track, c) for c in cmds]
+                errors: List[str] = []
+                # дренаж: ждём ВСЕ futures, чтобы не оставить живых ffmpeg
+                for n, fut in enumerate(futures):
+                    try:
+                        ok, msg = fut.result()
+                    except Exception as e:
+                        ok, msg = False, str(e)
+                    if not ok:
+                        errors.append(f"дорожка {n}: {msg}")
+            if errors:
+                return False, "; ".join(errors)
+            proc = _proc.run(_merge_command(parts, streams, out_mka),
+                             capture_output=True, text=True)
+            if proc.returncode != 0:
+                return False, (f"склейка аудио: ffmpeg rc={proc.returncode}: "
+                               f"{proc.stderr.strip()[-800:]}")
+            return True, None
+        finally:
+            for p in parts:
+                p.unlink(missing_ok=True)
+    except Exception as e:
+        return False, f"аудио: {e}"
