@@ -5,7 +5,7 @@ milestone_name: Concurrent-encode correctness
 status: Awaiting next milestone
 stopped_at: Milestone v1.2 complete and archived
 last_updated: "2026-10-04T17:06:54.306Z"
-last_activity: 2026-10-04 — Milestone v1.2 completed and archived
+last_activity: "2026-10-05 - quick 261005-4uz: --avoid-idle-clock off в чанке qsvencc"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 Phase: Milestone v1.2 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-10-04 — Milestone v1.2 completed and archived
+Last activity: 2026-10-05 - Completed quick task 261005-4uz: --avoid-idle-clock off в чанке qsvencc
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ None yet.
 | 261003-mj7 | qsvencc → 8.32+vppsync7 (r4665, фикс open-GOP trim): пин, минимальная ревизия 4665, снят отказ на open-GOP и проба ведущих кадров; test_chunk_content_open_gop[rasl,radl], test_hdr10 снова open-GOP | 2026-10-03 | 0b769b4 | [261003-mj7-qsvencc-8-32-vppsync7-r4665-open-gop-tri](./quick/261003-mj7-qsvencc-8-32-vppsync7-r4665-open-gop-tri/) |
 | 261004-h8e | ffmpeg 9 (BtbN n9.0.2, autobuild-2026-10-01, пин URL+sha256) — основной ffmpeg/ffprobe в devcontainer и рантайм-образе; apt ffmpeg убран из рантайма; opt-in ffmpeg-8.1 удалён; ENV-01 и harness на ffmpeg 9 | 2026-10-04 | e5ea12c | [261004-h8e-ffmpeg-9-btbn-static-n9-0-2-url-sha256-d](./quick/261004-h8e-ffmpeg-9-btbn-static-n9-0-2-url-sha256-d/) |
 | 261004-mse | Хвост 261004-h8e: `scratch/gate_stress_matrix.py --backend ffmpeg` на `ffmpeg_av1qsv_available()`; страж ffmpeg-8.1 покрывает stress-скрипт и харнесс (гэп UAT 06, п.2) | 2026-10-04 | be62b4c | [261004-mse-gate-stress-matrix-py-ffmpeg-9-ffmpeg81-](./quick/261004-mse-gate-stress-matrix-py-ffmpeg-9-ffmpeg81-/) |
+| 261005-4uz | `--avoid-idle-clock off` в argv чанка qsvencc: старт сессии ~5.6 → ~1.6 с, выход побайтно тот же (замок COR-02 + parity на A380 зелёные) | 2026-10-05 | 2c59b83 | [261005-4uz-qsvencc-avoid-idle-clock-off-3x](./quick/261005-4uz-qsvencc-avoid-idle-clock-off-3x/) |
 | fast | devcontainer → хостовый rootless podman: проброс сокета, CONTAINER_HOST, podman-remote 5.8.2 (пин sha256), label=disable, статус в post-create | 2026-10-04 | f724ad5 | — |
 | 260709-711 | Плавный ПОКАДРОВЫЙ прогресс-бар в параллельном режиме: `progress_cb`-хук в `QsvPipeStream.read()` двигает общий бар из всех сегмент-потоков (было: скачки по завершении целого сегмента, висело на 0%). Ветка `show_progress=False`, cut-математика и порядок `results` не тронуты | 2026-07-09 | 05c8ab6 | [260709-711-smooth-per-frame-progress-bar](./quick/260709-711-smooth-per-frame-progress-bar/) |
 | 260709-89t | `enpipe run/detect/encode <папка>` — новый leaf-модуль `shared/batch.py` (дискавери + collect-then-report оркестратор), `--recursive`, skip-existing, guard'ы схлопывания выходов (-o-файл/--workdir/--csv/--scenes -> die). Одиночный файл byte-identical | 2026-07-09 | f7f8fb7 | [260709-89t-folder-batch-input-enpipe-run-detect-enc](./quick/260709-89t-folder-batch-input-enpipe-run-detect-enc/) |
