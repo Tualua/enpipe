@@ -8,6 +8,7 @@
 - 🚧 **v1.3 Анализ качества энкода** — Phases 9–13 (in progress)
 
 Full phase detail is archived per milestone under `.planning/milestones/`:
+
 - `.planning/milestones/v1.1-ROADMAP.md` (cumulative — captures Phases 1–5, the repo's first milestone archive)
 - `.planning/milestones/v1.1-REQUIREMENTS.md`
 - `.planning/milestones/v1.2-ROADMAP.md`
@@ -56,69 +57,92 @@ Silent cross-session frame corruption of concurrent `qsvencc` eliminated: fixed 
 ## Phase Details (v1.3)
 
 ### Phase 9: Чистое ядро анализа и ридеры
+
 **Goal**: Метрики кадра, пороги, ридеры источников кандидатов и модель отчёта существуют как чистые функции без subprocess и проверяются быстрым тиром тестов на фикстурах
 **Depends on**: Nothing (first phase of v1.3; encode path untouched)
 **Requirements**: MET-01, MET-02, MET-03, MET-04, MET-05, CND-01, CND-02, CND-04, CND-05, RPT-01
 **Success Criteria** (what must be TRUE):
+
   1. Для пары 10-битных YUV-массивов считаются сохранность цвета мелких насыщенных деталей (медиана, p10, число блоков; при недостатке блоков результат «нет мелких цветных деталей», а не число), PSNR Y/U/V с худшим тайлом, яркость в нитах (PQ EOTF) с долей теней и сохранностью детали по Y, ΔE ITP (среднее и p99) — табличные тесты PQ и тайлинга (включая неполные края) зелёные
   2. Все пороги лежат в одной конфигурации как именованные константы, и отчёт помечает их «provisional»
   3. Кандидаты читаются из ручного списка `--frames`, из CSV метрик qsvencc (худшие сцены по `ssim_y`/`psnr_y`) и из внешнего VMAF (tsv/csv, десятичная запятая); при несовпадении длины или базы индекса VMAF-файл отвергается с объяснением
   4. Кандидаты из всех источников сливаются с разносом `--min-gap` и квотой на сцену, у каждого указан источник
   5. Из одной модели данных строятся `report.md`, `index.html` и `report.json`; `report.json` стабилен (golden-тест схемы)
+
 **Plans**: 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 09-01-PLAN.md — контракты: AnalyzeConfig (все пороги, provisional), константы PQ/BT.2020/ITP, frozen-модель отчёта (волна 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 09-02-PLAN.md — метрики кадра: тайлы с неполными краями, PSNR Y/U/V, ниты/тени/деталь, сохранность цвета мелких деталей, ΔE ITP, analyze_frame (волна 2)
 - [ ] 09-03-PLAN.md — ридеры --frames/.scenes/CSV qsvencc/VMAF со статусами источников и слияние кандидатов (волна 2)
 - [ ] 09-04-PLAN.md — report.json (golden v1, inf/nan), report.md, index.html с экранированием, сводка перцентилей (волна 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 09-05-PLAN.md — сквозной тест ядра, AST-сторож изоляции, ворота фазы (волна 3)
 
 ### Phase 10: Извлечение кадров и выравнивание
+
 **Goal**: Любой кадр N достаётся из источника и энкода точно по номеру, а пара до расчёта метрик проходит проверку выравнивания с громким отказом при любом сомнении
 **Depends on**: Phase 9
 **Requirements**: ALN-01, ALN-02, ALN-03, ALN-04, ANL-03
 **Success Criteria** (what must be TRUE):
+
   1. Кадр N извлекается из источника и энкода как 10-битный YUV без потерь (таблица pts, seek на полкадра раньше) и совпадает с `framemd5` последовательного декода на синтетике, в том числе на VFR и ненулевом `start_time`
   2. Пара с несовпадением размера, частоты кадров, числа кадров или тегов диапазона/матрицы/transfer, либо с не-PQ источником, получает громкий отказ с объяснением до расчёта метрик
   3. Выравнивание проверяется в нескольких точках, включая склейки сцен, и даёт один из трёх исходов «выровнено / сдвиг N / неопределённо (статика)»; при сдвиге метрики не строятся
   4. Для энкода частичного диапазона (`--from/--to`) без `--offset` сдвиг обнаруживается и приводит к отказу, а с `--offset` пара сравнивается корректно
   5. Извлечение работает без GPU и `/dev/dri` (программный декод по умолчанию) и не мешает идущему кодированию
+
 **Plans**: TBD
 
 ### Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI
+
 **Goal**: Пользователь запускает `enpipe analyze <src> <enc>` и получает отчёт с ранжированными проблемными кадрами, кропами «источник | энкод» и сводкой
 **Depends on**: Phase 10
 **Requirements**: ANL-01, ANL-04, RPT-02, RPT-03, RPT-04, CND-06
 **Success Criteria** (what must be TRUE):
+
   1. `enpipe analyze <src> <enc> --out DIR` создаёт `report.md`, `index.html`, `report.json` по заданным кадрам и кандидатам из CSV qsvencc / внешнего VMAF
   2. Для каждого кадра в `index.html` есть кропы 1:1 худшего тайла и ×2 худшего цветного блока «источник | энкод», полный кадр и карта разницы (PNG без потерь, тонмаппинг PQ→SDR только для просмотра, с подписью)
   3. Сводка показывает перцентили метрик (min, p1/p5/p10, медиана) и таблицу кандидатов по убыванию серьёзности; кадры «VMAF высокий, цвет мелких деталей потерян» отмечены флагом «VMAF хорош, цвет плох»
   4. Упавшее извлечение кадра видно в отчёте строкой ошибки, остальные кадры обрабатываются
   5. В отчёте записаны версии ffmpeg/qsvencc (если известны), пороги и источники кандидатов
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 12: Скан цвета по сценам и батч по папке
+
 **Goal**: Анализ находит проблемные места без подсказок: скан цвета по сценам и обработка целой папки пар
 **Depends on**: Phase 11
 **Requirements**: CND-03, ANL-02
 **Success Criteria** (what must be TRUE):
+
   1. Скан берёт по одной точке внутри каждой сцены из `.scenes` (не первый кадр сцены), и худшие по сохранности цвета сцены попадают в кандидаты со ссылкой на скан как источник
   2. Сцена 66489–66663 с кадром 66490 попадает в кандидаты скана на материале handoff
   3. `enpipe analyze <папка>` находит пары по `<stem>.Encoded.*` и строит отчёт на каждую
   4. Источники без энкода и неоднозначные пары перечислены в сводке, код выхода ненулевой
+
 **Plans**: TBD
 
 ### Phase 13: Калибровка, сравнение двух энкодов, приёмка
+
 **Goal**: Пороги проверены на разных материалах и известных данных, а два энкода одного источника сравниваются рядом
 **Depends on**: Phase 12
 **Requirements**: CMP-01, CAL-01, CAL-02
 **Success Criteria** (what must be TRUE):
+
   1. `--compare <enc2>` (или дельта двух `report.json`) показывает на одних и тех же кадрах сохранность цвета мелких деталей (медиана/p10), PSNR U/V, ΔE ITP и битрейт обоих энкодов рядом
   2. Пороги проверены минимум на трёх материалах (тёмный, светлый, зернистый/анимация) и на синтетике с известной потерей; контроль «энкод против себя» даёт 100 %, `--icq 1` задаёт пол шума
   3. Синтетика handoff даёт 71 % → 88 % при `--av1-chroma-delta-q -32` (vppsync9)
   4. E01 кадр 66490 и участок 3:56–4:48 попадают в отчёт
+
 **Plans**: TBD
 
 ## Progress
@@ -148,6 +172,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 999.3: Гейт версии qsvencc в legacy/encode_scenes.py (BACKLOG)
@@ -157,6 +182,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 999.4: Надёжность метрик qsvencc (--psnr/--ssim) при параллельных чанках (BACKLOG)
@@ -166,6 +192,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 999.5: Конвертация Dolby Vision profile 5 → HDR10 через libplacebo (BACKLOG)
@@ -175,6 +202,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 999.6: Источники с ненулевым start_time (MPEG-TS/m2ts) в enpipe (BACKLOG)
@@ -184,4 +212,5 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
