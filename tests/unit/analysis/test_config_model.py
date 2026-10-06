@@ -97,3 +97,81 @@ def test_error_row_without_metrics():
 def test_field_names_snake_case(obj):
     for f in dataclasses.fields(obj):
         assert re.match(r"^[a-z][a-z0-9_]*$", f.name), f.name
+
+
+# --------------------------------------------------------------------------- #
+# config.py
+# --------------------------------------------------------------------------- #
+
+from enpipe.analysis import config as c  # noqa: E402
+
+
+def test_config_defaults():
+    cfg = c.AnalyzeConfig()
+    assert (cfg.chroma_block, cfg.chroma_sat_thr) == (16, 30.0)
+    assert (cfg.chroma_min_pts, cfg.chroma_max_pts, cfg.min_chroma_blocks) == (3, 20, 5)
+    assert (cfg.tile_y, cfg.tile_c) == (256, 128)
+    assert (cfg.shadow_nits, cfg.detail_eps) == (5.0, 1e-9)
+    assert (cfg.min_gap, cfg.top, cfg.per_scene_quota) == (48, 40, 2)
+    assert (cfg.csv_worst_n, cfg.vmaf_worst_n, cfg.max_frames_range) == (10, 12, 10000)
+
+
+def test_build_thresholds_defaults():
+    cfg = c.AnalyzeConfig()
+    th = c.build_thresholds(cfg)
+    flds = dataclasses.fields(c.AnalyzeConfig)
+    assert len(th) == len(flds)
+    assert [t.name for t in th] == [f.name for f in flds]
+    assert all(t.provisional is True for t in th)
+    assert all(t.value == getattr(cfg, t.name) for t in th)
+
+
+def test_build_thresholds_reflects_args():
+    th = {t.name: t.value for t in c.build_thresholds(c.AnalyzeConfig(tile_y=512, tile_c=256))}
+    assert th["tile_y"] == 512 and th["tile_c"] == 256
+
+
+def test_build_thresholds_distinct_values_and_types():
+    cfg = c.AnalyzeConfig(
+        chroma_block=8, chroma_sat_thr=31.5, chroma_min_pts=4, chroma_max_pts=19,
+        min_chroma_blocks=6, tile_y=258, tile_c=130, shadow_nits=5.5,
+        detail_eps=2e-9, min_gap=49, top=41, per_scene_quota=3, csv_worst_n=11,
+        vmaf_worst_n=13, max_frames_range=10001,
+    )
+    for t in c.build_thresholds(cfg):
+        v = getattr(cfg, t.name)
+        assert t.value == v and type(t.value) is type(v), t.name
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"tile_y": 255},
+        {"tile_c": 0},
+        {"tile_y": -2},
+        {"chroma_min_pts": 10, "chroma_max_pts": 5},
+        {"chroma_min_pts": 0},
+        {"chroma_block": 0},
+        {"min_chroma_blocks": 0},
+        {"min_gap": -1},
+        {"top": 0},
+        {"per_scene_quota": 0},
+        {"csv_worst_n": 0},
+        {"vmaf_worst_n": 0},
+        {"max_frames_range": 0},
+    ],
+)
+def test_invalid_config_raises(kwargs):
+    with pytest.raises(c.AnalysisError):
+        c.AnalyzeConfig(**kwargs)
+
+
+def test_itp_strip_rows_even_positive():
+    assert isinstance(c.ITP_STRIP_ROWS, int)
+    assert c.ITP_STRIP_ROWS > 0 and c.ITP_STRIP_ROWS % 2 == 0
+
+
+def test_matrix_sanity():
+    assert all(sum(row) == 4096 for row in c.RGB_TO_LMS)
+    assert c.LMS_TO_ICTCP[0] == (2048, 2048, 0)
+    assert sum(c.LMS_TO_ICTCP[1]) == 0 and sum(c.LMS_TO_ICTCP[2]) == 0
