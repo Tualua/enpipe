@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -29,6 +30,7 @@ from enpipe.analysis.model import (
     AnalysisReport,
     Candidate,
     ChromaDetail,
+    ImageRef,
     ChromaTile,
     DetailTile,
     FrameMetrics,
@@ -39,9 +41,12 @@ from enpipe.analysis.model import (
 )
 from enpipe.analysis.report import (
     SUMMARY_METRICS,
+    render_html,
     render_json,
+    render_md,
     summarize,
     to_jsonable,
+    write_report,
 )
 
 GOLDEN = Path(__file__).parent / "golden" / "report_v1.json"
@@ -286,8 +291,6 @@ def _row(frame=0, *, status=ROW_OK, p10=None, psnr_y=40.0, vmaf=None, chroma=Non
     if chroma is None:
         chroma = ChromaDetail(status=CHROMA_OK, n_blocks=9, median=p10, p10=p10, ratio=1.0)
     m = _metrics(chroma=chroma)
-    import dataclasses
-
     m = dataclasses.replace(m, psnr_y=psnr_y)
     return FrameRow(frame=frame, status=status, vmaf=vmaf, metrics=m)
 
@@ -339,3 +342,137 @@ def test_summarize_vmaf_needs_no_metrics():
 
 def test_summarize_order_and_count():
     assert tuple(s.metric for s in summarize([])) == SUMMARY_METRICS
+
+
+# --------------------------------------------------------------------------- #
+# render_md
+# --------------------------------------------------------------------------- #
+
+
+def _unescaped_pipes(line: str) -> int:
+    return len(re.findall(r"(?<!\\)\|", line))
+
+
+def test_md_structure():
+    md = render_md(_fixture_report())
+    assert "# Разбор кадров энкода" in md
+    assert "src.mkv" in md and "src.Encoded.mkv" in md
+    assert "## Пороги (provisional, не откалиброваны)" in md
+    for t in build_thresholds(AnalyzeConfig()):
+        assert t.name in md
+    assert "отвергнут" in md and "база индекса" in md
+    assert "## Кадры" in md and "## Сводка" in md
+
+
+def test_md_chroma_no_details_and_percent():
+    md = render_md(_fixture_report())
+    assert "нет мелких цветных деталей" in md
+    assert "88 % / 71 %" in md
+    assert "inf" in md and "н/д" in md
+
+
+def test_md_error_row_visible_and_padded():
+    md = render_md(_fixture_report())
+    lines = md.splitlines()
+    header = next(ln for ln in lines if ln.startswith("| кадр | время"))
+    err = next(ln for ln in lines if "ошибка: ffmpeg: кадр 900 не извлечён" in ln)
+    assert _unescaped_pipes(err) == _unescaped_pipes(header)
+
+
+def test_md_escapes_pipes_and_newlines():
+    base = _fixture_report()
+    rep = dataclasses.replace(
+        base,
+        meta=dataclasses.replace(base.meta, src_name="a|b.mkv"),
+        sources=(
+            SourceStatus(
+                SOURCE_VMAF,
+                STATE_REJECTED,
+                reason="база индекса 1 | длина 3 ≠ 4\nвторая строка",
+            ),
+        ),
+    )
+    md = render_md(rep)
+    assert "a\\|b.mkv" in md
+    assert "база индекса 1 \\| длина 3 ≠ 4 вторая строка" in md
+    src_header = next(ln for ln in md.splitlines() if ln.startswith("| источник |"))
+    src_row = next(ln for ln in md.splitlines() if "вторая строка" in ln)
+    assert _unescaped_pipes(src_row) == _unescaped_pipes(src_header)
+
+
+def _empty_report() -> AnalysisReport:
+    return AnalysisReport(
+        meta=RunMeta(src_name="a.mkv", enc_name="b.mkv"),
+        thresholds=(),
+        sources=(),
+        candidates=(),
+        frames=(),
+        summary=(),
+    )
+
+
+def test_empty_report_md_and_html():
+    for text in (render_md(_empty_report()), render_html(_empty_report())):
+        assert "None" not in text
+        assert "нет" in text
+
+
+# --------------------------------------------------------------------------- #
+# render_html
+# --------------------------------------------------------------------------- #
+
+
+def test_html_structure():
+    h = render_html(_fixture_report())
+    assert h.startswith("<!doctype html>")
+    assert '<meta charset="utf-8">' in h
+    assert "Пороги (provisional, не откалиброваны)" in h
+    assert "<script" not in h
+    assert "нет мелких цветных деталей" in h
+    assert "ошибка: ffmpeg: кадр 900 не извлечён" in h
+
+
+def test_html_escapes_untrusted_strings():
+    base = _fixture_report()
+    row = dataclasses.replace(
+        base.frames[0],
+        flags=("<b>f</b>",),
+        images=(ImageRef(kind="k", path='x" onerror="y', caption="<u>c</u>"),),
+    )
+    err_row = dataclasses.replace(base.frames[2], error="<i>boom</i>")
+    rep = dataclasses.replace(
+        base,
+        meta=dataclasses.replace(base.meta, src_name='a&b "x" <i>.mkv'),
+        sources=(
+            SourceStatus(
+                SOURCE_VMAF,
+                STATE_REJECTED,
+                reason="<img src=x onerror=alert(1)>",
+                notes=("<s>n</s>",),
+            ),
+        ),
+        candidates=(
+            Candidate(frame=1, primary=SOURCE_MANUAL, sources=("<m>",), tags=("<t>",)),
+        ),
+        frames=(row, err_row),
+    )
+    h = render_html(rep)
+    assert "a&amp;b &quot;x&quot; &lt;i&gt;.mkv" in h
+    assert "&lt;img src=x onerror=alert(1)&gt;" in h
+    for raw in ("<i>", "<img src=x", "<b>f", "<u>c", "<s>n", "<m>", "<t>", "<i>boom"):
+        assert raw not in h
+    assert 'src="x&quot; onerror=&quot;y"' in h
+
+
+# --------------------------------------------------------------------------- #
+# write_report
+# --------------------------------------------------------------------------- #
+
+
+def test_write_report_three_files(tmp_path):
+    out = tmp_path / "out"
+    rep = _fixture_report()
+    write_report(rep, out)
+    assert (out / "report.json").read_bytes() == render_json(rep).encode("utf-8")
+    assert (out / "report.md").read_text(encoding="utf-8") == render_md(rep)
+    assert (out / "index.html").read_text(encoding="utf-8") == render_html(rep)
