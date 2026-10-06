@@ -15,6 +15,7 @@ from enpipe.analysis.metrics import (
     mse,
     pq_nits,
     psnr,
+    small_chroma,
 )
 
 
@@ -148,3 +149,120 @@ def test_detail_worst_tile_only_among_valid():
     assert glob is not None
     assert tile is not None and (tile.x, tile.y) == (0, 0)
     assert tile.detail == pytest.approx(1.0)
+
+
+# ---- Цвет мелких деталей (MET-01) ---------------------------------------- #
+
+
+def _blocks(deltas, enc_deltas=None, pts=8, extra_w=0):
+    """Цветность 16x(16k): в k-м блоке pts точек с Cb=512+delta, Cr=512."""
+    k = len(deltas)
+    su = np.full((16, 16 * k + extra_w), 512, dtype=np.uint16)
+    sv = su.copy()
+    eu, ev = su.copy(), sv.copy()
+    enc = deltas if enc_deltas is None else enc_deltas
+    for i, (d, e) in enumerate(zip(deltas, enc)):
+        # pts точек в первых строках блока (по 16 в строке)
+        for j in range(pts):
+            r, cidx = divmod(j, 16)
+            su[r, 16 * i + cidx] = 512 + d
+            eu[r, 16 * i + cidx] = 512 + e
+    return su, sv, eu, ev
+
+
+def _chroma_planes(n_blocks, pts=8, delta=100):
+    return _blocks([delta] * n_blocks, pts=pts)
+
+
+def test_chroma_identical_is_one():
+    su, sv, eu, ev = _chroma_planes(6)
+    r = small_chroma(su, sv, eu, ev, AnalyzeConfig())
+    assert r.status == "ok" and r.n_blocks == 6
+    assert (r.median, r.p10, r.ratio, r.worst_value) == (1.0, 1.0, 1.0, 1.0)
+
+
+def test_chroma_gray_is_zero():
+    su, sv, _, _ = _chroma_planes(6)
+    eu = np.full_like(su, 512)
+    r = small_chroma(su, sv, eu, sv.copy(), AnalyzeConfig())
+    assert (r.median, r.p10, r.ratio) == (0.0, 0.0, 0.0)
+
+
+def test_chroma_oversaturated_not_clipped():
+    su, sv, eu, ev = _blocks([100] * 6, [200] * 6)
+    r = small_chroma(su, sv, eu, ev, AnalyzeConfig())
+    assert r.median == 2.0
+
+
+def test_chroma_inverted_negative():
+    su, sv, eu, ev = _blocks([100] * 6, [-100] * 6)
+    assert small_chroma(su, sv, eu, ev, AnalyzeConfig()).median == -1.0
+
+
+def test_chroma_too_few_blocks_no_details():
+    su, sv, eu, ev = _chroma_planes(4)
+    r = small_chroma(su, sv, eu, ev, AnalyzeConfig())
+    assert r.status == "no_details" and r.n_blocks == 4
+    assert (r.median, r.p10, r.ratio, r.worst_value, r.worst_x, r.worst_y) == (None,) * 6
+
+
+def test_chroma_no_saturated_points():
+    su = np.full((16, 96), 512, dtype=np.uint16)
+    r = small_chroma(su, su.copy(), su.copy(), su.copy(), AnalyzeConfig())
+    assert r.status == "no_details" and r.n_blocks == 0
+
+
+@pytest.mark.parametrize("pts, counted", [(2, 0), (3, 1), (20, 1), (21, 0)])
+def test_chroma_point_count_range(pts, counted):
+    su, sv, eu, ev = _blocks([100], pts=pts)
+    r = small_chroma(su, sv, eu, ev, AnalyzeConfig(min_chroma_blocks=1))
+    assert r.n_blocks == counted
+
+
+@pytest.mark.parametrize("dcb, dcr, counted", [(30, 0, 0), (30, 1, 1)])
+def test_chroma_saturation_boundary_strict(dcb, dcr, counted):
+    su, sv, eu, ev = _blocks([0], pts=8)
+    su[0, :8] = 512 + dcb
+    sv[0, :8] = 512 + dcr
+    r = small_chroma(su, sv, su.copy(), sv.copy(), AnalyzeConfig(min_chroma_blocks=1))
+    assert r.n_blocks == counted
+
+
+def test_chroma_partial_edge_block_ignored():
+    su, sv, eu, ev = _blocks([100] * 5, extra_w=8)
+    su[0, 80:88] = 612  # деталь в неполном блоке справа
+    eu[0, 80:88] = 612
+    r = small_chroma(su, sv, eu, ev, AnalyzeConfig(min_chroma_blocks=1))
+    assert r.n_blocks == 5
+
+
+def test_chroma_worst_block_coords_in_luma_pixels():
+    su, sv, eu, ev = _blocks([100] * 6, [100, 100, 100, 50, 100, 100])
+    r = small_chroma(su, sv, eu, ev, AnalyzeConfig())
+    assert r.worst_value == 0.5
+    assert (r.worst_x, r.worst_y) == (3 * 16 * 2, 0)
+
+
+def test_chroma_ratio_is_weighted_sum_not_median():
+    su, sv, eu, ev = _blocks([100, 100, 100, 100, 40], [100, 100, 100, 100, 0])
+    r = small_chroma(su, sv, eu, ev, AnalyzeConfig())
+    se = 4 * 8 * 100 * 100
+    ss = se + 8 * 40 * 40
+    assert r.median == 1.0
+    assert r.ratio == pytest.approx(se / ss)
+    assert r.ratio != r.median
+
+
+def test_chroma_params_come_from_config():
+    su = np.full((16, 80), 512, dtype=np.uint16)
+    for i in range(5):
+        su[0, 16 * i: 16 * i + 16] = 512 + 40
+    su[0, ::16] = 512
+    sv = np.full_like(su, 512)
+    # 5 блоков 16x16: в строке 0 по 15 точек dev=40 -> default берёт
+    r16 = small_chroma(su, sv, su.copy(), sv.copy(), AnalyzeConfig())
+    assert r16.n_blocks == 5
+    r8 = small_chroma(su, sv, su.copy(), sv.copy(), AnalyzeConfig(chroma_block=8))
+    assert r8.n_blocks == 10
+    strict = small_chroma(su, sv, su.copy(), sv.copy(), AnalyzeConfig(chroma_sat_thr=50.0))
+    assert strict.n_blocks == 0

@@ -27,6 +27,7 @@ import numpy as np
 from enpipe.analysis.config import (
     AnalysisError,
     AnalyzeConfig,
+    CHROMA_MID,
     ITP_STRIP_ROWS,
     LUMA_BLACK,
     LUMA_RANGE,
@@ -39,6 +40,9 @@ from enpipe.analysis.config import (
     PQ_PEAK_NITS,
 )
 from enpipe.analysis.model import (
+    CHROMA_NO_DETAILS,
+    CHROMA_OK,
+    ChromaDetail,
     ChromaTile,
     DetailTile,
     LumaTile,
@@ -236,4 +240,75 @@ def chroma_tiles(
         psnr_u=_psnr_from_mse(mu),
         psnr_v=_psnr_from_mse(mv),
         mse_uv=s,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Сохранность цвета мелких насыщенных деталей
+# --------------------------------------------------------------------------- #
+
+
+def small_chroma(
+    su: np.ndarray, sv: np.ndarray, eu: np.ndarray, ev: np.ndarray, cfg: AnalyzeConfig
+) -> ChromaDetail:
+    """Сохранность цвета МЕЛКИХ насыщенных деталей любого оттенка (MET-01).
+
+    VMAF считается только по Y, а средний PSNR U/V тонет в фоне, поэтому
+    посеревшую мелкую цветную деталь они не видят. Берутся блоки
+    cfg.chroma_block x cfg.chroma_block отсчётов цветности, где у источника от
+    chroma_min_pts до chroma_max_pts точек с насыщенностью
+    hypot(Cb-512, Cr-512) > chroma_sat_thr (мелкая деталь, не заливка), и
+    считается проекция цвета энкода на цвет источника: Σ(s·e)/Σ(s·s) по точкам
+    блока. 1.0 — цвет сохранён, 0 — деталь посерела, > 1 — перенасыщение,
+    < 0 — сдвиг оттенка; проекция НЕ обрезается (D-04).
+
+    Учитываются только ПОЛНЫЕ блоки: края цветности, не кратные размеру блока,
+    отбрасываются, как в прототипе — так воспроизводятся приёмочные цифры
+    прототипа (71 -> 88 %). Блоков меньше min_chroma_blocks — статус
+    no_details без чисел (D-03). Ранжировать кадры следует по p10 (D-02);
+    ratio — взвешенный по точкам итог по всем отобранным блокам.
+    """
+    b = cfg.chroma_block
+    h, w = su.shape
+    hb, wb = h // b, w // b
+    if hb == 0 or wb == 0:
+        return ChromaDetail(status=CHROMA_NO_DETAILS, n_blocks=0)
+
+    csu = su.astype(np.float64) - CHROMA_MID
+    csv_ = sv.astype(np.float64) - CHROMA_MID
+    ceu = eu.astype(np.float64) - CHROMA_MID
+    cev = ev.astype(np.float64) - CHROMA_MID
+    mask = np.hypot(csu, csv_) > cfg.chroma_sat_thr
+    counts = mask[: hb * b, : wb * b].reshape(hb, b, wb, b).sum(axis=(1, 3))
+    selected = (counts >= cfg.chroma_min_pts) & (counts <= cfg.chroma_max_pts)
+
+    keep: List[Tuple[float, int, int]] = []
+    tot_se = 0.0
+    tot_ss = 0.0
+    for by, bx in zip(*np.nonzero(selected)):
+        y, x = int(by) * b, int(bx) * b
+        m = mask[y : y + b, x : x + b]
+        su_, sv_ = csu[y : y + b, x : x + b][m], csv_[y : y + b, x : x + b][m]
+        eu_, ev_ = ceu[y : y + b, x : x + b][m], cev[y : y + b, x : x + b][m]
+        se = float((su_ * eu_ + sv_ * ev_).sum())
+        ss = float((su_ * su_ + sv_ * sv_).sum())  # > 0: все точки маски насыщены
+        tot_se += se
+        tot_ss += ss
+        keep.append((se / ss, x * 2, y * 2))
+
+    n = len(keep)
+    if n < cfg.min_chroma_blocks:
+        return ChromaDetail(status=CHROMA_NO_DETAILS, n_blocks=n)
+    vals = np.array([k[0] for k in keep])
+    worst = min(keep)  # ничья решается по x, затем y — как в прототипе
+    return ChromaDetail(
+        status=CHROMA_OK,
+        n_blocks=n,
+        median=float(np.median(vals)),
+        # метод linear (дефолт numpy): на нём получены приёмочные цифры прототипа
+        p10=float(np.percentile(vals, 10)),
+        ratio=tot_se / tot_ss,
+        worst_value=float(worst[0]),
+        worst_x=int(worst[1]),
+        worst_y=int(worst[2]),
     )
