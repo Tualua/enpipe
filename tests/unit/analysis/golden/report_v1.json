@@ -1,0 +1,399 @@
+{
+  "candidates": [
+    {
+      "frame": 100,
+      "primary": "manual",
+      "scene": 1,
+      "sources": [
+        "manual",
+        "vmaf"
+      ],
+      "tags": []
+    },
+    {
+      "frame": 500,
+      "primary": "csv",
+      "scene": 2,
+      "sources": [
+        "csv"
+      ],
+      "tags": [
+        "psnr_y"
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "alignment": null,
+      "alignment_shift": null,
+      "error": null,
+      "flags": [],
+      "frame": 100,
+      "images": [],
+      "metrics": {
+        "chroma": {
+          "median": 0.88,
+          "n_blocks": 12,
+          "p10": 0.71,
+          "ratio": 0.8,
+          "status": "ok",
+          "worst_value": 0.5,
+          "worst_x": 64,
+          "worst_y": 128
+        },
+        "delta_e_itp_mean": 1.5,
+        "delta_e_itp_p99": 3.5,
+        "detail": 0.9,
+        "nits_mean": 120.5,
+        "psnr_u": "inf",
+        "psnr_v": 42.25,
+        "psnr_y": 40.5,
+        "shadow_fraction": 0.25,
+        "worst_tile_c": {
+          "h": 256,
+          "mse_uv": 9.5,
+          "psnr_u": 38.0,
+          "psnr_v": 39.0,
+          "w": 256,
+          "x": 512,
+          "y": 0
+        },
+        "worst_tile_detail": {
+          "detail": 0.75,
+          "h": 256,
+          "w": 256,
+          "x": 0,
+          "y": 0
+        },
+        "worst_tile_y": {
+          "h": 256,
+          "psnr": 35.5,
+          "w": 256,
+          "x": 0,
+          "y": 256
+        }
+      },
+      "scene": 1,
+      "scene_pos": 10,
+      "severity": null,
+      "sources": [
+        "manual",
+        "vmaf"
+      ],
+      "status": "ok",
+      "time_sec": 4.171,
+      "vmaf": 91.5
+    },
+    {
+      "alignment": null,
+      "alignment_shift": null,
+      "error": null,
+      "flags": [],
+      "frame": 500,
+      "images": [],
+      "metrics": {
+        "chroma": {
+          "median": null,
+          "n_blocks": 2,
+          "p10": null,
+          "ratio": null,
+          "status": "no_details",
+          "worst_value": null,
+          "worst_x": null,
+          "worst_y": null
+        },
+        "delta_e_itp_mean": 1.5,
+        "delta_e_itp_p99": null,
+        "detail": 0.9,
+        "nits_mean": 120.5,
+        "psnr_u": 41.0,
+        "psnr_v": 42.25,
+        "psnr_y": 40.5,
+        "shadow_fraction": 0.25,
+        "worst_tile_c": {
+          "h": 256,
+          "mse_uv": 9.5,
+          "psnr_u": 38.0,
+          "psnr_v": 39.0,
+          "w": 256,
+          "x": 512,
+          "y": 0
+        },
+        "worst_tile_detail": {
+          "detail": 0.75,
+          "h": 256,
+          "w": 256,
+          "x": 0,
+          "y": 0
+        },
+        "worst_tile_y": {
+          "h": 256,
+          "psnr": 35.5,
+          "w": 256,
+          "x": 0,
+          "y": 256
+        }
+      },
+      "scene": 2,
+      "scene_pos": 5,
+      "severity": null,
+      "sources": [
+        "csv"
+      ],
+      "status": "ok",
+      "time_sec": 20.855,
+      "vmaf": 95.0
+    },
+    {
+      "alignment": null,
+      "alignment_shift": null,
+      "error": "ffmpeg: кадр 900 не извлечён",
+      "flags": [],
+      "frame": 900,
+      "images": [],
+      "metrics": null,
+      "scene": null,
+      "scene_pos": null,
+      "severity": null,
+      "sources": [
+        "manual"
+      ],
+      "status": "error",
+      "time_sec": null,
+      "vmaf": null
+    }
+  ],
+  "meta": {
+    "created_at": null,
+    "enc_name": "src.Encoded.mkv",
+    "enpipe_version": null,
+    "ffmpeg_version": null,
+    "fps": 23.976,
+    "frame_count": 1000,
+    "height": 2160,
+    "qsvencc_version": null,
+    "src_name": "src.mkv",
+    "tool": "enpipe analyze",
+    "width": 3840
+  },
+  "schema_version": 1,
+  "sources": [
+    {
+      "count": 1,
+      "notes": [],
+      "reason": null,
+      "source": "manual",
+      "state": "enabled"
+    },
+    {
+      "count": 0,
+      "notes": [],
+      "reason": "VMAF отвергнут: база индекса 1, длина 3 ≠ 4",
+      "source": "vmaf",
+      "state": "rejected"
+    },
+    {
+      "count": 2,
+      "notes": [
+        "колонка psnr_y пуста"
+      ],
+      "reason": null,
+      "source": "csv",
+      "state": "enabled"
+    },
+    {
+      "count": 0,
+      "notes": [],
+      "reason": null,
+      "source": "scan",
+      "state": "not_requested"
+    }
+  ],
+  "summary": [
+    {
+      "median": 0.71,
+      "metric": "chroma_p10",
+      "minimum": 0.71,
+      "n": 1,
+      "p1": 0.71,
+      "p10": 0.71,
+      "p5": 0.71
+    },
+    {
+      "median": 0.88,
+      "metric": "chroma_median",
+      "minimum": 0.88,
+      "n": 1,
+      "p1": 0.88,
+      "p10": 0.88,
+      "p5": 0.88
+    },
+    {
+      "median": 0.8,
+      "metric": "chroma_ratio",
+      "minimum": 0.8,
+      "n": 1,
+      "p1": 0.8,
+      "p10": 0.8,
+      "p5": 0.8
+    },
+    {
+      "median": 40.5,
+      "metric": "psnr_y",
+      "minimum": 40.5,
+      "n": 2,
+      "p1": 40.5,
+      "p10": 40.5,
+      "p5": 40.5
+    },
+    {
+      "median": 41.0,
+      "metric": "psnr_u",
+      "minimum": 41.0,
+      "n": 1,
+      "p1": 41.0,
+      "p10": 41.0,
+      "p5": 41.0
+    },
+    {
+      "median": 42.25,
+      "metric": "psnr_v",
+      "minimum": 42.25,
+      "n": 2,
+      "p1": 42.25,
+      "p10": 42.25,
+      "p5": 42.25
+    },
+    {
+      "median": 1.5,
+      "metric": "delta_e_itp_mean",
+      "minimum": 1.5,
+      "n": 2,
+      "p1": 1.5,
+      "p10": 1.5,
+      "p5": 1.5
+    },
+    {
+      "median": 3.5,
+      "metric": "delta_e_itp_p99",
+      "minimum": 3.5,
+      "n": 1,
+      "p1": 3.5,
+      "p10": 3.5,
+      "p5": 3.5
+    },
+    {
+      "median": 0.9,
+      "metric": "detail",
+      "minimum": 0.9,
+      "n": 2,
+      "p1": 0.9,
+      "p10": 0.9,
+      "p5": 0.9
+    },
+    {
+      "median": 120.5,
+      "metric": "nits_mean",
+      "minimum": 120.5,
+      "n": 2,
+      "p1": 120.5,
+      "p10": 120.5,
+      "p5": 120.5
+    },
+    {
+      "median": 0.25,
+      "metric": "shadow_fraction",
+      "minimum": 0.25,
+      "n": 2,
+      "p1": 0.25,
+      "p10": 0.25,
+      "p5": 0.25
+    },
+    {
+      "median": 93.25,
+      "metric": "vmaf",
+      "minimum": 91.5,
+      "n": 2,
+      "p1": 91.535,
+      "p10": 91.85,
+      "p5": 91.675
+    }
+  ],
+  "thresholds": [
+    {
+      "name": "chroma_block",
+      "provisional": true,
+      "value": 16
+    },
+    {
+      "name": "chroma_sat_thr",
+      "provisional": true,
+      "value": 30.0
+    },
+    {
+      "name": "chroma_min_pts",
+      "provisional": true,
+      "value": 3
+    },
+    {
+      "name": "chroma_max_pts",
+      "provisional": true,
+      "value": 20
+    },
+    {
+      "name": "min_chroma_blocks",
+      "provisional": true,
+      "value": 5
+    },
+    {
+      "name": "tile_y",
+      "provisional": true,
+      "value": 256
+    },
+    {
+      "name": "tile_c",
+      "provisional": true,
+      "value": 128
+    },
+    {
+      "name": "shadow_nits",
+      "provisional": true,
+      "value": 5.0
+    },
+    {
+      "name": "detail_eps",
+      "provisional": true,
+      "value": 1e-09
+    },
+    {
+      "name": "min_gap",
+      "provisional": true,
+      "value": 48
+    },
+    {
+      "name": "top",
+      "provisional": true,
+      "value": 40
+    },
+    {
+      "name": "per_scene_quota",
+      "provisional": true,
+      "value": 2
+    },
+    {
+      "name": "csv_worst_n",
+      "provisional": true,
+      "value": 10
+    },
+    {
+      "name": "vmaf_worst_n",
+      "provisional": true,
+      "value": 12
+    },
+    {
+      "name": "max_frames_range",
+      "provisional": true,
+      "value": 10000
+    }
+  ]
+}
