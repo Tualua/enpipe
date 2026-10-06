@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 status: executing
 stopped_at: Phase 9 context gathered
-last_updated: "2026-10-06T02:09:18.429Z"
+last_updated: "2026-10-06T02:11:41.377Z"
 last_activity: 2026-10-06 -- Phase 09 execution started
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 9
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 09 (analysis-core-readers) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Executing Phase 09
 Last activity: 2026-10-06 -- Phase 09 execution started
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 44%
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 09]: 09-02: метрики по целому Y полосами ITP_STRIP_ROWS, точное целочисленное накопление; пик analyze_frame на 4K 153 MiB
 - [Phase 09]: 09-02: analyze_frame требует чётные H/W и цветность (H/2, W/2), иначе AnalysisError (контракт для фазы 10)
 - [Phase 09]: 09-03: в топ CSV только конечные значения; ручные кадры вне квоты/разноса/лимита; при полной квоте присоединение без min_gap
+- [Phase 09]: [09-04] Ячейки таблиц строятся один раз и экранируются на выходе (md: _md_cell, html: _h); ROW_ERROR дополняется до числа колонок; проценты цвета целые
 
 ### Pending Todos
 
@@ -90,6 +91,7 @@ None yet.
 | Phase 09 P01 | 10min | 2 tasks | 4 files |
 | Phase 09 P02 | 25min | 3 tasks | 4 files |
 | Phase 09 P03 | 15min | 3 tasks | 4 files |
+| Phase 09 P04 | 15min | 2 tasks | 3 files |
 
 ## Deferred Items
 
@@ -116,7 +118,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-06T02:09:14.534Z
+Last session: 2026-10-06T02:11:36.518Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-analysis-core-readers/09-CONTEXT.md
 
