@@ -20,6 +20,7 @@ float64-копия Y — 66 МБ, а их понадобилось бы неск
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -28,8 +29,13 @@ from enpipe.analysis.config import (
     AnalysisError,
     AnalyzeConfig,
     CHROMA_MID,
+    CHROMA_RANGE,
+    ITP_SCALE,
     ITP_STRIP_ROWS,
+    KB,
+    KR,
     LUMA_BLACK,
+    LMS_TO_ICTCP,
     LUMA_RANGE,
     PEAK_10BIT,
     PQ_C1,
@@ -38,6 +44,7 @@ from enpipe.analysis.config import (
     PQ_M1,
     PQ_M2,
     PQ_PEAK_NITS,
+    RGB_TO_LMS,
 )
 from enpipe.analysis.model import (
     CHROMA_NO_DETAILS,
@@ -45,6 +52,7 @@ from enpipe.analysis.model import (
     ChromaDetail,
     ChromaTile,
     DetailTile,
+    FrameMetrics,
     LumaTile,
 )
 
@@ -311,4 +319,162 @@ def small_chroma(
         worst_value=float(worst[0]),
         worst_x=int(worst[1]),
         worst_y=int(worst[2]),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# ΔE ITP (ITU-R BT.2124)
+# --------------------------------------------------------------------------- #
+
+_M_RGB_LMS = np.array(RGB_TO_LMS, dtype=np.float64) / 4096.0
+_M_LMS_ICTCP = np.array(LMS_TO_ICTCP, dtype=np.float64) / 4096.0
+
+
+def _pq_eotf_norm(e: np.ndarray) -> np.ndarray:
+    """PQ EOTF с нормировкой на пик: 1.0 = PQ_PEAK_NITS (те же константы, что pq_nits)."""
+    p = e ** (1 / PQ_M2)
+    return (np.maximum(p - PQ_C1, 0) / (PQ_C2 - PQ_C3 * p)) ** (1 / PQ_M1)
+
+
+def _pq_oetf_norm(lin: np.ndarray) -> np.ndarray:
+    """Обратная PQ EOTF: линейный свет (1.0 = пик) -> сигнал PQ."""
+    ym = lin**PQ_M1
+    return ((PQ_C1 + PQ_C2 * ym) / (1 + PQ_C3 * ym)) ** PQ_M2
+
+
+def ycbcr_to_itp(
+    y: np.ndarray, u: np.ndarray, v: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """10-битные limited-range PQ YCbCr (BT.2020 NCL) -> (I, T, P).
+
+    Все три массива одной формы (цветность уже апсемплирована). Конвейер:
+    YCbCr -> R'G'B' (клип в [0, 1]: шум энкода выходит за гамму) -> линейный
+    свет PQ EOTF -> LMS (BT.2100) -> PQ OETF -> ICtCp -> (I, 0.5·Ct, Cp);
+    T = 0.5·Ct по BT.2124, поэтому ΔE = 720·sqrt(ΔI² + ΔT² + ΔP²).
+    """
+    yn = (y.astype(np.float64) - LUMA_BLACK) / LUMA_RANGE
+    cb = (u.astype(np.float64) - CHROMA_MID) / CHROMA_RANGE
+    cr = (v.astype(np.float64) - CHROMA_MID) / CHROMA_RANGE
+    r = yn + 2 * (1 - KR) * cr
+    b = yn + 2 * (1 - KB) * cb
+    g = (yn - KR * r - KB * b) / (1 - KR - KB)
+    rgb = np.stack([r, g, b])
+    np.clip(rgb, 0.0, 1.0, out=rgb)
+    lin = _pq_eotf_norm(rgb)
+    lms = np.tensordot(_M_RGB_LMS, lin, axes=1)
+    ictcp = np.tensordot(_M_LMS_ICTCP, _pq_oetf_norm(lms), axes=1)
+    return ictcp[0], 0.5 * ictcp[1], ictcp[2]
+
+
+def _upsample2(c: np.ndarray) -> np.ndarray:
+    return np.repeat(np.repeat(c, 2, axis=0), 2, axis=1)
+
+
+def delta_e_itp(
+    sy: np.ndarray,
+    su: np.ndarray,
+    sv: np.ndarray,
+    ey: np.ndarray,
+    eu: np.ndarray,
+    ev: np.ndarray,
+    cfg: AnalyzeConfig,
+) -> Tuple[float, float]:
+    """(среднее, p99) ΔE ITP по ПОЛНОМУ кадру без подвыборки (D-12).
+
+    Считается полосами ITP_STRIP_ROWS строк Y (константа чётна, поэтому полоса
+    цветности — строки r0//2..r1//2). Цветность апсемплируется повтором
+    (ближайший сосед, допущение A2); копия повтора — размером полосы (на 4K
+    порядка 0,5 МБ на канал). ΔE полосы складывается в заранее выделенный
+    float32-массив кадра (на 4K около 33 МБ): float32 даёт погрешность порядка
+    1e-7 относительно, чего достаточно для отчёта. cfg оставлен в сигнатуре для
+    единообразия вызова.
+    """
+    h, w = sy.shape
+    de = np.empty((h, w), dtype=np.float32)
+    for r0, r1 in _strips(h, ITP_STRIP_ROWS):
+        c0, c1 = r0 // 2, r1 // 2
+        si, st, sp = ycbcr_to_itp(sy[r0:r1], _upsample2(su[c0:c1]), _upsample2(sv[c0:c1]))
+        ei, et, ep = ycbcr_to_itp(ey[r0:r1], _upsample2(eu[c0:c1]), _upsample2(ev[c0:c1]))
+        de[r0:r1] = ITP_SCALE * np.sqrt((si - ei) ** 2 + (st - et) ** 2 + (sp - ep) ** 2)
+    return float(de.mean(dtype=np.float64)), float(np.percentile(de, 99))
+
+
+# --------------------------------------------------------------------------- #
+# Сборка метрик кадра
+# --------------------------------------------------------------------------- #
+
+
+def _check_planes(sy, su, sv, ey, eu, ev) -> None:
+    """Проверка входа: программная ошибка вызывающего, а не данные оператора."""
+    planes = (sy, su, sv, ey, eu, ev)
+    for p in planes:
+        if getattr(p, "ndim", None) != 2:
+            raise AnalysisError("плоскости должны быть двумерными numpy-массивами")
+        if p.dtype != np.uint16:
+            raise AnalysisError(f"плоскости должны быть uint16, получено {p.dtype}")
+    if sy.shape != ey.shape or su.shape != eu.shape or sv.shape != ev.shape:
+        raise AnalysisError("формы плоскостей источника и энкода не совпадают")
+    h, w = sy.shape
+    if h % 2 or w % 2:
+        raise AnalysisError(f"размеры кадра должны быть чётными, получено {w}x{h}")
+    if su.shape != (h // 2, w // 2) or sv.shape != (h // 2, w // 2):
+        raise AnalysisError(
+            f"цветность должна быть ровно {w // 2}x{h // 2}, получено {su.shape} и {sv.shape}"
+        )
+
+
+def _r6(x: Optional[float]) -> Optional[float]:
+    """Округление до 6 знаков; inf/nan и None сохраняются, результат — Python float."""
+    if x is None:
+        return None
+    x = float(x)
+    return round(x, 6) if math.isfinite(x) else x
+
+
+def analyze_frame(
+    sy: np.ndarray,
+    su: np.ndarray,
+    sv: np.ndarray,
+    ey: np.ndarray,
+    eu: np.ndarray,
+    ev: np.ndarray,
+    cfg: AnalyzeConfig,
+) -> FrameMetrics:
+    """Все метрики пары кадров источник/энкод (MET-01..MET-04).
+
+    Требование к вызывающему (извлечение кадров): подавать uint16-плоскости
+    10-битного PQ, чётные H и W (кроп/масштаб — при извлечении), цветность
+    ровно (H/2, W/2); иначе AnalysisError. Метрики определены только для
+    10-битного PQ HDR, SDR вне рамок. Яркость в нитах считается по ИСТОЧНИКУ,
+    как в прототипе. Float-поля округляются до 6 знаков, inf сохраняется.
+    """
+    _check_planes(sy, su, sv, ey, eu, ev)
+    wt_y = luma_tiles(sy, ey, cfg)
+    wt_c = chroma_tiles(su, sv, eu, ev, cfg)
+    nits_mean, shadow = luminance_stats(sy, cfg)
+    detail, wt_d = detail_preservation(sy, ey, cfg)
+    de_mean, de_p99 = delta_e_itp(sy, su, sv, ey, eu, ev, cfg)
+    chroma = small_chroma(su, sv, eu, ev, cfg)
+
+    return FrameMetrics(
+        psnr_y=_r6(psnr(sy, ey)),
+        psnr_u=_r6(psnr(su, eu)),
+        psnr_v=_r6(psnr(sv, ev)),
+        worst_tile_y=replace(wt_y, psnr=_r6(wt_y.psnr)),
+        worst_tile_c=replace(
+            wt_c, psnr_u=_r6(wt_c.psnr_u), psnr_v=_r6(wt_c.psnr_v), mse_uv=_r6(wt_c.mse_uv)
+        ),
+        nits_mean=_r6(nits_mean),
+        shadow_fraction=_r6(shadow),
+        detail=_r6(detail),
+        worst_tile_detail=None if wt_d is None else replace(wt_d, detail=_r6(wt_d.detail)),
+        delta_e_itp_mean=_r6(de_mean),
+        delta_e_itp_p99=_r6(de_p99),
+        chroma=replace(
+            chroma,
+            median=_r6(chroma.median),
+            p10=_r6(chroma.p10),
+            ratio=_r6(chroma.ratio),
+            worst_value=_r6(chroma.worst_value),
+        ),
     )

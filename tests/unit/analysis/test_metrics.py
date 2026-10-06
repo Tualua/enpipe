@@ -7,8 +7,9 @@ import math
 import numpy as np
 import pytest
 
-from enpipe.analysis.config import AnalyzeConfig
+from enpipe.analysis.config import AnalysisError, AnalyzeConfig
 from enpipe.analysis.metrics import (
+    analyze_frame,
     detail_preservation,
     lap_energy,
     luminance_stats,
@@ -266,3 +267,68 @@ def test_chroma_params_come_from_config():
     assert r8.n_blocks == 10
     strict = small_chroma(su, sv, su.copy(), sv.copy(), AnalyzeConfig(chroma_sat_thr=50.0))
     assert strict.n_blocks == 0
+
+
+# ---- analyze_frame ------------------------------------------------------- #
+
+
+def _frame(h=256, w=512, seed=1):
+    r = np.random.default_rng(seed)
+    y = r.integers(100, 900, (h, w), dtype=np.uint16)
+    u = r.integers(480, 545, (h // 2, w // 2), dtype=np.uint16)
+    v = r.integers(480, 545, (h // 2, w // 2), dtype=np.uint16)
+    return y, u, v
+
+
+def test_analyze_identical():
+    f = _frame()
+    m = analyze_frame(*f, *(p.copy() for p in f), AnalyzeConfig())
+    assert m.psnr_y == m.psnr_u == m.psnr_v == float("inf")
+    assert m.delta_e_itp_mean == 0.0
+    assert m.detail == 1.0
+    assert m.chroma.status in ("ok", "no_details")
+
+
+def test_analyze_numeric_fields_are_python_types():
+    sy, su, sv = _frame(seed=1)
+    ey, eu, ev = _frame(seed=2)
+    m = analyze_frame(sy, su, sv, ey, eu, ev, AnalyzeConfig())
+    for name in ("psnr_y", "psnr_u", "psnr_v", "nits_mean", "shadow_fraction",
+                 "detail", "delta_e_itp_mean", "delta_e_itp_p99"):
+        x = getattr(m, name)
+        assert type(x) is float, name
+        assert x == round(x, 6)
+    for tile in (m.worst_tile_y, m.worst_tile_c, m.worst_tile_detail):
+        for val in vars(tile).values():
+            assert type(val) in (int, float)
+    assert type(m.chroma.n_blocks) is int
+
+
+def test_analyze_bad_dtype():
+    f = _frame()
+    bad = f[0].astype(np.int32)
+    with pytest.raises(AnalysisError):
+        analyze_frame(bad, f[1], f[2], f[0], f[1], f[2], AnalyzeConfig())
+
+
+def test_analyze_shape_mismatch_and_ndim():
+    f, g = _frame(), _frame(h=128)
+    with pytest.raises(AnalysisError):
+        analyze_frame(*f, *g, AnalyzeConfig())
+    with pytest.raises(AnalysisError):
+        analyze_frame(f[0].ravel(), f[1], f[2], f[0], f[1], f[2], AnalyzeConfig())
+
+
+def test_analyze_chroma_wrong_size():
+    f = _frame()
+    wrong = np.zeros((10, 10), dtype=np.uint16)
+    with pytest.raises(AnalysisError):
+        analyze_frame(f[0], wrong, wrong, f[0], wrong, wrong, AnalyzeConfig())
+
+
+@pytest.mark.parametrize("h, w", [(255, 512), (256, 513)])
+def test_analyze_odd_dimensions(h, w):
+    y = np.zeros((h, w), dtype=np.uint16)
+    c = np.zeros((h // 2, w // 2), dtype=np.uint16)
+    with pytest.raises(AnalysisError):
+        analyze_frame(y, c, c, y, c, c, AnalyzeConfig())
