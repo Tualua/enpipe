@@ -315,14 +315,17 @@ JSON (не pickle): `{"v":1,"key":{"path":..., "size":..., "mtime_ns":...}, "pts
 | A7 | ffprobe по пакетам читает весь файл, время ≈ чтению диска | Замеры | цена таблицы выше/ниже оценки |
 | A8 | Теги цвета сохраняются в энкоде qsvencc→mkvmerge | Pitfall 7 | предпроверка отвергала бы все реальные энкоды при `unknown` на энкоде; проверить на реальном файле до закрытия фазы |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Замер jobs на ZFS-HDD с реальными 3840×1600**
    - Известно: CPU-цена и масштабирование jobs на xfs-синтетике (таблица выше).
    - Неясно: поведение HDD при параллельных seek.
    - Рекомендация: зафиксировать `jobs=2` как provisional-константу и добавить скрипт замера в UAT на NAS; не блокировать планирование.
+   - RESOLVED: `DEFAULT_JOBS = 2` — provisional модульная константа `config.py` (не порог отчёта) в 10-01 Task 1; скрипт замера `scratch/analysis_pair_probe.py` (jobs 1/2/4, ZFS-HDD) — 10-05 Task 1, прогон оператором — 10-05 Task 2, выбор итогового значения по правилу «наименьшее jobs не хуже лучшего на 15 %» — 10-05 Task 3 (без таблицы замера значение явно остаётся provisional и это пишется в SUMMARY).
 2. **Теги энкода (A8) и DV P5 (A6)** — проверить на реальных файлах оператора в UAT; в быстрых тестах — `fp`-JSON.
+   - RESOLVED: в быстрых тестах — `fp`-JSON в 10-02 (предпроверка тегов D-17 и DV fail-loud D-18: side data DOVI без читаемого профиля → отказ «профиль Dolby Vision не определён»); санити тегов синтетики `test_fixture_tags_match` — 10-04; на реальных файлах — UAT 10-05 Task 2 (A8, A6). Если A8 не подтверждён — D-17 не ослабляется, `encoding/` не трогается, блокер записывается в 10-05-SUMMARY и STATE.md (Blockers/Concerns) на решение оператора (10-05 Task 3); если поля DV у ffprobe иные — поправка разбора `frames.probe_stream` + fp-тест по присланному JSON (10-05 Task 3).
 3. **Модель отчёта:** рекомендуем (решение планировщика фиксирует явно) оставить `schema_version: 1` и добавить опционально в `AnalysisReport`: `alignment: Optional[FileAlignment]`, `refusal_reasons: Tuple[str, ...] = ()`, `status: str = "ok"`; в `RunMeta`: `offset: Optional[int]`, `offset_source: Optional[str]` («manual»/«scenes»), `notes: Tuple[str, ...] = ()` (VFR, start_time, «сдвиг задан вручную…»). Обновить `tests/unit/analysis/golden/report_v1.json`; новые поля в `AnalyzeConfig` автоматически попадут в `build_thresholds` (число Threshold = числу полей — golden тоже обновить).
+   - RESOLVED: принято как рекомендовано — 10-01 Task 1 (`model.py`: `status`/`refusal_reasons`/`alignment` в `AnalysisReport`, `offset`/`offset_source`/`notes` в `RunMeta`, `SCHEMA_VERSION` остаётся 1, т.к. report.json ещё не выпускался; 10 новых полей `AnalyzeConfig` в `build_thresholds`) и 10-01 Task 2 (рендер отказа/выравнивания, обновление `golden/report_v1.json`); построение отчёта-отказа — `refused_report` в 10-04 Task 2.
 
 ## Environment Availability
 
