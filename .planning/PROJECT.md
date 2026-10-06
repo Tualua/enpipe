@@ -32,6 +32,8 @@ Both images ship BtbN static **ffmpeg n9.0.2** (URL+sha256 pinned); the runtime 
 
 **Key context:** прототип `vmaf_frames.py` (сессия 2026-10-05) проверен на E01 Young Sherlock — нашёл кадр 66490 (потеря мелкого красного) и участок 3:56–4:48 (VMAF 94–98, цвет 51–63 %). Причина потери цвета — квантование цветности в QSV AV1 (handoff `.planning/debug/HANDOFF-qsvencc-av1-small-chroma-loss.md`); форк выпустил `8.32-vppsync9` с экспериментальным `--av1-chroma-delta-q`. Без новых зависимостей; `--analyze` в encode/run и свой VMAF (libvmaf) — backlog.
 
+**Progress:** Phase 9 complete (2026-10-06): чистое ядро `src/enpipe/analysis/` — метрики кадра, пороги (provisional), ридеры кандидатов, слияние, модель отчёта JSON/MD/HTML; без subprocess, изолировано от пути кодирования (AST-сторож). Next: Phase 10 — извлечение кадров и выравнивание.
+
 ## Next Milestone Goals
 
 Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog:
@@ -83,6 +85,7 @@ Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog
 <!-- Empty between milestones — defined by /gsd:new-milestone. -->
 
 - [ ] `enpipe analyze`: разбор качества энкода с проверкой цвета мелких деталей (v1.3; REQ-ID в REQUIREMENTS.md)
+  - Validated in Phase 9: Чистое ядро анализа и ридеры — MET-01..05, CND-01/02/04/05, RPT-01
 
 ### Out of Scope
 
@@ -142,4 +145,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-05 — started milestone v1.3*
+*Last updated: 2026-10-06 — Phase 9 complete (v1.3)*
