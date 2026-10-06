@@ -78,7 +78,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 09-02-PLAN.md — метрики кадра: тайлы с неполными краями, PSNR Y/U/V, ниты/тени/деталь, сохранность цвета мелких деталей, ΔE ITP, analyze_frame (волна 2)
+- [x] 09-02-PLAN.md — метрики кадра: тайлы с неполными краями, PSNR Y/U/V, ниты/тени/деталь, сохранность цвета мелких деталей, ΔE ITP, analyze_frame (волна 2)
 - [ ] 09-03-PLAN.md — ридеры --frames/.scenes/CSV qsvencc/VMAF со статусами источников и слияние кандидатов (волна 2)
 - [ ] 09-04-PLAN.md — report.json (golden v1, inf/nan), report.md, index.html с экранированием, сводка перцентилей (волна 2)
 
@@ -157,7 +157,7 @@ Plans:
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3            | Complete    | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5            | Complete    | 2026-10-02 |
 | 8. Усиление замка COR-02                              | v1.2      | 6/6            | Complete    | 2026-10-03 |
-| 9. Чистое ядро анализа и ридеры                       | v1.3      | 1/5 | In Progress|  |
+| 9. Чистое ядро анализа и ридеры                       | v1.3      | 2/5 | In Progress|  |
 | 10. Извлечение кадров и выравнивание                  | v1.3      | 0/0            | Not started | -          |
 | 11. Анализ одной пары: кандидаты, кропы, отчёт, CLI   | v1.3      | 0/0            | Not started | -          |
 | 12. Скан цвета по сценам и батч по папке              | v1.3      | 0/0            | Not started | -          |

@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 status: executing
 stopped_at: Phase 9 context gathered
-last_updated: "2026-10-06T02:02:57.046Z"
+last_updated: "2026-10-06T02:06:41.323Z"
 last_activity: 2026-10-06 -- Phase 09 execution started
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 9
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 09 (analysis-core-readers) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Executing Phase 09
 Last activity: 2026-10-06 -- Phase 09 execution started
 
-Progress: [█░░░░░░░░░] 11%
+Progress: [██░░░░░░░░] 22%
 
 ## Performance Metrics
 
@@ -43,6 +43,8 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-phase decision log up to v1.2: `.planning/milestones/v1.2-STATE.md`.
 
 - [Phase 09]: 09-01: build_thresholds по dataclasses.fields(AnalyzeConfig); chroma_min_pts >= 1
+- [Phase 09]: 09-02: метрики по целому Y полосами ITP_STRIP_ROWS, точное целочисленное накопление; пик analyze_frame на 4K 153 MiB
+- [Phase 09]: 09-02: analyze_frame требует чётные H/W и цветность (H/2, W/2), иначе AnalysisError (контракт для фазы 10)
 
 ### Pending Todos
 
@@ -85,6 +87,7 @@ None yet.
 | 261003-8fs | Парсер метрик qsvencc принимает inf/nan; ИТОГО PSNR через взвешенное MSE, nan не маскируется | 2026-10-03 | 2a2b4c1 | [261003-8fs-parser-inf-nan-metrics](./quick/261003-8fs-parser-inf-nan-metrics/) |
 | 261003-8qq | qsvencc → 8.32+vppsync4 (форк Tualua/QSVEnc, r4658): пин URL+sha256 в обоих Dockerfile, порог 4634 без изменений; на A380 с --psnr/--ssim 240/240 кадров, rc=0. Образы не пересобраны здесь | 2026-10-03 | 97be1a3 | [261003-8qq-qsvencc-vppsync4-tualua](./quick/261003-8qq-qsvencc-vppsync4-tualua/) |
 | Phase 09 P01 | 10min | 2 tasks | 4 files |
+| Phase 09 P02 | 25min | 3 tasks | 4 files |
 
 ## Deferred Items
 
@@ -111,7 +114,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-06T02:02:52.958Z
+Last session: 2026-10-06T02:06:37.247Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-analysis-core-readers/09-CONTEXT.md
 
