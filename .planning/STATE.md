@@ -4,7 +4,7 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 status: executing
 stopped_at: Phase 9 context gathered
-last_updated: "2026-10-06T02:09:14.561Z"
+last_updated: "2026-10-06T02:09:18.429Z"
 last_activity: 2026-10-06 -- Phase 09 execution started
 progress:
   total_phases: 10
@@ -45,6 +45,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 09]: 09-01: build_thresholds по dataclasses.fields(AnalyzeConfig); chroma_min_pts >= 1
 - [Phase 09]: 09-02: метрики по целому Y полосами ITP_STRIP_ROWS, точное целочисленное накопление; пик analyze_frame на 4K 153 MiB
 - [Phase 09]: 09-02: analyze_frame требует чётные H/W и цветность (H/2, W/2), иначе AnalysisError (контракт для фазы 10)
+- [Phase 09]: 09-03: в топ CSV только конечные значения; ручные кадры вне квоты/разноса/лимита; при полной квоте присоединение без min_gap
 
 ### Pending Todos
 
@@ -88,6 +89,7 @@ None yet.
 | 261003-8qq | qsvencc → 8.32+vppsync4 (форк Tualua/QSVEnc, r4658): пин URL+sha256 в обоих Dockerfile, порог 4634 без изменений; на A380 с --psnr/--ssim 240/240 кадров, rc=0. Образы не пересобраны здесь | 2026-10-03 | 97be1a3 | [261003-8qq-qsvencc-vppsync4-tualua](./quick/261003-8qq-qsvencc-vppsync4-tualua/) |
 | Phase 09 P01 | 10min | 2 tasks | 4 files |
 | Phase 09 P02 | 25min | 3 tasks | 4 files |
+| Phase 09 P03 | 15min | 3 tasks | 4 files |
 
 ## Deferred Items
 
