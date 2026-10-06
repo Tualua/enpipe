@@ -74,7 +74,7 @@ Silent cross-session frame corruption of concurrent `qsvencc` eliminated: fixed 
 Plans:
 **Wave 1**
 
-- [ ] 09-01-PLAN.md — контракты: AnalyzeConfig (все пороги, provisional), константы PQ/BT.2020/ITP, frozen-модель отчёта (волна 1)
+- [x] 09-01-PLAN.md — контракты: AnalyzeConfig (все пороги, provisional), константы PQ/BT.2020/ITP, frozen-модель отчёта (волна 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -157,7 +157,7 @@ Plans:
 | 6. Concurrency-Immunity Spike + Image Rebuild (GATE)  | v1.2      | 3/3            | Complete    | 2026-07-23 |
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5            | Complete    | 2026-10-02 |
 | 8. Усиление замка COR-02                              | v1.2      | 6/6            | Complete    | 2026-10-03 |
-| 9. Чистое ядро анализа и ридеры                       | v1.3      | 0/0            | Not started | -          |
+| 9. Чистое ядро анализа и ридеры                       | v1.3      | 1/5 | In Progress|  |
 | 10. Извлечение кадров и выравнивание                  | v1.3      | 0/0            | Not started | -          |
 | 11. Анализ одной пары: кандидаты, кропы, отчёт, CLI   | v1.3      | 0/0            | Not started | -          |
 | 12. Скан цвета по сценам и батч по папке              | v1.3      | 0/0            | Not started | -          |

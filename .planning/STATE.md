@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Анализ качества энкода
-status: planning
+status: executing
 stopped_at: Phase 9 context gathered
-last_updated: "2026-10-06T01:42:56.222Z"
-last_activity: "2026-10-05 — Completed quick task 261005-k5w: qsvencc vppsync10 (r4677) + патченный vpl-gpu-rt"
+last_updated: "2026-10-06T02:02:57.046Z"
+last_activity: 2026-10-06 -- Phase 09 execution started
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 9
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-04)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 9 — Чистое ядро анализа и ридеры (v1.3)
+**Current focus:** Phase 09 — analysis-core-readers
 
 ## Current Position
 
-Phase: 9 of 13 (Чистое ядро анализа и ридеры)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-10-05 — Completed quick task 261005-k5w: qsvencc vppsync10 (r4677) + патченный vpl-gpu-rt
+Phase: 09 (analysis-core-readers) — EXECUTING
+Plan: 2 of 5
+Status: Executing Phase 09
+Last activity: 2026-10-06 -- Phase 09 execution started
 
-Progress: [░░░░░░░░░░] 0% (0/5 phases)
+Progress: [█░░░░░░░░░] 11%
 
 ## Performance Metrics
 
@@ -41,6 +41,8 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 ### Decisions
 
 Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-phase decision log up to v1.2: `.planning/milestones/v1.2-STATE.md`.
+
+- [Phase 09]: 09-01: build_thresholds по dataclasses.fields(AnalyzeConfig); chroma_min_pts >= 1
 
 ### Pending Todos
 
@@ -82,6 +84,7 @@ None yet.
 | 260722-lji | Devcontainer переведён на базу `intel/dlstreamer` (Ubuntu 24.04): медиа-стек (iHD 26.2.2/oneVPL/ffmpeg-QSV) теперь ИЗ образа, из Dockerfile убран ручной apt-стек драйверов+ffmpeg. Сохранены qsvencc (Rigaya, ubuntu24.04-ассет + dep-strip libmfx1/opencl-icd), dovi_tool, mkvtoolnix, tmux, proxy-ENV+IS_SANDBOX, apt-sandbox fix; devcontainer.json — фичи node+claude-code, /data-фикс (keep-groups + userns-фолбэк), LIBVA_DRIVER_NAME=iHD, remoteUser root. post-create.sh: sudo->AS_ROOT-guard. НЕ собран/не проверен здесь (нет docker/GPU) — хост пересобирает; чек-лист в SUMMARY | 2026-07-22 | 4ff3c36 | [260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl](./quick/260722-lji-devcontainer-intel-dlstreamer-qsvencc-cl/) |
 | 261003-8fs | Парсер метрик qsvencc принимает inf/nan; ИТОГО PSNR через взвешенное MSE, nan не маскируется | 2026-10-03 | 2a2b4c1 | [261003-8fs-parser-inf-nan-metrics](./quick/261003-8fs-parser-inf-nan-metrics/) |
 | 261003-8qq | qsvencc → 8.32+vppsync4 (форк Tualua/QSVEnc, r4658): пин URL+sha256 в обоих Dockerfile, порог 4634 без изменений; на A380 с --psnr/--ssim 240/240 кадров, rc=0. Образы не пересобраны здесь | 2026-10-03 | 97be1a3 | [261003-8qq-qsvencc-vppsync4-tualua](./quick/261003-8qq-qsvencc-vppsync4-tualua/) |
+| Phase 09 P01 | 10min | 2 tasks | 4 files |
 
 ## Deferred Items
 
@@ -108,7 +111,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-05T09:01:09.430Z
+Last session: 2026-10-06T02:02:52.958Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-analysis-core-readers/09-CONTEXT.md
 
