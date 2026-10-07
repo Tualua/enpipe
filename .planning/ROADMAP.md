@@ -113,7 +113,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 10-04-PLAN.md — оркестратор pair.py и медиа-тест без GPU: framemd5, VFR, start_time, сдвиг, статика, частичный энкод (волна 3)
+- [x] 10-04-PLAN.md — оркестратор pair.py и медиа-тест без GPU: framemd5, VFR, start_time, сдвиг, статика, частичный энкод (волна 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -176,7 +176,7 @@ Plans:
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5            | Complete    | 2026-10-02 |
 | 8. Усиление замка COR-02                              | v1.2      | 6/6            | Complete    | 2026-10-03 |
 | 9. Чистое ядро анализа и ридеры                       | v1.3      | 5/5 | Complete   | 2026-10-06 |
-| 10. Извлечение кадров и выравнивание                  | v1.3      | 3/5 | In Progress|  |
+| 10. Извлечение кадров и выравнивание                  | v1.3      | 4/5 | In Progress|  |
 | 11. Анализ одной пары: кандидаты, кропы, отчёт, CLI   | v1.3      | 0/0            | Not started | -          |
 | 12. Скан цвета по сценам и батч по папке              | v1.3      | 0/0            | Not started | -          |
 | 13. Калибровка, сравнение двух энкодов, приёмка       | v1.3      | 0/0            | Not started | -          |
