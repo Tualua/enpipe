@@ -109,7 +109,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 10-02-PLAN.md — чистое ядро: вердикт точки/склейки/кадра/файла, выбор точек, предпроверка пары и правила --offset (волна 2)
-- [ ] 10-03-PLAN.md — I/O-слой frames.py: probe, таблица pts с кэшем, точный grab 10-бит, nice/threads (волна 2)
+- [x] 10-03-PLAN.md — I/O-слой frames.py: probe, таблица pts с кэшем, точный grab 10-бит, nice/threads (волна 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -176,7 +176,7 @@ Plans:
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5            | Complete    | 2026-10-02 |
 | 8. Усиление замка COR-02                              | v1.2      | 6/6            | Complete    | 2026-10-03 |
 | 9. Чистое ядро анализа и ридеры                       | v1.3      | 5/5 | Complete   | 2026-10-06 |
-| 10. Извлечение кадров и выравнивание                  | v1.3      | 2/5 | In Progress|  |
+| 10. Извлечение кадров и выравнивание                  | v1.3      | 3/5 | In Progress|  |
 | 11. Анализ одной пары: кандидаты, кропы, отчёт, CLI   | v1.3      | 0/0            | Not started | -          |
 | 12. Скан цвета по сценам и батч по папке              | v1.3      | 0/0            | Not started | -          |
 | 13. Калибровка, сравнение двух энкодов, приёмка       | v1.3      | 0/0            | Not started | -          |
