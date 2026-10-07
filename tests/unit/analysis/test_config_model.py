@@ -222,7 +222,7 @@ def test_itp_strip_rows_even_positive():
 
 
 def test_perf_constants_not_thresholds():
-    assert (c.DEFAULT_JOBS, c.DECODE_THREADS, c.NICE_LEVEL) == (2, 2, 10)
+    assert (c.DEFAULT_JOBS, c.DECODE_THREADS, c.NICE_LEVEL) == (4, 2, 10)
     assert c.MAX_GRAB_FRAMES == 2 * c.ALIGN_WINDOW_MAX + 2 == 18
     assert c.OFFSET_HINTS_MAX == 5
     names = {f.name.lower() for f in dataclasses.fields(c.AnalyzeConfig)}
