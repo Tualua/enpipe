@@ -1,4 +1,39 @@
 {
+  "alignment": {
+    "n_aligned": 2,
+    "offset": 0,
+    "points": [
+      {
+        "enc_frame": 0,
+        "error": null,
+        "margin_db": 12.5,
+        "scene": 0,
+        "shift": 0,
+        "shift_at_least": false,
+        "verdict": "aligned"
+      },
+      {
+        "enc_frame": 500,
+        "error": null,
+        "margin_db": 1.2,
+        "scene": 2,
+        "shift": null,
+        "shift_at_least": false,
+        "verdict": "undetermined"
+      },
+      {
+        "enc_frame": 999,
+        "error": null,
+        "margin_db": "inf",
+        "scene": 4,
+        "shift": 0,
+        "shift_at_least": false,
+        "verdict": "aligned"
+      }
+    ],
+    "shift": null,
+    "verdict": "aligned"
+  },
   "candidates": [
     {
       "frame": 100,
@@ -24,8 +59,8 @@
   ],
   "frames": [
     {
-      "alignment": null,
-      "alignment_shift": null,
+      "alignment": "aligned",
+      "alignment_shift": 0,
       "error": null,
       "flags": [],
       "frame": 100,
@@ -171,11 +206,17 @@
     "fps": 23.976,
     "frame_count": 1000,
     "height": 2160,
+    "notes": [
+      "VFR-источник, сверка по индексу"
+    ],
+    "offset": 0,
+    "offset_source": null,
     "qsvencc_version": null,
     "src_name": "src.mkv",
     "tool": "enpipe analyze",
     "width": 3840
   },
+  "refusal_reasons": [],
   "schema_version": 1,
   "sources": [
     {
@@ -209,6 +250,7 @@
       "state": "not_requested"
     }
   ],
+  "status": "ok",
   "summary": [
     {
       "median": 0.71,
@@ -394,6 +436,56 @@
       "name": "max_frames_range",
       "provisional": true,
       "value": 10000
+    },
+    {
+      "name": "align_margin_db",
+      "provisional": true,
+      "value": 3.0
+    },
+    {
+      "name": "align_window",
+      "provisional": true,
+      "value": 3
+    },
+    {
+      "name": "align_points",
+      "provisional": true,
+      "value": 5
+    },
+    {
+      "name": "align_min_aligned",
+      "provisional": true,
+      "value": 2
+    },
+    {
+      "name": "align_retry_max",
+      "provisional": true,
+      "value": 3
+    },
+    {
+      "name": "align_retry_step",
+      "provisional": true,
+      "value": 48
+    },
+    {
+      "name": "fps_rel_tol",
+      "provisional": true,
+      "value": 0.0005
+    },
+    {
+      "name": "vfr_gap_lo",
+      "provisional": true,
+      "value": 0.8
+    },
+    {
+      "name": "vfr_gap_hi",
+      "provisional": true,
+      "value": 1.25
+    },
+    {
+      "name": "vfr_gap_fraction",
+      "provisional": true,
+      "value": 0.01
     }
   ]
 }

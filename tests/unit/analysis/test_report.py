@@ -16,6 +16,14 @@ import pytest
 
 from enpipe.analysis.config import AnalyzeConfig, build_thresholds
 from enpipe.analysis.model import (
+    ALIGN_ALIGNED,
+    ALIGN_SHIFT,
+    ALIGN_UNDETERMINED,
+    OFFSET_MANUAL,
+    OFFSET_SCENES,
+    REPORT_REFUSED,
+    FileAlignment,
+    PointAlignment,
     CHROMA_NO_DETAILS,
     CHROMA_OK,
     ROW_ERROR,
@@ -41,6 +49,7 @@ from enpipe.analysis.model import (
 )
 from enpipe.analysis.report import (
     SUMMARY_METRICS,
+    _alignment_text,
     render_html,
     render_json,
     render_md,
@@ -96,6 +105,8 @@ def _fixture_report() -> AnalysisReport:
             time_sec=4.171,
             vmaf=91.5,
             metrics=_metrics(psnr_u=float("inf")),
+            alignment=ALIGN_ALIGNED,
+            alignment_shift=0,
         ),
         FrameRow(
             frame=500,
@@ -125,6 +136,9 @@ def _fixture_report() -> AnalysisReport:
             height=2160,
             fps=23.976,
             frame_count=1000,
+            offset=0,
+            offset_source=None,
+            notes=("VFR-источник, сверка по индексу",),
         ),
         thresholds=build_thresholds(AnalyzeConfig()),
         sources=(
@@ -148,6 +162,26 @@ def _fixture_report() -> AnalysisReport:
         ),
         frames=frames,
         summary=summarize(frames),
+        alignment=FileAlignment(
+            verdict=ALIGN_ALIGNED,
+            offset=0,
+            n_aligned=2,
+            points=(
+                PointAlignment(
+                    enc_frame=0, verdict=ALIGN_ALIGNED, shift=0, margin_db=12.5, scene=0
+                ),
+                PointAlignment(
+                    enc_frame=500, verdict=ALIGN_UNDETERMINED, margin_db=1.2, scene=2
+                ),
+                PointAlignment(
+                    enc_frame=999,
+                    verdict=ALIGN_ALIGNED,
+                    shift=0,
+                    margin_db=float("inf"),
+                    scene=4,
+                ),
+            ),
+        ),
     )
 
 
@@ -229,6 +263,9 @@ def test_render_json_schema_keys_literal():
         "candidates",
         "frames",
         "summary",
+        "status",
+        "refusal_reasons",
+        "alignment",
     }
     metrics_keys = {
         "psnr_y",
@@ -266,7 +303,7 @@ def test_render_json_schema_keys_literal():
             assert set(row["metrics"]) == metrics_keys
 
 
-# Число "provisional": true в golden = числу полей AnalyzeConfig (15);
+# Число "provisional": true в golden = числу полей AnalyzeConfig (25);
 # добавление/переименование порога — осознанное обновление golden через
 # ENPIPE_UPDATE_GOLDEN=1.
 def test_golden_report_v1():
@@ -476,3 +513,75 @@ def test_write_report_three_files(tmp_path):
     assert (out / "report.json").read_bytes() == render_json(rep).encode("utf-8")
     assert (out / "report.md").read_text(encoding="utf-8") == render_md(rep)
     assert (out / "index.html").read_text(encoding="utf-8") == render_html(rep)
+
+
+# --------------------------------------------------------------------------- #
+# Отказ, выравнивание, пометки
+# --------------------------------------------------------------------------- #
+
+
+def _refused_report(reason: str = "размер различается: 3840x1600 и 1920x800") -> AnalysisReport:
+    base = _fixture_report()
+    return dataclasses.replace(
+        base,
+        status=REPORT_REFUSED,
+        refusal_reasons=(reason,),
+        alignment=None,
+        frames=(),
+        candidates=(),
+        summary=(),
+    )
+
+
+def test_refused_report_md_json_html():
+    rep = _refused_report()
+    data = json.loads(render_json(rep))
+    assert data["status"] == "refused"
+    assert data["refusal_reasons"] == ["размер различается: 3840x1600 и 1920x800"]
+    assert data["frames"] == []
+    md = render_md(rep)
+    assert "## Отказ" in md
+    assert "- размер различается: 3840x1600 и 1920x800" in md
+    assert "## Отказ" not in render_md(_fixture_report())
+    html_text = render_html(rep)
+    assert "Отказ" in html_text and "размер различается" in html_text
+
+
+def test_alignment_section_md():
+    md = render_md(_fixture_report())
+    assert "## Выравнивание" in md
+    assert "выровнено 2 из 3 точек" in md
+    assert "| кадр энкода | вердикт | сдвиг | запас, дБ | сцена |" in md
+    assert "неопределённо" in md and "выровнено" in md
+
+
+def test_meta_offset_lines():
+    base = _fixture_report()
+    scenes = dataclasses.replace(
+        base, meta=dataclasses.replace(base.meta, offset=24, offset_source=OFFSET_SCENES)
+    )
+    assert "сдвиг (--offset): `24 (проверен по .scenes)`" in render_md(scenes)
+    manual = dataclasses.replace(
+        base, meta=dataclasses.replace(base.meta, offset=24, offset_source=OFFSET_MANUAL)
+    )
+    assert "24 (задан вручную, по .scenes не проверен)" in render_md(manual)
+    md = render_md(base)
+    assert "пометка: `VFR-источник, сверка по индексу`" in md
+
+
+def test_alignment_text_variants():
+    assert _alignment_text(ALIGN_ALIGNED, 0) == "выровнено"
+    assert _alignment_text(ALIGN_SHIFT, 1) == "сдвиг +1"
+    assert _alignment_text(ALIGN_SHIFT, -1) == "сдвиг -1"
+    assert _alignment_text(ALIGN_SHIFT, 3, True) == "сдвиг ≥ 3"
+    assert _alignment_text(ALIGN_SHIFT, -3, True) == "сдвиг ≥ 3"
+    assert _alignment_text(ALIGN_UNDETERMINED, None) == "неопределённо"
+    assert _alignment_text(None, None) == "н/д"
+    assert _alignment_text("что-то", None) == "что-то"
+
+
+def test_refusal_html_escaped():
+    rep = _refused_report("<script>alert(1)</script>")
+    html_text = render_html(rep)
+    assert "<script>" not in html_text
+    assert "&lt;script&gt;" in html_text
