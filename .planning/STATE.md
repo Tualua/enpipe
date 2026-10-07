@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-10-07T07:29:44.606Z"
+last_updated: "2026-10-07T07:33:04.750Z"
 last_activity: 2026-10-07 -- Phase 10 execution started
 progress:
   total_phases: 10
   completed_phases: 1
   total_plans: 14
-  completed_plans: 6
+  completed_plans: 7
   percent: 10
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10 (frame-extraction-alignment) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Executing Phase 10
 Last activity: 2026-10-07 -- Phase 10 execution started
 
-Progress: [████░░░░░░] 43%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 09]: 09-03: в топ CSV только конечные значения; ручные кадры вне квоты/разноса/лимита; при полной квоте присоединение без min_gap
 - [Phase 09]: [09-04] Ячейки таблиц строятся один раз и экранируются на выходе (md: _md_cell, html: _h); ROW_ERROR дополняется до числа колонок; проценты цвета целые
 - [Phase 10]: [Phase 10]: 10-01: SCHEMA_VERSION остаётся 1, поля фазы 10 опциональны; jobs/threads/nice — константы config.py, не пороги
+- [Phase 10]: 10-02: склейка = кадры start-1 и start; DV-причины первыми; чересстрочный и отрицательные pts — отказ; склейки без повторных точек (фаза 13)
 
 ### Pending Todos
 
@@ -94,6 +95,7 @@ None yet.
 | Phase 09 P03 | 15min | 3 tasks | 4 files |
 | Phase 09 P04 | 15min | 2 tasks | 3 files |
 | Phase 10 P01 | 25min | 3 tasks | 9 files |
+| Phase 10 P02 | 20min | 2 tasks | 4 files |
 
 ## Deferred Items
 
@@ -120,7 +122,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-07T07:29:40.424Z
+Last session: 2026-10-07T07:33:01.471Z
 Stopped at: Phase 10 context gathered
 Resume file: .planning/phases/10-frame-extraction-alignment/10-CONTEXT.md
 
