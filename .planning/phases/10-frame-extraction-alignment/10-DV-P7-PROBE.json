@@ -1,0 +1,34 @@
+{
+    "programs": [
+
+    ],
+    "stream_groups": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "hevc",
+            "width": 3840,
+            "height": 2160,
+            "pix_fmt": "yuv420p10le",
+            "color_range": "tv",
+            "color_space": "bt2020nc",
+            "color_transfer": "smpte2084",
+            "color_primaries": "bt2020",
+            "avg_frame_rate": "24000/1001",
+            "start_time": "0.000000",
+            "side_data_list": [
+                {
+                    "side_data_type": "DOVI configuration record",
+                    "dv_profile": 7
+                },
+                {
+                    "side_data_type": "HEVC enhancement-layer decoder configuration"
+                }
+            ]
+        }
+    ],
+    "format": {
+        "format_name": "matroska,webm"
+    }
+}

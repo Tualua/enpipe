@@ -257,6 +257,8 @@ ffprobe печатает `unknown` для неустановленных `color_
 
 ## Code Examples
 
+> Примечание (2026-10-07): в примерах ниже исторически `v:0`; принятый контракт фазы — `-select_streams V:0` / `-map 0:V:0` (A10: заглавная V исключает прикреплённые обложки).
+
 ### Лёгкий probe (одним вызовом, 0.02 с)
 ```python
 # Source: проверено на фикстурах; поля вывода ffprobe -of json
@@ -312,10 +314,11 @@ JSON (не pickle): `{"v":1,"key":{"path":..., "size":..., "mtime_ns":...}, "pts
 | A3 | Порог доли зазоров для VFR-флага и полоса [0.8, 1.25] | Pitfall 2 | лишь пометка в отчёте |
 | A4 | Дубликаты pts на высоких fps в mkv → отказ | Pitfall 3 | ложный отказ на экзотике |
 | A5 | Правило склейки: кадры start−1 и start | Pitfall 6 | число «неопределённо» |
-| A6 | Поля ffprobe для DV (`dv_profile` в stream side data) | Pitfall 8 | RESOLVED: сверено на реальных файлах оператора (ffprobe n9.0.2) — P5 (`10-DV-P5-PROBE.json`, mp4): `side_data_type = "DOVI configuration record"`, `dv_profile = 5` (int), color_space/transfer/primaries отсутствуют; P8.1 (`10-DV-P8-PROBE.json`, mkv): тот же тип, `dv_profile = 8`, `dv_bl_signal_compatibility_id = 1`, PQ-теги на месте |
+| A6 | Поля ffprobe для DV (`dv_profile` в stream side data) | Pitfall 8 | RESOLVED: сверено на реальных файлах (ffprobe n9.0.2, ENTRIES с field_order, `-select_streams V:0`) — P5 (`10-DV-P5-PROBE.json`, mp4): `side_data_type = "DOVI configuration record"`, `dv_profile = 5` (int), color_space/transfer/primaries отсутствуют; P8.1 (`10-DV-P8-PROBE.json`, Poor Things, mkv): тот же тип, `dv_profile = 8`, `dv_bl_signal_compatibility_id = 1`, PQ-теги на месте; P7 FEL/MEL single-track (`10-DV-P7-PROBE.json`, mkv): `dv_profile = 7` плюс вторая запись «HEVC enhancement-layer decoder configuration» без профиля, PQ-теги полные, программный декод отдаёт базовый слой 3840×2160 (кадр 24883200 байт); The Pitt S02E01 (P8.1) — таблица pts без аномалий |
 | A7 | ffprobe по пакетам читает весь файл, время ≈ чтению диска | Замеры | цена таблицы выше/ниже оценки |
 | A8 | Теги цвета сохраняются в энкоде qsvencc→mkvmerge | Pitfall 7 | предпроверка отвергала бы все реальные энкоды при `unknown` на энкоде; проверить на реальном файле до закрытия фазы |
-| A9 | Отсутствующий/`unknown` `field_order` = прогрессивный; явный `tt/bb/tb/bt` → отказ (решение планировщика по кросс-ревью) | Pitfall 7 | чересстрочный источник без флага пройдёт предпроверку; страховка — вердикт выравнивания. Подтверждено: ни реальный P5 (`10-DV-P5-PROBE.json`, mp4), ни P8.1 (`10-DV-P8-PROBE.json`, mkv) не отдают `field_order` — ключ отсутствует, отказ по unknown давал бы ложные отказы |
+| A9 | Отсутствующий/`unknown` `field_order` = прогрессивный; явный `tt/bb/tb/bt` → отказ (решение планировщика по кросс-ревью) | Pitfall 7 | чересстрочный источник без флага пройдёт предпроверку; страховка — вердикт выравнивания. Подтверждено реальными данными: P5 (mp4), P8.1 (Poor Things, mkv) и P7 (mkv) пересняты строкой ENTRIES с явным `field_order` — ключа нет ни в одном выводе; отказ по отсутствующему значению давал бы ложные отказы на всех реальных файлах. Таблицы pts (P5 93800 пакетов = nb_frames, P8 203926, P7 180312, The Pitt S02E01 P8.1 75662): min pts = 0, отрицательных 0, N/A 0 |
+| A10 | Селектор потока — `V:0` (заглавная), не `v:0` | Code Examples | `v:0` выбирает и прикреплённые картинки: в реальном P7 есть второй видеопоток — обложка mjpeg 640×360 (index 24, attached pic); `V:0` их исключает и выбирает index 0 hevc (проверено); контракт общий для probe/pts/grab (10-03) |
 
 ## Open Questions (RESOLVED)
 
