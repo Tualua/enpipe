@@ -23,20 +23,28 @@ HDD, D-22). Воркеры лежат на уровне модуля и, как 
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from enpipe.analysis import align, frames, metrics, precheck
-from enpipe.analysis.config import DEFAULT_JOBS, AnalysisError, AnalyzeConfig
+from enpipe.analysis.config import (
+    DEFAULT_JOBS,
+    AnalysisError,
+    AnalyzeConfig,
+    build_thresholds,
+)
 from enpipe.analysis.frames import Planes
 from enpipe.analysis.model import (
     ALIGN_ALIGNED,
     ALIGN_SHIFT,
     ALIGN_UNDETERMINED,
+    REPORT_REFUSED,
+    AnalysisReport,
     FileAlignment,
     PairVerdict,
     PointAlignment,
+    RunMeta,
     StreamInfo,
 )
 
@@ -262,4 +270,79 @@ def check_pair_files(
         src_pts=tuple(src_pts),
         enc_pts=tuple(enc_pts),
         reasons=tuple(reasons),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Кадровый уровень и модель отказа
+# --------------------------------------------------------------------------- #
+
+
+def grab_frame_pair(
+    src: Path, enc: Path, check: PairCheck, enc_frame: int, cfg: AnalyzeConfig
+) -> Tuple[Optional[FramePair], Optional[str]]:
+    """Пара кадров для анализа и локальный вердикт по K−1/K/K+1 (D-14).
+
+    Возвращает (FramePair, None) или (None, текст ошибки); не бросает и не
+    завершает процесс. Локальный сдвиг превращает в строку ошибки без метрик
+    вызывающий через ``align.row_alignment``.
+    """
+    info = check.src_info
+    if info is None or check.enc_info is None or not check.src_pts or not check.enc_pts:
+        return None, "пара не прошла проверку"
+    try:
+        k = check.verdict.offset
+        n_src = len(check.src_pts)
+        if not 0 <= enc_frame < len(check.enc_pts):
+            raise AnalysisError(f"кадр энкода {enc_frame} вне файла")
+        center = enc_frame + k
+        lo, hi = align.window_range(center, 1, n_src)
+        enc_planes = frames.grab_frames(
+            enc, check.enc_pts, enc_frame, 1, info.width, info.height
+        )[0]
+        src_planes = frames.grab_frames(
+            src, check.src_pts, lo, hi - lo + 1, info.width, info.height
+        )
+        by_shift = _psnr_map(enc_planes[0], src_planes, lo, center, 1)
+        alignment = align.frame_verdict(enc_frame, by_shift, cfg)
+        return (
+            FramePair(enc_frame, center, src_planes[center - lo], enc_planes, alignment),
+            None,
+        )
+    except (AnalysisError, OSError, ValueError) as e:
+        return None, str(e)
+
+
+def meta_with_check(meta: RunMeta, check: PairCheck) -> RunMeta:
+    """Метаданные с полями из проверки пары.
+
+    Поля, выводимые из проверки, не наследуются из входного meta: отчёт-отказ
+    не должен показывать непроверенные размеры. Имена файлов, версии и
+    created_at берутся из входного meta.
+    """
+    src = check.src_info
+    return replace(
+        meta,
+        width=src.width if src is not None else None,
+        height=src.height if src is not None else None,
+        fps=float(src.avg_frame_rate) if src is not None and src.avg_frame_rate else None,
+        frame_count=len(check.enc_pts) if check.enc_pts else None,
+        offset=check.verdict.offset,
+        offset_source=check.verdict.offset_source,
+        notes=check.verdict.notes,
+    )
+
+
+def refused_report(meta: RunMeta, cfg: AnalyzeConfig, check: PairCheck) -> AnalysisReport:
+    """Отчёт-отказ: причины и вердикт выравнивания, без кадров и метрик (D-20)."""
+    return AnalysisReport(
+        meta=meta_with_check(meta, check),
+        thresholds=build_thresholds(cfg),
+        sources=(),
+        candidates=(),
+        frames=(),
+        summary=(),
+        status=REPORT_REFUSED,
+        refusal_reasons=check.reasons,
+        alignment=check.alignment,
     )

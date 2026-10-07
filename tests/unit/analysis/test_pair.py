@@ -9,12 +9,15 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pytest
 
-from enpipe.analysis import frames, pair
-from enpipe.analysis.config import AnalysisError, AnalyzeConfig
+from enpipe.analysis import align, frames, pair
+from enpipe.analysis.config import AnalysisError, AnalyzeConfig, build_thresholds
 from enpipe.analysis.model import (
     ALIGN_ALIGNED,
     ALIGN_SHIFT,
     ALIGN_UNDETERMINED,
+    REPORT_REFUSED,
+    PairVerdict,
+    RunMeta,
     StreamInfo,
 )
 
@@ -202,3 +205,120 @@ def test_jobs_deterministic(fake):
     assert a == b
     with pytest.raises(AnalysisError):
         pair.check_pair_files(SRC, ENC, CFG, jobs=0)
+
+
+# --------------------------------------------------------------------------- #
+# Кадровый уровень и модель отказа
+# --------------------------------------------------------------------------- #
+
+
+def _check(src_film, enc_film, offset=0):
+    n_src, n_enc = len(src_film), len(enc_film)
+    return pair.PairCheck(
+        verdict=PairVerdict(ok=True, offset=offset, notes=("пометка",)),
+        src_info=info("src.mkv"),
+        enc_info=info("enc.mkv"),
+        src_pts=tuple(i / 24 for i in range(n_src)),
+        enc_pts=tuple(i / 24 for i in range(n_enc)),
+    )
+
+
+def test_grab_frame_pair_aligned(fake):
+    src = noisy_film()
+    fake({SRC: src, ENC: src})
+    fp, err = pair.grab_frame_pair(SRC, ENC, _check(src, src), 10, CFG)
+    assert err is None
+    assert fp.enc_frame == 10 and fp.src_frame == 10
+    assert fp.alignment.verdict == ALIGN_ALIGNED
+    assert np.array_equal(fp.src_planes[0], src[10][0])
+    assert np.array_equal(fp.enc_planes[0], src[10][0])
+
+
+def test_grab_frame_pair_local_shift(fake):
+    src = noisy_film()
+    enc = src[1:] + [src[-1]]
+    fake({SRC: src, ENC: enc})
+    fp, err = pair.grab_frame_pair(SRC, ENC, _check(src, enc), 10, CFG)
+    assert err is None
+    assert fp.alignment.verdict == ALIGN_SHIFT and fp.alignment.shift == 1
+    kind, shift, text = align.row_alignment(fp.alignment)
+    assert kind == ALIGN_SHIFT and shift == 1 and text
+
+
+def test_grab_frame_pair_edge_window(fake):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src})
+    fp, err = pair.grab_frame_pair(SRC, ENC, _check(src, src), 0, CFG)
+    assert err is None
+    assert (SRC, 0, 2) in f.calls
+    assert fp.alignment.verdict == ALIGN_ALIGNED
+
+
+def test_grab_frame_pair_error(fake):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src})
+    f.fail_grab_at = (ENC, 10)
+    fp, err = pair.grab_frame_pair(SRC, ENC, _check(src, src), 10, CFG)
+    assert fp is None and "ffmpeg упал" in err
+
+
+def test_grab_frame_pair_no_check(fake):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src})
+    bad = pair.PairCheck(verdict=PairVerdict(ok=False, reasons=("x",)), reasons=("x",))
+    fp, err = pair.grab_frame_pair(SRC, ENC, bad, 10, CFG)
+    assert fp is None and err == "пара не прошла проверку"
+    assert f.calls == []
+
+
+def _meta(**kw):
+    base = dict(
+        src_name="a.mkv", enc_name="b.mkv", enpipe_version="1.0", created_at="t",
+        width=1920, height=800, fps=24.0, frame_count=100,
+    )
+    base.update(kw)
+    return RunMeta(**base)
+
+
+def test_meta_with_check():
+    src = noisy_film()
+    m = pair.meta_with_check(_meta(), _check(src, src[:48], offset=24))
+    assert (m.width, m.height, m.fps, m.frame_count) == (W, H, 24.0, 48)
+    assert m.offset == 24 and m.notes == ("пометка",)
+    assert m.src_name == "a.mkv" and m.enpipe_version == "1.0" and m.created_at == "t"
+
+
+def test_meta_with_check_no_src_info():
+    chk = pair.PairCheck(verdict=PairVerdict(ok=False, reasons=("x",)), reasons=("x",))
+    m = pair.meta_with_check(_meta(), chk)
+    assert (m.width, m.height, m.fps, m.frame_count) == (None, None, None, None)
+    src = noisy_film()
+    base = _check(src, src)
+    no_rate = pair.PairCheck(
+        verdict=base.verdict, src_info=info("s", avg_frame_rate=None), enc_pts=base.enc_pts
+    )
+    assert pair.meta_with_check(_meta(), no_rate).fps is None
+    empty = pair.PairCheck(verdict=base.verdict, src_info=base.src_info)
+    assert pair.meta_with_check(_meta(), empty).frame_count is None
+
+
+def test_refused_report_model(fake):
+    src = noisy_film()
+    fake({SRC: src, ENC: src[24:72]})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=SCENES4)
+    rep = pair.refused_report(_meta(), CFG, chk)
+    assert rep.status == REPORT_REFUSED
+    assert rep.refusal_reasons == chk.reasons
+    assert rep.frames == () and rep.candidates == () and rep.summary == ()
+    assert rep.thresholds == build_thresholds(CFG)
+    assert rep.alignment == chk.alignment
+
+
+def test_refused_report_no_src_info(fake):
+    f = fake({SRC: noisy_film(), ENC: noisy_film()})
+    f.fail_probe = SRC
+    chk = pair.check_pair_files(SRC, ENC, CFG)
+    rep = pair.refused_report(_meta(), CFG, chk)
+    assert rep.status == REPORT_REFUSED
+    assert (rep.meta.width, rep.meta.height, rep.meta.fps) == (None, None, None)
+    assert any(r.startswith("источник:") for r in rep.refusal_reasons)
