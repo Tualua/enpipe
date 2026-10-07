@@ -5,7 +5,8 @@
 snake_case и являются ключами report.json (D-18). «Нет данных» выражается
 None, а не nan (D-03). Каркас полный уже сейчас: последующие этапы
 (выравнивание, кропы, флаги, серьёзность) лишь заполняют готовые поля, а
-schema_version не меняется (D-20).
+schema_version не меняется (D-20). Поля выравнивания, отказа и пометок
+опциональны, а report.json ещё не выпускался, поэтому версия остаётся 1.
 
 Модуль чистый: только stdlib, без numpy, subprocess и импортов enpipe.
 Коллекции — только Tuple (неизменяемость и хешируемость).
@@ -14,6 +15,7 @@ schema_version не меняется (D-20).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Dict, Optional, Tuple, Union
 
 SCHEMA_VERSION = 1
@@ -43,6 +45,20 @@ STATE_NOT_REQUESTED = "not_requested"
 # Статус строки кадра (строки ошибок извлечения — часть модели, D-20).
 ROW_OK = "ok"
 ROW_ERROR = "error"
+
+# Вердикт выравнивания точки/файла (ALN-*): совпал свой кадр / совпал кадр со
+# сдвигом / нельзя определить.
+ALIGN_ALIGNED = "aligned"
+ALIGN_SHIFT = "shift"
+ALIGN_UNDETERMINED = "undetermined"
+
+# Статус отчёта: анализ выполнен или пара отвергнута предпроверкой.
+REPORT_OK = "ok"
+REPORT_REFUSED = "refused"
+
+# Источник значения --offset: задан оператором / проверен по .scenes.
+OFFSET_MANUAL = "manual"
+OFFSET_SCENES = "scenes"
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +176,79 @@ class Candidate:
 
 
 # --------------------------------------------------------------------------- #
+# Пара источник/энкод и выравнивание
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class StreamInfo:
+    """Сведения о видеопотоке файла для предпроверки пары.
+
+    Контракт нормализации: теги уже приведены — None вместо
+    "unknown"/"unspecified"/"N/A" и отсутствия. avg_frame_rate — Fraction, не
+    float (точное сравнение с допуском, D-16). field_order: "progressive",
+    "tt", "bb", "tb", "bt" или None (не указан; трактуется как прогрессивный).
+    В report.json StreamInfo не сериализуется.
+    """
+
+    name: str
+    format_name: Optional[str]
+    codec_name: Optional[str]
+    width: int
+    height: int
+    pix_fmt: Optional[str]
+    avg_frame_rate: Optional[Fraction]
+    start_time: Optional[float]
+    color_range: Optional[str]
+    color_space: Optional[str]
+    color_transfer: Optional[str]
+    color_primaries: Optional[str]
+    has_dovi: bool = False
+    dv_profile: Optional[int] = None
+    field_order: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class PairVerdict:
+    """Итог предпроверки пары: отказ с причинами или допуск с пометками."""
+
+    ok: bool
+    reasons: Tuple[str, ...] = ()  # русские причины отказа
+    notes: Tuple[str, ...] = ()  # пометки (VFR, start_time) — не отказ
+    offset: int = 0
+    offset_source: Optional[str] = None  # OFFSET_*
+    vfr: bool = False
+
+
+@dataclass(frozen=True)
+class PointAlignment:
+    """Вердикт выравнивания одной точки.
+
+    shift: d = номер совпавшего кадра источника − (enc_frame + offset).
+    shift_at_least=True — «сдвиг ≥ W»: лучший на краю необрезанного окна (D-12).
+    """
+
+    enc_frame: int
+    verdict: str  # ALIGN_*
+    shift: Optional[int] = None
+    shift_at_least: bool = False
+    margin_db: Optional[float] = None
+    scene: Optional[int] = None
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class FileAlignment:
+    """Файловый вердикт выравнивания по точкам."""
+
+    verdict: str  # ALIGN_*
+    shift: Optional[int] = None
+    offset: int = 0
+    n_aligned: int = 0
+    points: Tuple[PointAlignment, ...] = ()
+
+
+# --------------------------------------------------------------------------- #
 # Отчёт (RPT-01, MET-05)
 # --------------------------------------------------------------------------- #
 
@@ -208,6 +297,9 @@ class RunMeta:
     height: Optional[int] = None
     fps: Optional[float] = None
     frame_count: Optional[int] = None
+    offset: Optional[int] = None
+    offset_source: Optional[str] = None  # OFFSET_*
+    notes: Tuple[str, ...] = ()  # пометки: VFR, start_time, «сдвиг задан вручную»
 
 
 @dataclass(frozen=True)
@@ -242,4 +334,7 @@ class AnalysisReport:
     candidates: Tuple[Candidate, ...]
     frames: Tuple[FrameRow, ...]
     summary: Tuple[PercentileSummary, ...]
+    status: str = REPORT_OK
+    refusal_reasons: Tuple[str, ...] = ()
+    alignment: Optional[FileAlignment] = None
     schema_version: int = SCHEMA_VERSION

@@ -48,6 +48,26 @@ ITP_SCALE = 720.0
 # r0//2..r1//2.
 ITP_STRIP_ROWS = 128
 
+# Производительные и защитные константы извлечения кадров и выравнивания: не
+# пороги вердикта и в report.json не попадают. Функции принимают jobs
+# параметром с дефолтом DEFAULT_JOBS, поэтому флаг --jobs подключается без
+# правок конфига.
+# Параллелизм по точкам; provisional до замера на ZFS-HDD.
+DEFAULT_JOBS = 2
+# -threads декодера: по замеру дальше 2 выигрыша нет.
+DECODE_THREADS = 2
+# nice 10 без ionice: на ZFS ionice бесполезен.
+NICE_LEVEL = 10
+# Потолок align_window (память: окно 2W+1 кадров 4K).
+ALIGN_WINDOW_MAX = 8
+# Потолок окна склейки: кадры start-1 и start ± W одним вызовом = 2W+2 при
+# W = ALIGN_WINDOW_MAX; обычная точка берёт 2W+1 (7 при W = 3), кадр отчёта — 3.
+# Память кадра yuv420p10 в uint16 = W·H·3 байт (3840x1600 ≈ 18,4 МБ,
+# 3840x2160 ≈ 24,9 МБ).
+MAX_GRAB_FRAMES = 2 * ALIGN_WINDOW_MAX + 2
+# Сколько кандидатов --offset перечислять в подсказке.
+OFFSET_HINTS_MAX = 5
+
 
 class AnalysisError(RuntimeError):
     """Ошибка этапа анализа (программная: неверная форма/dtype плоскостей или конфиг)."""
@@ -91,6 +111,26 @@ class AnalyzeConfig:
     # Защита от --frames 0-999999999 (DoS).
     max_frames_range: int = 10000
 
+    # Выравнивание кадров источника и энкода (provisional до калибровки):
+    # запас лучшего совпадения над вторым, дБ (D-03).
+    align_margin_db: float = 3.0
+    # Окно сдвига ±W кадров (D-12).
+    align_window: int = 3
+    # Число точек проверки в файле (D-10, D-11).
+    align_points: int = 5
+    # Минимум точек «выровнено» для вердикта файла (D-13).
+    align_min_aligned: int = 2
+    # Число повторных попыток на точку без .scenes (D-11) и шаг, кадров.
+    align_retry_max: int = 3
+    align_retry_step: int = 48
+    # Предпроверка пары: относительный допуск avg_frame_rate (D-16).
+    fps_rel_tol: float = 5e-4
+    # Полоса «нормального» зазора pts (доля медианы) и доля зазоров вне
+    # полосы, после которой источник помечается VFR (D-16).
+    vfr_gap_lo: float = 0.8
+    vfr_gap_hi: float = 1.25
+    vfr_gap_fraction: float = 0.01
+
     def __post_init__(self) -> None:
         for name in ("tile_y", "tile_c"):
             v = getattr(self, name)
@@ -110,9 +150,27 @@ class AnalyzeConfig:
             "csv_worst_n",
             "vmaf_worst_n",
             "max_frames_range",
+            "align_points",
+            "align_retry_step",
         ):
             if getattr(self, name) < 1:
                 raise AnalysisError(f"{name} должен быть >= 1")
+        if self.align_margin_db <= 0:
+            raise AnalysisError("align_margin_db должен быть > 0")
+        if not 1 <= self.align_window <= ALIGN_WINDOW_MAX:
+            raise AnalysisError(
+                f"align_window должен быть в 1..{ALIGN_WINDOW_MAX}, получено {self.align_window}"
+            )
+        if not 1 <= self.align_min_aligned <= self.align_points:
+            raise AnalysisError("требуется 1 <= align_min_aligned <= align_points")
+        if self.align_retry_max < 0:
+            raise AnalysisError("align_retry_max должен быть >= 0")
+        if not 0 < self.fps_rel_tol < 1:
+            raise AnalysisError("fps_rel_tol должен быть в (0, 1)")
+        if not 0 < self.vfr_gap_lo < 1 < self.vfr_gap_hi:
+            raise AnalysisError("требуется 0 < vfr_gap_lo < 1 < vfr_gap_hi")
+        if not 0 < self.vfr_gap_fraction < 1:
+            raise AnalysisError("vfr_gap_fraction должен быть в (0, 1)")
 
 
 def build_thresholds(cfg: AnalyzeConfig) -> Tuple[Threshold, ...]:
@@ -120,7 +178,9 @@ def build_thresholds(cfg: AnalyzeConfig) -> Tuple[Threshold, ...]:
 
     Строится по dataclasses.fields, чтобы новый порог нельзя было забыть
     пометить provisional (MET-05). Производительные константы
-    (ITP_STRIP_ROWS) сознательно не пороги и сюда не попадают. Тип value
+    (ITP_STRIP_ROWS; DEFAULT_JOBS, DECODE_THREADS, NICE_LEVEL,
+    ALIGN_WINDOW_MAX, MAX_GRAB_FRAMES, OFFSET_HINTS_MAX) сознательно не
+    пороги и сюда не попадают. Тип value
     сохраняется как у поля: int пишется в report.json как 16, float с целым
     значением — как 5.0 (golden это фиксирует). Число Threshold равно числу
     полей AnalyzeConfig, поэтому добавление порога — осознанное обновление

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from fractions import Fraction
 
 import pytest
 
@@ -66,6 +67,15 @@ def _instances():
         m.RunMeta(src_name="a.mkv", enc_name="b.mkv"),
         m.Threshold(name="top", value=40),
         m.PercentileSummary(metric="psnr_y", n=0),
+        m.StreamInfo(
+            name="a.mkv", format_name="matroska", codec_name="hevc", width=3840,
+            height=1600, pix_fmt="yuv420p10le", avg_frame_rate=Fraction(24000, 1001),
+            start_time=0.0, color_range="tv", color_space="bt2020nc",
+            color_transfer="smpte2084", color_primaries="bt2020",
+        ),
+        m.PairVerdict(ok=True),
+        m.PointAlignment(enc_frame=0, verdict=m.ALIGN_ALIGNED),
+        m.FileAlignment(verdict=m.ALIGN_ALIGNED),
         _report(),
     ]
 
@@ -85,6 +95,22 @@ def test_schema_version_default():
 def test_source_priority_order():
     p = m.SOURCE_PRIORITY
     assert p[m.SOURCE_MANUAL] < p[m.SOURCE_VMAF] < p[m.SOURCE_CSV] < p[m.SOURCE_SCAN]
+
+
+def test_report_new_fields_defaults():
+    r = _report()
+    assert r.status == m.REPORT_OK == "ok"
+    assert r.refusal_reasons == () and r.alignment is None
+    assert r.schema_version == 1
+    assert r.meta.offset is None and r.meta.offset_source is None
+    assert r.meta.notes == ()
+
+
+def test_stream_info_field_order_last_default_none():
+    flds = dataclasses.fields(m.StreamInfo)
+    assert flds[-1].name == "field_order"
+    si = [o for o in _instances() if isinstance(o, m.StreamInfo)][0]
+    assert si.field_order is None and si.has_dovi is False and si.dv_profile is None
 
 
 def test_error_row_without_metrics():
@@ -114,11 +140,16 @@ def test_config_defaults():
     assert (cfg.shadow_nits, cfg.detail_eps) == (5.0, 1e-9)
     assert (cfg.min_gap, cfg.top, cfg.per_scene_quota) == (48, 40, 2)
     assert (cfg.csv_worst_n, cfg.vmaf_worst_n, cfg.max_frames_range) == (10, 12, 10000)
+    assert (cfg.align_margin_db, cfg.align_window, cfg.align_points) == (3.0, 3, 5)
+    assert (cfg.align_min_aligned, cfg.align_retry_max, cfg.align_retry_step) == (2, 3, 48)
+    assert cfg.fps_rel_tol == 5e-4
+    assert (cfg.vfr_gap_lo, cfg.vfr_gap_hi, cfg.vfr_gap_fraction) == (0.8, 1.25, 0.01)
 
 
 def test_build_thresholds_defaults():
     cfg = c.AnalyzeConfig()
     th = c.build_thresholds(cfg)
+    assert len(th) == 25
     flds = dataclasses.fields(c.AnalyzeConfig)
     assert len(th) == len(flds)
     assert [t.name for t in th] == [f.name for f in flds]
@@ -136,7 +167,10 @@ def test_build_thresholds_distinct_values_and_types():
         chroma_block=8, chroma_sat_thr=31.5, chroma_min_pts=4, chroma_max_pts=19,
         min_chroma_blocks=6, tile_y=258, tile_c=130, shadow_nits=5.5,
         detail_eps=2e-9, min_gap=49, top=41, per_scene_quota=3, csv_worst_n=11,
-        vmaf_worst_n=13, max_frames_range=10001,
+        vmaf_worst_n=13, max_frames_range=10001, align_margin_db=3.5,
+        align_window=4, align_points=6, align_min_aligned=3, align_retry_max=2,
+        align_retry_step=24, fps_rel_tol=1e-3, vfr_gap_lo=0.7, vfr_gap_hi=1.3,
+        vfr_gap_fraction=0.02,
     )
     for t in c.build_thresholds(cfg):
         v = getattr(cfg, t.name)
@@ -159,6 +193,22 @@ def test_build_thresholds_distinct_values_and_types():
         {"csv_worst_n": 0},
         {"vmaf_worst_n": 0},
         {"max_frames_range": 0},
+        {"align_margin_db": 0.0},
+        {"align_margin_db": -1.0},
+        {"align_window": 0},
+        {"align_window": 9},
+        {"align_points": 0},
+        {"align_min_aligned": 0},
+        {"align_min_aligned": 6},
+        {"align_retry_max": -1},
+        {"align_retry_step": 0},
+        {"fps_rel_tol": 0.0},
+        {"fps_rel_tol": 1.0},
+        {"vfr_gap_lo": 0.0},
+        {"vfr_gap_lo": 1.0},
+        {"vfr_gap_hi": 1.0},
+        {"vfr_gap_fraction": 0.0},
+        {"vfr_gap_fraction": 1.0},
     ],
 )
 def test_invalid_config_raises(kwargs):
@@ -169,6 +219,16 @@ def test_invalid_config_raises(kwargs):
 def test_itp_strip_rows_even_positive():
     assert isinstance(c.ITP_STRIP_ROWS, int)
     assert c.ITP_STRIP_ROWS > 0 and c.ITP_STRIP_ROWS % 2 == 0
+
+
+def test_perf_constants_not_thresholds():
+    assert (c.DEFAULT_JOBS, c.DECODE_THREADS, c.NICE_LEVEL) == (2, 2, 10)
+    assert c.MAX_GRAB_FRAMES == 2 * c.ALIGN_WINDOW_MAX + 2 == 18
+    assert c.OFFSET_HINTS_MAX == 5
+    names = {f.name.lower() for f in dataclasses.fields(c.AnalyzeConfig)}
+    for const in ("DEFAULT_JOBS", "DECODE_THREADS", "NICE_LEVEL",
+                  "ALIGN_WINDOW_MAX", "MAX_GRAB_FRAMES", "OFFSET_HINTS_MAX"):
+        assert const.lower() not in names
 
 
 def test_matrix_sanity():
