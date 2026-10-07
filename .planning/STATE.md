@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Анализ качества энкода
-status: planning
+status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-10-07T07:18:33.101Z"
-last_activity: 2026-10-06 -- Phase 10 planning complete
+last_updated: "2026-10-07T07:29:44.606Z"
+last_activity: 2026-10-07 -- Phase 10 execution started
 progress:
   total_phases: 10
   completed_phases: 1
   total_plans: 14
-  completed_plans: 5
+  completed_plans: 6
   percent: 10
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-04)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 10 — извлечение кадров и выравнивание
+**Current focus:** Phase 10 — frame-extraction-alignment
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-06 -- Phase 10 planning complete
+Phase: 10 (frame-extraction-alignment) — EXECUTING
+Plan: 2 of 5
+Status: Executing Phase 10
+Last activity: 2026-10-07 -- Phase 10 execution started
 
-Progress: [██████░░░░] 56%
+Progress: [████░░░░░░] 43%
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 09]: 09-02: analyze_frame требует чётные H/W и цветность (H/2, W/2), иначе AnalysisError (контракт для фазы 10)
 - [Phase 09]: 09-03: в топ CSV только конечные значения; ручные кадры вне квоты/разноса/лимита; при полной квоте присоединение без min_gap
 - [Phase 09]: [09-04] Ячейки таблиц строятся один раз и экранируются на выходе (md: _md_cell, html: _h); ROW_ERROR дополняется до числа колонок; проценты цвета целые
+- [Phase 10]: [Phase 10]: 10-01: SCHEMA_VERSION остаётся 1, поля фазы 10 опциональны; jobs/threads/nice — константы config.py, не пороги
 
 ### Pending Todos
 
@@ -92,6 +93,7 @@ None yet.
 | Phase 09 P02 | 25min | 3 tasks | 4 files |
 | Phase 09 P03 | 15min | 3 tasks | 4 files |
 | Phase 09 P04 | 15min | 2 tasks | 3 files |
+| Phase 10 P01 | 25min | 3 tasks | 9 files |
 
 ## Deferred Items
 
@@ -118,7 +120,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-06T08:54:22.225Z
+Last session: 2026-10-07T07:29:40.424Z
 Stopped at: Phase 10 context gathered
 Resume file: .planning/phases/10-frame-extraction-alignment/10-CONTEXT.md
 
