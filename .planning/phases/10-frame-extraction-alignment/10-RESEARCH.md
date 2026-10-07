@@ -312,10 +312,10 @@ JSON (не pickle): `{"v":1,"key":{"path":..., "size":..., "mtime_ns":...}, "pts
 | A3 | Порог доли зазоров для VFR-флага и полоса [0.8, 1.25] | Pitfall 2 | лишь пометка в отчёте |
 | A4 | Дубликаты pts на высоких fps в mkv → отказ | Pitfall 3 | ложный отказ на экзотике |
 | A5 | Правило склейки: кадры start−1 и start | Pitfall 6 | число «неопределённо» |
-| A6 | Поля ffprobe для DV (`dv_profile` в stream side data) | Pitfall 8 | RESOLVED: сверено на реальном P5 оператора (`10-DV-P5-PROBE.json`, ffprobe n9.0.2) — `side_data_type = "DOVI configuration record"`, `dv_profile = 5` (int); color_space/transfer/primaries у P5 отсутствуют |
+| A6 | Поля ffprobe для DV (`dv_profile` в stream side data) | Pitfall 8 | RESOLVED: сверено на реальных файлах оператора (ffprobe n9.0.2) — P5 (`10-DV-P5-PROBE.json`, mp4): `side_data_type = "DOVI configuration record"`, `dv_profile = 5` (int), color_space/transfer/primaries отсутствуют; P8.1 (`10-DV-P8-PROBE.json`, mkv): тот же тип, `dv_profile = 8`, `dv_bl_signal_compatibility_id = 1`, PQ-теги на месте |
 | A7 | ffprobe по пакетам читает весь файл, время ≈ чтению диска | Замеры | цена таблицы выше/ниже оценки |
 | A8 | Теги цвета сохраняются в энкоде qsvencc→mkvmerge | Pitfall 7 | предпроверка отвергала бы все реальные энкоды при `unknown` на энкоде; проверить на реальном файле до закрытия фазы |
-| A9 | Отсутствующий/`unknown` `field_order` = прогрессивный; явный `tt/bb/tb/bt` → отказ (решение планировщика по кросс-ревью) | Pitfall 7 | чересстрочный источник без флага пройдёт предпроверку; страховка — вердикт выравнивания |
+| A9 | Отсутствующий/`unknown` `field_order` = прогрессивный; явный `tt/bb/tb/bt` → отказ (решение планировщика по кросс-ревью) | Pitfall 7 | чересстрочный источник без флага пройдёт предпроверку; страховка — вердикт выравнивания. Подтверждено: ни реальный P5 (`10-DV-P5-PROBE.json`, mp4), ни P8.1 (`10-DV-P8-PROBE.json`, mkv) не отдают `field_order` — ключ отсутствует, отказ по unknown давал бы ложные отказы |
 
 ## Open Questions (RESOLVED)
 
