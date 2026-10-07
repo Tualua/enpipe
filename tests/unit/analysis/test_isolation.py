@@ -4,7 +4,9 @@
 импортов путей кодирования/детекции/mkv/shared/cli. Обратное направление
 тоже закрыто: ни encoding, ни detection, ни mkv, ни shared, ни cli не
 импортируют analysis (в cli это ограничение снимется, когда команда
-analyze будет подключена осознанно).
+analyze будет подключена осознанно). Единственное исключение внутри пакета —
+frames.py: он вправе импортировать enpipe.shared.proc (весь I/O извлечения
+кадров идёт через единый шов), остальные модули остаются чистыми.
 
 Проверка идёт по AST, а не по grep: комментарии и docstring не дают ложных
 срабатываний, а алиасы (`die as fatal`), `from X import y` и относительные
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pytest
 
@@ -43,6 +45,13 @@ _FORBIDDEN_PREFIX = ("os.spawn", "os.exec")
 _OS_BAD_ATTRS = ("system", "popen", "fork", "forkpty")
 _BAD_CALL_NAMES = ("die", "log", "__import__")
 
+# frames.py — единственный I/O-модуль пакета (ARCHITECTURE.md): ему разрешён
+# только шов subprocess enpipe.shared.proc; вызовы subprocess/die/log и прочие
+# импорты shared запрещены и ему.
+_ALLOW: Dict[str, Tuple[str, ...]] = {
+    "enpipe/analysis/frames.py": ("enpipe.shared", "enpipe.shared.proc"),
+}
+
 
 def _package_of(path: Path, src_root: Path) -> str:
     """Пакет модуля: относительный импорт уровня 1 указывает именно на него."""
@@ -62,7 +71,9 @@ def _resolve(node: ast.ImportFrom, package: str) -> Optional[str]:
     return base + "." + node.module if node.module else base
 
 
-def _name_forbidden(name: str) -> bool:
+def _name_forbidden(name: str, allow: Tuple[str, ...] = ()) -> bool:
+    if name in allow:
+        return False
     for bad in _FORBIDDEN_EXACT:
         if name == bad or name.startswith(bad + "."):
             return True
@@ -73,12 +84,12 @@ def _name_forbidden(name: str) -> bool:
     )
 
 
-def _violations(source: str, package: str) -> List[str]:
+def _violations(source: str, package: str, allow: Tuple[str, ...] = ()) -> List[str]:
     out: List[str] = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             for a in node.names:
-                if _name_forbidden(a.name):
+                if _name_forbidden(a.name, allow):
                     out.append(f"строка {node.lineno}: запрещённый импорт {a.name}")
         elif isinstance(node, ast.ImportFrom):
             mod = _resolve(node, package)
@@ -87,7 +98,7 @@ def _violations(source: str, package: str) -> List[str]:
                 continue
             names = [mod] + [mod + "." + a.name for a in node.names]
             for n in names:
-                if _name_forbidden(n):
+                if _name_forbidden(n, allow):
                     out.append(f"строка {node.lineno}: запрещённый импорт {n}")
         elif isinstance(node, ast.Call):
             f = node.func
@@ -159,6 +170,29 @@ def test_checker_allows_legitimate(code):
     assert _violations(code, _PKG) == [], f"ложное срабатывание: {code!r}"
 
 
+_ALLOW_FRAMES = ("enpipe.shared", "enpipe.shared.proc")
+
+
+def test_checker_allow_frames_proc():
+    code = "from enpipe.shared import proc as _proc"
+    assert _violations(code, _PKG, allow=_ALLOW_FRAMES) == []
+    assert _violations(code, _PKG), "без allow импорт proc должен ловиться"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import subprocess",
+        "from enpipe.shared.logging import die",
+        "from enpipe.shared import logging",
+        "die('x')",
+        "log('x')",
+    ],
+)
+def test_checker_allow_does_not_cover(code):
+    assert _violations(code, _PKG, allow=_ALLOW_FRAMES), f"allow снял запрет: {code!r}"
+
+
 def test_package_of_resolves_init_and_modules():
     assert _package_of(SRC / "enpipe/analysis/foo.py", SRC) == "enpipe.analysis"
     assert _package_of(SRC / "enpipe/analysis/__init__.py", SRC) == "enpipe.analysis"
@@ -172,7 +206,8 @@ def test_package_of_resolves_init_and_modules():
 
 @pytest.mark.parametrize("path", _py_files("analysis"), ids=lambda p: p.name)
 def test_analysis_module_is_isolated(path):
-    found = _violations(path.read_text(encoding="utf-8"), _package_of(path, SRC))
+    allow = _ALLOW.get(path.relative_to(SRC).as_posix(), ())
+    found = _violations(path.read_text(encoding="utf-8"), _package_of(path, SRC), allow=allow)
     assert found == [], f"{path.relative_to(ROOT)}: нарушения изоляции: {found}"
 
 
