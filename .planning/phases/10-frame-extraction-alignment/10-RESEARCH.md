@@ -246,7 +246,8 @@ ffprobe печатает `unknown` для неустановленных `color_
 Открыто: сохраняются ли теги в энкоде qsvencc → mkvmerge (`--colorprim auto` и т.д. в `chunk.py:52`) — проверить на реальном энкоде.
 
 ### Pitfall 8: DV profile 5
-Теги у P5-файлов часто неинформативны, поэтому проверять профиль независимо от PQ-тега: `ffprobe -show_entries stream_side_data` (запись «DOVI configuration record», поле `dv_profile`). Реального DV-файла в среде нет (`tests/fixtures/media/dv-p5.mkv` — только если оператор положил), поэтому парсер покрывается `fp`-JSON и fixture-gated тестом [ASSUMED: имена полей ffprobe; сверить на реальном файле]. Существующий `hdr.py` читает side data первого кадра (`-show_frames`), для probe лёгкого пути лучше stream-level.
+Теги у P5-файлов часто неинформативны, поэтому проверять профиль независимо от PQ-тега: `ffprobe -show_entries stream_side_data` (запись «DOVI configuration record», поле `dv_profile`). Реального DV-файла в среде нет (`tests/fixtures/media/dv-p5.mkv` — только если оператор положил), поэтому парсер покрывается `fp`-JSON и fixture-gated тестом.
+**RESOLVED (2026-10-07, данные оператора, `10-DV-P5-PROBE.json`):** реальный P5 (For.All.Mankind S01E01, mp4, HEVC Main 10, codec_tag dvhe), ffprobe n9.0.2, строка ENTRIES плана 10-03 (до добавления `field_order`) → `"side_data_list":[{"side_data_type":"DOVI configuration record","dv_profile":5}]` [VERIFIED]. Имя типа и целое `dv_profile` подтверждены. Важно: у P5 НЕТ ключей `color_space`/`color_transfer`/`color_primaries` (только `color_range: "tv"`), поэтому предпроверка на P5 даёт и DV-причину, и несовпадения тегов, и «не PQ» — DV-причина ставится первой как корневая (10-02). mp4 (`format_name: "mov,mp4,m4a,3gp,3g2,mj2"`) пробуется без особенностей. JSON дословно — fp-фикстура 10-03. Существующий `hdr.py` читает side data первого кадра (`-show_frames`), для probe лёгкого пути лучше stream-level.
 
 ### Pitfall 9: Нагрузка и ввод
 `-nostdin` обязателен (фон/cron: ffmpeg иначе читает stdin). Окно 7 кадров на 4K = 129 МБ в памяти на воркер; при jobs=2 и ещё энкод-кадре ≈ 300 МБ — допустимо. `np.frombuffer` отдаёт read-only массив; если ядро фазы 9 не пишет в плоскости — копия не нужна (проверить `analyze_frame` юнит-тестом на read-only входе).
@@ -311,9 +312,10 @@ JSON (не pickle): `{"v":1,"key":{"path":..., "size":..., "mtime_ns":...}, "pts
 | A3 | Порог доли зазоров для VFR-флага и полоса [0.8, 1.25] | Pitfall 2 | лишь пометка в отчёте |
 | A4 | Дубликаты pts на высоких fps в mkv → отказ | Pitfall 3 | ложный отказ на экзотике |
 | A5 | Правило склейки: кадры start−1 и start | Pitfall 6 | число «неопределённо» |
-| A6 | Поля ffprobe для DV (`dv_profile` в stream side data) | Pitfall 8 | P5 не будет отсечён; нужна сверка на реальном файле |
+| A6 | Поля ffprobe для DV (`dv_profile` в stream side data) | Pitfall 8 | RESOLVED: сверено на реальном P5 оператора (`10-DV-P5-PROBE.json`, ffprobe n9.0.2) — `side_data_type = "DOVI configuration record"`, `dv_profile = 5` (int); color_space/transfer/primaries у P5 отсутствуют |
 | A7 | ffprobe по пакетам читает весь файл, время ≈ чтению диска | Замеры | цена таблицы выше/ниже оценки |
 | A8 | Теги цвета сохраняются в энкоде qsvencc→mkvmerge | Pitfall 7 | предпроверка отвергала бы все реальные энкоды при `unknown` на энкоде; проверить на реальном файле до закрытия фазы |
+| A9 | Отсутствующий/`unknown` `field_order` = прогрессивный; явный `tt/bb/tb/bt` → отказ (решение планировщика по кросс-ревью) | Pitfall 7 | чересстрочный источник без флага пройдёт предпроверку; страховка — вердикт выравнивания |
 
 ## Open Questions (RESOLVED)
 
@@ -323,7 +325,8 @@ JSON (не pickle): `{"v":1,"key":{"path":..., "size":..., "mtime_ns":...}, "pts
    - Рекомендация: зафиксировать `jobs=2` как provisional-константу и добавить скрипт замера в UAT на NAS; не блокировать планирование.
    - RESOLVED: `DEFAULT_JOBS = 2` — provisional модульная константа `config.py` (не порог отчёта) в 10-01 Task 1; скрипт замера `scratch/analysis_pair_probe.py` (jobs 1/2/4, ZFS-HDD) — 10-05 Task 1, прогон оператором — 10-05 Task 2, выбор итогового значения по правилу «наименьшее jobs не хуже лучшего на 15 %» — 10-05 Task 3 (без таблицы замера значение явно остаётся provisional и это пишется в SUMMARY).
 2. **Теги энкода (A8) и DV P5 (A6)** — проверить на реальных файлах оператора в UAT; в быстрых тестах — `fp`-JSON.
-   - RESOLVED: в быстрых тестах — `fp`-JSON в 10-02 (предпроверка тегов D-17 и DV fail-loud D-18: side data DOVI без читаемого профиля → отказ «профиль Dolby Vision не определён»); санити тегов синтетики `test_fixture_tags_match` — 10-04; на реальных файлах — UAT 10-05 Task 2 (A8, A6). Если A8 не подтверждён — D-17 не ослабляется, `encoding/` не трогается, блокер записывается в 10-05-SUMMARY и STATE.md (Blockers/Concerns) на решение оператора (10-05 Task 3); если поля DV у ffprobe иные — поправка разбора `frames.probe_stream` + fp-тест по присланному JSON (10-05 Task 3).
+   - RESOLVED: в быстрых тестах — `fp`-JSON в 10-02 (предпроверка тегов D-17 и DV fail-loud D-18: side data DOVI без читаемого профиля → отказ «профиль Dolby Vision не определён»); санити тегов синтетики `test_fixture_tags_match` — 10-04; на реальных файлах — UAT 10-05 Task 2 (A8, отказ P5 end-to-end). Если A8 не подтверждён — D-17 не ослабляется, `encoding/` не трогается, блокер записывается в 10-05-SUMMARY и STATE.md (Blockers/Concerns) на решение оператора (10-05 Task 3).
+   - A6 RESOLVED данными (2026-10-07): `10-DV-P5-PROBE.json` — реальный P5 оператора; JSON дословно в fp-тесте 10-03 (`test_probe_real_p5_verbatim`), в 10-02 тест порядка причин на этом StreamInfo (`test_real_p5_dv_reason_first`, DV-причина первой). Шаг UAT «прислать side data» убран.
 3. **Модель отчёта:** рекомендуем (решение планировщика фиксирует явно) оставить `schema_version: 1` и добавить опционально в `AnalysisReport`: `alignment: Optional[FileAlignment]`, `refusal_reasons: Tuple[str, ...] = ()`, `status: str = "ok"`; в `RunMeta`: `offset: Optional[int]`, `offset_source: Optional[str]` («manual»/«scenes»), `notes: Tuple[str, ...] = ()` (VFR, start_time, «сдвиг задан вручную…»). Обновить `tests/unit/analysis/golden/report_v1.json`; новые поля в `AnalyzeConfig` автоматически попадут в `build_thresholds` (число Threshold = числу полей — golden тоже обновить).
    - RESOLVED: принято как рекомендовано — 10-01 Task 1 (`model.py`: `status`/`refusal_reasons`/`alignment` в `AnalysisReport`, `offset`/`offset_source`/`notes` в `RunMeta`, `SCHEMA_VERSION` остаётся 1, т.к. report.json ещё не выпускался; 10 новых полей `AnalyzeConfig` в `build_thresholds`) и 10-01 Task 2 (рендер отказа/выравнивания, обновление `golden/report_v1.json`); построение отчёта-отказа — `refused_report` в 10-04 Task 2.
 
@@ -366,7 +369,7 @@ Applicable ASVS: V5 Input Validation (пути и вывод ffprobe), оста�
 - Механизм «`-ss` прибавляет start_time» выведен из поведения; исходники и документация ffmpeg в сессии не открывались.
 
 ### Tertiary (LOW)
-- Имена полей ffprobe для DV; поведение на ZFS-HDD; RASL после CRA.
+- Поведение на ZFS-HDD; RASL после CRA. (Имена полей ffprobe для DV — переведены в VERIFIED по `10-DV-P5-PROBE.json`.)
 
 ## Metadata
 

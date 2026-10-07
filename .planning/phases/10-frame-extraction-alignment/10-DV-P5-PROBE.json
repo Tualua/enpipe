@@ -1,0 +1,28 @@
+{
+    "programs": [
+
+    ],
+    "stream_groups": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "hevc",
+            "width": 3840,
+            "height": 1920,
+            "pix_fmt": "yuv420p10le",
+            "color_range": "tv",
+            "avg_frame_rate": "24000/1001",
+            "start_time": "0.000000",
+            "side_data_list": [
+                {
+                    "side_data_type": "DOVI configuration record",
+                    "dv_profile": 5
+                }
+            ]
+        }
+    ],
+    "format": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+    }
+}
