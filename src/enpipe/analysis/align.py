@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from enpipe.analysis.config import AnalysisError, AnalyzeConfig
 from enpipe.analysis.model import (
@@ -164,9 +164,18 @@ def row_alignment(p: PointAlignment) -> Tuple[str, Optional[int], Optional[str]]
 
 
 def aggregate(points: Sequence[PointAlignment], cfg: AnalyzeConfig, offset: int) -> FileAlignment:
-    """Вердикт файла: любой сдвиг — сдвиг; достаточно «выровнено» — выровнено."""
+    """Вердикт файла: любой сдвиг — сдвиг; достаточно «выровнено» — выровнено.
+
+    Голос — кадр, а не элемент списка: повторы разных точек могут совпасть
+    (защита D-13 от вердикта по одному кадру), поэтому n_aligned считается по
+    различным enc_frame. В ``points`` дубликаты сохраняются: отчёт показывает
+    каждую цель.
+    """
     ordered = tuple(sorted(points, key=lambda p: p.enc_frame))
-    n_aligned = sum(1 for p in ordered if p.verdict == ALIGN_ALIGNED and p.error is None)
+    aligned_frames = {
+        p.enc_frame for p in ordered if p.verdict == ALIGN_ALIGNED and p.error is None
+    }
+    n_aligned = len(aligned_frames)
     shifted = [p for p in ordered if p.verdict == ALIGN_SHIFT]
     if shifted:
         verdict, shift = ALIGN_SHIFT, shifted[0].shift
@@ -224,7 +233,7 @@ def pick_points(
     for idx, (start, _end) in enumerate(scenes or ()):
         if offset <= start < offset + n_enc:
             junctions.append((start - offset, idx))
-    chosen: dict = {}
+    chosen: Dict[int, AlignTarget] = {}
     for t in targets:
         if junctions:
             frame, idx = min(junctions, key=lambda j: (abs(j[0] - t), j[0]))

@@ -25,7 +25,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from enpipe.analysis import align, frames, metrics, precheck
 from enpipe.analysis.config import (
@@ -55,7 +55,11 @@ from enpipe.analysis.model import (
 
 @dataclass(frozen=True)
 class PairCheck:
-    """Итог проверки пары: предпроверка + выравнивание + все причины отказа."""
+    """Итог проверки пары: предпроверка + выравнивание + все причины отказа.
+
+    Единственный признак годности — ``PairCheck.ok``; ``verdict.ok`` равен False
+    и при отказе выравнивания.
+    """
 
     verdict: PairVerdict
     alignment: Optional[FileAlignment] = None
@@ -134,13 +138,32 @@ def _measure(
     return out
 
 
-def _point_worker(task) -> Tuple[Optional[PointAlignment], Optional[str]]:
+_PointTask = Tuple[
+    Path,
+    Path,
+    Sequence[float],
+    Sequence[float],
+    "align.AlignTarget",
+    int,
+    int,
+    int,
+    AnalyzeConfig,
+    FrozenSet[int],
+]
+
+
+def _point_worker(task: _PointTask) -> Tuple[Optional[PointAlignment], Optional[str]]:
     """Вердикт одной точки: (точка, None) или (None, текст ошибки).
 
-    task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg). Не
-    бросает и не завершает процесс (контракт фонового воркера).
+    task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg, taken).
+    taken — кадры энкода, уже занятые целями (и кадр start−1 склеек): повтор
+    не должен голосовать кадром другой цели, иначе один кадр засчитается дважды.
+    Повторы двух разных точек между собой могут совпасть (воркеры параллельны,
+    общего состояния нет) — это закрывает подсчёт различных кадров в
+    ``align.aggregate``. Не бросает и не завершает процесс (контракт фонового
+    воркера).
     """
-    src, enc, src_pts, enc_pts, target, offset, width, height, cfg = task
+    src, enc, src_pts, enc_pts, target, offset, width, height, cfg, taken = task
     try:
         if target.junction and target.enc_frame > 0:
             frames_ = [target.enc_frame - 1, target.enc_frame]
@@ -157,6 +180,8 @@ def _point_worker(task) -> Tuple[Optional[PointAlignment], Optional[str]]:
         # Повтор через шаг только для обычных точек (D-11); склейки повторов
         # не получают — известное ограничение.
         for f in align.retry_frames(target.enc_frame, len(enc_pts), cfg):
+            if f in taken:
+                continue
             again = _measure(
                 src, enc, src_pts, enc_pts, [f], offset, width, height, cfg, None
             )[0]
@@ -165,6 +190,11 @@ def _point_worker(task) -> Tuple[Optional[PointAlignment], Optional[str]]:
         return point, None
     except (AnalysisError, OSError, ValueError) as e:
         return None, str(e)
+    except Exception as e:  # noqa: BLE001
+        # drain-then-report: одна точка не должна обрывать остальные и прятать
+        # их ошибки; MemoryError возможен на окне 4K. KeyboardInterrupt и
+        # SystemExit не Exception и проходят наружу.
+        return None, f"{type(e).__name__}: {e}"
 
 
 # --------------------------------------------------------------------------- #
@@ -231,8 +261,15 @@ def check_pair_files(
         return _refused(verdict.reasons, src_info, enc_info, src_pts, enc_pts, verdict)
 
     targets = align.pick_points(len(enc_pts), scenes, verdict.offset, cfg)
+    taken = frozenset(
+        {t.enc_frame for t in targets}
+        | {t.enc_frame - 1 for t in targets if t.junction and t.enc_frame > 0}
+    )
     tasks = [
-        (src, enc, src_pts, enc_pts, t, verdict.offset, src_info.width, src_info.height, cfg)
+        (
+            src, enc, src_pts, enc_pts, t, verdict.offset,
+            src_info.width, src_info.height, cfg, taken,
+        )
         for t in targets
     ]
     with ThreadPoolExecutor(max_workers=jobs) as pool:
@@ -262,6 +299,8 @@ def check_pair_files(
             f"выравнивание не подтверждено: выровнено {alignment.n_aligned} из "
             f"{len(alignment.points)} точек, нужно ≥ {cfg.align_min_aligned}"
         )
+    if reasons:
+        verdict = replace(verdict, ok=False)
     return PairCheck(
         verdict=verdict,
         alignment=alignment,
@@ -285,10 +324,12 @@ def grab_frame_pair(
 
     Возвращает (FramePair, None) или (None, текст ошибки); не бросает и не
     завершает процесс. Локальный сдвиг превращает в строку ошибки без метрик
-    вызывающий через ``align.row_alignment``.
+    вызывающий через ``align.row_alignment``. Кадры отдаются только паре,
+    прошедшей проверку целиком (``PairCheck.ok``); иначе 8-битный bt709 энкод
+    был бы молча сконвертирован в yuv420p10le.
     """
     info = check.src_info
-    if info is None or check.enc_info is None or not check.src_pts or not check.enc_pts:
+    if not check.ok or info is None or check.enc_info is None or not check.src_pts or not check.enc_pts:
         return None, "пара не прошла проверку"
     try:
         k = check.verdict.offset
@@ -311,6 +352,9 @@ def grab_frame_pair(
         )
     except (AnalysisError, OSError, ValueError) as e:
         return None, str(e)
+    except Exception as e:  # noqa: BLE001
+        # Контракт «не бросает»: неожиданная ошибка становится данными.
+        return None, f"{type(e).__name__}: {e}"
 
 
 def meta_with_check(meta: RunMeta, check: PairCheck) -> RunMeta:

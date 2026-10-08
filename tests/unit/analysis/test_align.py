@@ -242,3 +242,13 @@ def test_window_range_out_of_file():
 def test_retry_frames():
     assert retry_frames(0, 1000, CFG) == [48, 96, 144]
     assert retry_frames(950, 1000, CFG) == [998]
+
+
+def test_aggregate_distinct_frames():
+    a, u = ALIGN_ALIGNED, ALIGN_UNDETERMINED
+    pts = [_pa(24, u), _pa(48, a, 0), _pa(48, a, 0), _pa(95, u)]
+    fa = aggregate(pts, CFG, 0)
+    assert fa.verdict == ALIGN_UNDETERMINED and fa.n_aligned == 1
+    assert len(fa.points) == 4
+    two = aggregate([_pa(24, a, 0), _pa(48, a, 0)], CFG, 0)
+    assert two.verdict == ALIGN_ALIGNED and two.n_aligned == 2

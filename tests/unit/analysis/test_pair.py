@@ -16,6 +16,7 @@ from enpipe.analysis.model import (
     ALIGN_SHIFT,
     ALIGN_UNDETERMINED,
     REPORT_REFUSED,
+    FileAlignment,
     PairVerdict,
     RunMeta,
     StreamInfo,
@@ -72,6 +73,7 @@ class Fake:
         self.calls: List[Tuple[Path, int, int]] = []
         self.fail_grab_at: Optional[Tuple[Path, int]] = None
         self.fail_probe: Optional[Path] = None
+        self.fail_grab_exc: Optional[BaseException] = None
         mp.setattr(frames, "probe_stream", self.probe)
         mp.setattr(frames, "pts_table", self.pts)
         mp.setattr(frames, "grab_frames", self.grab)
@@ -87,7 +89,7 @@ class Fake:
     def grab(self, path, pts, first, count, width, height, threads=2):
         self.calls.append((path, first, count))
         if self.fail_grab_at == (path, first):
-            raise AnalysisError("ffmpeg упал")
+            raise self.fail_grab_exc or AnalysisError("ffmpeg упал")
         return self.films[path][first : first + count]
 
 
@@ -220,6 +222,7 @@ def _check(src_film, enc_film, offset=0):
         enc_info=info("enc.mkv"),
         src_pts=tuple(i / 24 for i in range(n_src)),
         enc_pts=tuple(i / 24 for i in range(n_enc)),
+        alignment=FileAlignment(verdict=ALIGN_ALIGNED, offset=offset),
     )
 
 
@@ -322,3 +325,99 @@ def test_refused_report_no_src_info(fake):
     assert rep.status == REPORT_REFUSED
     assert (rep.meta.width, rep.meta.height, rep.meta.fps) == (None, None, None)
     assert any(r.startswith("источник:") for r in rep.refusal_reasons)
+
+
+# --------------------------------------------------------------------------- #
+# Регрессии ревью: CR-01, WR-01, IN-01, WR-03
+# --------------------------------------------------------------------------- #
+
+
+def test_retry_does_not_double_count(fake):
+    film = static_film(96)
+    for i in range(44, 53):
+        film[i] = _frame(1000 + i)
+    f = fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=None)
+    assert chk.ok is False
+    assert chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == 1
+    assert any("выровнено 1 из 5" in r for r in chk.reasons)
+    assert sum(1 for c in f.calls if c == (ENC, 48, 1)) == 1
+
+
+def test_retry_skips_junction_frames(fake):
+    f = fake({SRC: static_film(200), ENC: static_film(200)})
+    task = (
+        SRC, ENC,
+        [i / 24 for i in range(200)], [i / 24 for i in range(200)],
+        align.AlignTarget(0), 0, W, H, CFG, frozenset({0, 47, 48}),
+    )
+    point, err = pair._point_worker(task)
+    assert err is None and point.enc_frame == 0
+    assert point.verdict == ALIGN_UNDETERMINED
+    assert (ENC, 48, 1) not in f.calls
+    assert (ENC, 96, 1) in f.calls and (ENC, 144, 1) in f.calls
+
+
+def _full_check(**kw):
+    src = noisy_film()
+    base = _check(src, src)
+    fields = dict(
+        verdict=base.verdict, src_info=base.src_info, enc_info=base.enc_info,
+        src_pts=base.src_pts, enc_pts=base.enc_pts, alignment=base.alignment,
+    )
+    fields.update(kw)
+    return pair.PairCheck(**fields)
+
+
+def test_grab_frame_pair_rejected_check(fake):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src})
+    chk = _full_check(reasons=("pix_fmt различается",))
+    fp, err = pair.grab_frame_pair(SRC, ENC, chk, 10, CFG)
+    assert fp is None and err == "пара не прошла проверку"
+    assert f.calls == []
+
+
+def test_grab_frame_pair_not_aligned(fake):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src})
+    for al in (FileAlignment(verdict=ALIGN_UNDETERMINED), None):
+        fp, err = pair.grab_frame_pair(SRC, ENC, _full_check(alignment=al), 10, CFG)
+        assert fp is None and err == "пара не прошла проверку"
+    assert f.calls == []
+
+
+def test_alignment_refusal_marks_verdict(fake):
+    src = noisy_film()
+    ok = fake({SRC: src, ENC: src})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=SCENES4)
+    assert chk.ok and chk.verdict.ok is True
+    enc = src[1:] + [src[-1]]
+    ok.films[ENC] = enc
+    chk = pair.check_pair_files(SRC, ENC, CFG)
+    assert chk.verdict.ok is False and chk.ok is False and chk.reasons
+
+
+@pytest.mark.parametrize(
+    "exc, text",
+    [(TypeError("boom"), "TypeError: boom"), (MemoryError("oom"), "MemoryError: oom")],
+)
+def test_point_unexpected_exception(fake, exc, text):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src})
+    f.fail_grab_at = (ENC, 48)
+    f.fail_grab_exc = exc
+    chk = pair.check_pair_files(SRC, ENC, CFG)
+    assert not chk.ok
+    assert any(r.startswith(f"точка 48: {text}") for r in chk.reasons)
+    assert chk.alignment.n_aligned == 4
+
+
+def test_grab_frame_pair_unexpected_exception(fake):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src})
+    f.fail_grab_at = (ENC, 10)
+    f.fail_grab_exc = TypeError("boom")
+    fp, err = pair.grab_frame_pair(SRC, ENC, _check(src, src), 10, CFG)
+    assert fp is None and err == "TypeError: boom"

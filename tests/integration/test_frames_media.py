@@ -20,7 +20,7 @@ import pytest
 
 from enpipe.analysis import align, frames, metrics, pair, precheck
 from enpipe.analysis.config import AnalyzeConfig
-from enpipe.analysis.model import ALIGN_ALIGNED, ALIGN_SHIFT, ALIGN_UNDETERMINED, OFFSET_SCENES
+from enpipe.analysis.model import FileAlignment, ALIGN_ALIGNED, ALIGN_SHIFT, ALIGN_UNDETERMINED, OFFSET_SCENES
 from enpipe.encoding.scenes_io import read_scenes
 
 W, H = 640, 360
@@ -129,7 +129,10 @@ def _real_check(src: Path, enc: Path, offset: int = 0,
     sp, ep = frames.pts_table(src), frames.pts_table(enc)
     verdict = precheck.check_pair(si, ei, sp, ep, offset, scenes, cfg)
     return pair.PairCheck(verdict=verdict, src_info=si, enc_info=ei,
-                          src_pts=tuple(sp), enc_pts=tuple(ep), reasons=verdict.reasons)
+                          src_pts=tuple(sp), enc_pts=tuple(ep), reasons=verdict.reasons,
+                          # файловый вердикт принят выровненным: тест проверяет
+                          # локальный вердикт кадра (D-14), а не агрегат
+                          alignment=FileAlignment(verdict=ALIGN_ALIGNED, offset=offset))
 
 
 def _framemd5(path: Path) -> List[str]:
