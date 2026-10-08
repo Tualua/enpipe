@@ -3,6 +3,7 @@
 
 Синтетика генерируется в тесте (x265 для источников, SVT-AV1 для энкодов,
 декод AV1 — libdav1d). Все фикстуры module-scope: один раз на модуль.
+Нарезка open-GOP для RASL-фикстуры — реальный mkvmerge --split.
 Сбой генерации (сборка ffmpeg без нужного кодера/фильтра) — skip с причиной;
 любая проверка свойств фикстуры (теги, запас сдвига) — assert/fail: пороги
 D-03 в тестах не ослабляются.
@@ -19,7 +20,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import pytest
 
 from enpipe.analysis import align, frames, metrics, pair, precheck
-from enpipe.analysis.config import AnalyzeConfig
+from enpipe.analysis.config import AnalysisError, AnalyzeConfig
 from enpipe.analysis.model import FileAlignment, ALIGN_ALIGNED, ALIGN_SHIFT, ALIGN_UNDETERMINED, OFFSET_SCENES
 from enpipe.encoding.scenes_io import read_scenes
 
@@ -347,3 +348,68 @@ def test_no_gpu_needed(media, monkeypatch, tmp_path):
             assert cmd[:3] == ["nice", "-n", "10"]
     ff = [c for c in seen if "ffmpeg" in c]
     assert ff and all("-threads" in c and c[c.index("-threads") + 1] == "2" for c in ff)
+
+
+# --------------------------------------------------------------------------- #
+# WR-02: RASL после CRA в начале нарезки
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="module")
+def rasl_cut(media) -> Tuple[Path, int]:
+    """Нарезка open-GOP HEVC Main10 с CRA и RASL-кадрами в начале; (файл, lead).
+
+    lead — число пакетов, которые декодер отбрасывает (RASL): индексы таблицы
+    pts 0..lead-1 не декодируются.
+    """
+    if shutil.which("mkvmerge") is None:
+        pytest.skip("нужен mkvmerge для нарезки open-GOP")
+    d = media["dir"]
+    r = subprocess.run(
+        ["mkvmerge", "-q", "-o", str(d / "cut.mkv"), "--split", "timestamps:2s",
+         str(media["src_cfr"])],
+        capture_output=True, text=True,
+    )
+    # mkvmerge возвращает 1 при одних предупреждениях
+    if r.returncode not in (0, 1):
+        pytest.fail(f"mkvmerge код {r.returncode}: {(r.stdout + r.stderr)[-500:]}")
+    cut = d / "cut-002.mkv"
+    if not cut.exists():
+        pytest.fail(f"нет cut-002.mkv; в каталоге: {sorted(x.name for x in d.iterdir())}")
+    info = frames.probe_stream(cut)
+    assert info.codec_name == "hevc" and info.pix_fmt == "yuv420p10le"
+    lead = len(frames.pts_table(cut)) - len(_framemd5(cut))
+    assert lead >= 1, "в нарезке нет недекодируемых RASL-кадров — фикстура не воспроизводит дефект"
+    return cut, lead
+
+
+def test_rasl_leading_frames_refused(rasl_cut):
+    cut, lead = rasl_cut
+    pts = frames.pts_table(cut)
+    for n in range(lead):
+        with pytest.raises(AnalysisError, match="pts"):
+            frames.grab_frames(cut, pts, n, 1, W, H)
+
+
+def test_rasl_decodable_frames_numbered(rasl_cut):
+    cut, lead = rasl_cut
+    pts = frames.pts_table(cut)
+    ref = _framemd5(cut)
+    for n in (lead, lead + 1, lead + 13, len(pts) - 1):
+        assert _md5(frames.grab_frames(cut, pts, n, 1, W, H)[0]) == ref[n - lead], n
+    win = frames.grab_frames(cut, pts, lead, 7, W, H)
+    assert [_md5(f) for f in win] == ref[0:7]
+
+
+def test_rasl_window_crossing_refused(rasl_cut):
+    cut, lead = rasl_cut
+    pts = frames.pts_table(cut)
+    with pytest.raises(AnalysisError):
+        frames.grab_frames(cut, pts, 0, lead + 2, W, H)
+
+
+def test_rasl_pair_refused(rasl_cut):
+    cut, _ = rasl_cut
+    chk = pair.check_pair_files(cut, cut, AnalyzeConfig())
+    assert not chk.ok
+    assert any(r.startswith("точка 0:") and "pts" in r for r in chk.reasons), chk.reasons
