@@ -382,53 +382,80 @@ def _raw(count, w, h, fill=1):
 
 
 def _grab_argv(path, first, count, w=64, h=36, threads=2):
-    ss = []
+    ss = ["-copyts"]
     if first:
         t = _PTS[first] - (_PTS[first] - _PTS[first - 1]) / 2
         ss = ["-seek_timestamp", "1", "-ss", f"{t:.6f}"]
     return _NICE + (
-        ["ffmpeg", "-v", "error", "-nostdin"] + ss
+        ["ffmpeg", "-hide_banner", "-nostats", "-v", "info", "-nostdin"] + ss
         + ["-threads", str(threads), "-i", str(path), "-map", "0:V:0",
-           "-pix_fmt", "yuv420p10le", "-fps_mode", "passthrough",
+           "-vf", "showinfo", "-pix_fmt", "yuv420p10le",
+           "-fps_mode", "passthrough",
            "-frames:v", str(count), "-f", "rawvideo", "pipe:1"]
     )
 
 
-def test_grab_first_frame_no_ss(fp):
+def _showinfo_err(first, count, ss=None, shift=0, extra=1):
+    """stderr ffmpeg с showinfo: time_base 1/24000, side data между кадрами."""
+    base = 0.0 if first == 0 else _PTS[first] - (_PTS[first] - _PTS[first - 1]) / 2
+    lines = ["[Parsed_showinfo_0 @ 0x55] config in time_base: 1/24000, frame_rate: 24/1"]
+    for i in range(count + extra):
+        k = min(first + i + shift, len(_PTS) - 1)
+        pts_int = round((_PTS[k] - base) * 24000)
+        lines.append(
+            f"[Parsed_showinfo_0 @ 0x55] n:   {i} pts: {pts_int:6d} "
+            f"pts_time:{pts_int / 24000:g} duration: 1001"
+        )
+        lines.append("[Parsed_showinfo_0 @ 0x55]   side data - unknown: 00 11 22")
+    return "\n".join(lines) + "\n"
+
+
+def _ok(fp, p, first, count, **kw):
+    fp.register(
+        _grab_argv(p, first, count), stdout=_raw(count, 64, 36),
+        stderr=_showinfo_err(first, count, **kw),
+    )
+
+
+def test_grab_first_frame_copyts_no_ss(fp):
     p = Path("s.mkv")
-    fp.register(_grab_argv(p, 0, 1), stdout=_raw(1, 64, 36))
+    _ok(fp, p, 0, 1)
     frames.grab_frames(p, _PTS, 0, 1, 64, 36)
     argv = list(fp.calls[0])
     assert "-ss" not in argv and "-seek_timestamp" not in argv
+    assert "-copyts" in argv and argv.index("-copyts") < argv.index("-i")
     assert "-nostdin" in argv
 
 
 def test_grab_seek_args_before_input(fp):
     p = Path("s.mkv")
-    fp.register(_grab_argv(p, 10, 1), stdout=_raw(1, 64, 36))
+    _ok(fp, p, 10, 1)
     frames.grab_frames(p, _PTS, 10, 1, 64, 36)
     argv = list(fp.calls[0])
     i = argv.index("-i")
     ss = f"{_PTS[10] - (_PTS[10] - _PTS[9]) / 2:.6f}"
     k = argv.index("-seek_timestamp")
     assert argv[k:k + 4] == ["-seek_timestamp", "1", "-ss", ss] and k + 3 < i
+    assert "-copyts" not in argv
     assert argv[argv.index("-threads") + 1] == "2" and argv.index("-threads") < i
     assert argv[i + 2:i + 4] == ["-map", "0:V:0"]
 
 
 def test_grab_threads_param(fp):
     p = Path("s.mkv")
-    fp.register(_grab_argv(p, 0, 1, threads=4), stdout=_raw(1, 64, 36))
+    fp.register(_grab_argv(p, 0, 1, threads=4), stdout=_raw(1, 64, 36),
+                stderr=_showinfo_err(0, 1))
     frames.grab_frames(p, _PTS, 0, 1, 64, 36, threads=4)
 
 
 def test_grab_no_filters_no_hw(fp):
     p = Path("s.mkv")
-    fp.register(_grab_argv(p, 5, 1), stdout=_raw(1, 64, 36))
+    _ok(fp, p, 5, 1)
     frames.grab_frames(p, _PTS, 5, 1, 64, 36)
     argv = list(fp.calls[0])
-    for bad in ("-vsync", "select", "-vf", "-hwaccel", "qsv"):
+    for bad in ("-vsync", "select", "-hwaccel", "qsv", "vaapi"):
         assert bad not in argv
+    assert argv[argv.index("-vf") + 1] == "showinfo"
     assert not any(a.startswith("fps=") for a in argv)
 
 
@@ -440,7 +467,7 @@ def test_grab_planes_shapes_and_le(fp):
     f2 = np.concatenate([np.full(luma, 7), np.full(ch, 8), np.full(ch, 9)])
     raw = np.concatenate([f1, f2]).astype("<u2").tobytes()
     assert raw[:2] == b"\x01\x02"
-    fp.register(_grab_argv(p, 0, 2), stdout=raw)
+    fp.register(_grab_argv(p, 0, 2), stdout=raw, stderr=_showinfo_err(0, 2))
     out = frames.grab_frames(p, _PTS, 0, 2, w, h)
     assert len(out) == 2
     for (y, u, v), (ey, eu, ev) in zip(out, [(513, 2, 3), (7, 8, 9)]):
@@ -452,7 +479,11 @@ def test_grab_planes_shapes_and_le(fp):
 @pytest.mark.parametrize("delta", [-2, 2])
 def test_grab_short_output_error(fp, delta):
     p = Path("s.mkv")
-    fp.register(_grab_argv(p, 0, 1), stdout=_raw(1, 64, 36)[:-2] if delta < 0 else _raw(1, 64, 36) + b"\0\0")
+    fp.register(
+        _grab_argv(p, 0, 1),
+        stdout=_raw(1, 64, 36)[:-2] if delta < 0 else _raw(1, 64, 36) + b"\0\0",
+        stderr=_showinfo_err(0, 1),
+    )
     with pytest.raises(AnalysisError, match="ожидалось"):
         frames.grab_frames(p, _PTS, 0, 1, 64, 36)
 
@@ -479,3 +510,61 @@ def test_grab_count_limits(fp):
         with pytest.raises(AnalysisError):
             frames.grab_frames(p, _PTS, first, count, 64, 36)
     assert not fp.calls
+
+
+def test_grab_pts_mismatch_refused(fp):
+    p = Path("s.mkv")
+    _ok(fp, p, 10, 2, shift=1)
+    with pytest.raises(AnalysisError, match="pts") as ei:
+        frames.grab_frames(p, _PTS, 10, 2, 64, 36)
+    assert "кадр 10" in str(ei.value)
+
+
+def test_grab_pts_mismatch_first_frame_refused(fp):
+    p = Path("s.mkv")
+    _ok(fp, p, 0, 1, shift=2)  # имитация RASL: вместо кадра 0 пришёл кадр 2
+    with pytest.raises(AnalysisError, match="pts"):
+        frames.grab_frames(p, _PTS, 0, 1, 64, 36)
+
+
+def test_grab_missing_showinfo_refused(fp):
+    p = Path("s.mkv")
+    fp.register(_grab_argv(p, 0, 1), stdout=_raw(1, 64, 36), stderr="")
+    with pytest.raises(AnalysisError, match="не сообщил pts"):
+        frames.grab_frames(p, _PTS, 0, 1, 64, 36)
+
+
+def test_grab_short_showinfo_refused(fp):
+    p = Path("s.mkv")
+    fp.register(
+        _grab_argv(p, 0, 3), stdout=_raw(3, 64, 36),
+        stderr=_showinfo_err(0, 2, extra=0),
+    )
+    with pytest.raises(AnalysisError, match="2 из 3"):
+        frames.grab_frames(p, _PTS, 0, 3, 64, 36)
+
+
+def test_grab_no_time_base_refused(fp):
+    p = Path("s.mkv")
+    err = "\n".join(
+        ln for ln in _showinfo_err(0, 1).splitlines() if "config in" not in ln
+    )
+    fp.register(_grab_argv(p, 0, 1), stdout=_raw(1, 64, 36), stderr=err)
+    with pytest.raises(AnalysisError, match="time_base"):
+        frames.grab_frames(p, _PTS, 0, 1, 64, 36)
+
+
+def test_grab_extra_frame_line_ignored(fp):
+    p = Path("s.mkv")
+    _ok(fp, p, 3, 2, extra=3)
+    assert len(frames.grab_frames(p, _PTS, 3, 2, 64, 36)) == 2
+
+
+def test_grab_rc_error_tail_without_showinfo(fp):
+    p = Path("s.mkv")
+    err = _showinfo_err(0, 200) + "Invalid data found when processing input\n"
+    assert len(err) > 5000
+    fp.register(_grab_argv(p, 0, 1), returncode=1, stderr=err)
+    with pytest.raises(AnalysisError, match="Invalid data found") as ei:
+        frames.grab_frames(p, _PTS, 0, 1, 64, 36)
+    assert "Parsed_showinfo" not in str(ei.value)
