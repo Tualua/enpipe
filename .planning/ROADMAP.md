@@ -99,7 +99,7 @@ Plans:
   4. Для энкода частичного диапазона (`--from/--to`) без `--offset` сдвиг обнаруживается и приводит к отказу, а с `--offset` пара сравнивается корректно
   5. Извлечение работает без GPU и `/dev/dri` (программный декод по умолчанию) и не мешает идущему кодированию
 
-**Plans**: 5 plans
+**Plans**: 7 plans (5 + 2 gap closure)
 
 Plans:
 **Wave 1**
@@ -118,6 +118,14 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 10-05-PLAN.md — UAT на реальной паре с ZFS-HDD: замер jobs, теги энкода (A8), DV P5, помеха кодированию (волна 4, чекпоинт)
+
+**Gap closure — Wave 1**
+
+- [ ] 10-06-PLAN.md — закрытие гэпов: CR-01 (n_aligned по различным кадрам, повторы пропускают занятые кадры), WR-01 (grab_frame_pair только при check.ok), IN-01, WR-03
+
+**Gap closure — Wave 2** *(blocked on 10-06)*
+
+- [ ] 10-07-PLAN.md — WR-02: сверка pts декодированных кадров в grab_frames (showinfo, -copyts для n = 0), RASL-фикстура open-GOP HEVC + медиа-тесты
 
 ### Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI
 
