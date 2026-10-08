@@ -1,8 +1,8 @@
 ---
 phase: 10-frame-extraction-alignment
-reviewed: 2026-10-07T14:56:41Z
+reviewed: 2026-10-08T21:55:48Z
 depth: standard
-files_reviewed: 16
+files_reviewed: 17
 files_reviewed_list:
   - scratch/analysis_pair_probe.py
   - src/enpipe/analysis/align.py
@@ -14,6 +14,7 @@ files_reviewed_list:
   - src/enpipe/analysis/report.py
   - tests/integration/test_frames_media.py
   - tests/subprocess/analysis/test_frames.py
+  - tests/unit/analysis/golden/report_v1.json
   - tests/unit/analysis/test_align.py
   - tests/unit/analysis/test_config_model.py
   - tests/unit/analysis/test_isolation.py
@@ -21,223 +22,197 @@ files_reviewed_list:
   - tests/unit/analysis/test_precheck.py
   - tests/unit/analysis/test_report.py
 findings:
-  critical: 1
-  warning: 3
-  info: 5
-  total: 9
+  critical: 0
+  warning: 1
+  info: 6
+  total: 7
 status: issues_found
 ---
 
-# Phase 10: отчёт ревью кода
+# Phase 10: отчёт ревью кода (повторный, после гэп-планов 10-06 и 10-07)
 
-**Проверено:** 2026-10-07T14:56:41Z
+**Проверено:** 2026-10-08T21:55:48Z
 **Глубина:** standard
-**Файлов:** 16
+**Файлов:** 17
 **Статус:** issues_found
 
 ## Сводка
 
-Проверены извлечение кадров (`frames.py`), чистое ядро выравнивания (`align.py`),
-предпроверка (`precheck.py`), оркестрация пары (`pair.py`), модель, конфиг и
-рендер отчёта, а также тесты. Арифметика seek по правилу полкадра верна:
-`-seek_timestamp 1` и цель `pts[n] − (pts[n] − pts[n−1])/2` в абсолютном времени
-согласованы с тем, как ffmpeg при точном seek отбрасывает кадры с `pts < ss`.
-Дубликаты pts отвергаются предпроверкой, поэтому вырожденный случай
-`pts[n] == pts[n−1]` (seek вернул бы кадр n−1) закрыт. Запуск подпроцессов идёт
-через `subprocess.run(capture_output=True)` (внутри `communicate()`), поэтому
-взаимной блокировки stdout/stderr при большом сыром выводе нет. Ruff чист,
-проверки конвенций JS/TS к Python не применяются (`findings: []`).
+Повторное ревью после планов 10-06 (CR-01, WR-01, IN-01, WR-03, CV-01) и 10-07
+(WR-02). Фактически запущено:
+- `uv run pytest -q tests/unit/analysis tests/subprocess/analysis`: 445 passed;
+- `uv run pytest -q tests/integration/test_frames_media.py -m ""`: 20 passed, 0 skipped;
+- `uv run ruff check src tests scratch/analysis_pair_probe.py`: чисто.
 
-Главная проблема — в агрегации вердикта файла: повторная попытка точки может
-попасть на кадр другой точки, и один и тот же кадр засчитывается как два
-«выровнено». Порог `align_min_aligned = 2` (D-13) тогда проходит при одном
-реально проверенном кадре. Это воспроизведено (см. CR-01). Вторая по значимости
-проблема — `grab_frame_pair` не проверяет, прошла ли пара проверку, и молча
-отдаёт кадры отвергнутой пары. Это тоже воспроизведено (WR-01).
+Воспроизведения запускались скриптом в scratchpad на подменённых `frames.*`
+(класс `Fake` из `test_pair.py`).
 
-## Критические
+Все находки уровня CR/WR прошлого ревью закрыты, и это подтверждено кодом и
+повторным запуском сценариев. Сверка pts через showinfo (WR-02) устроена
+правильно. При `-seek_timestamp 1` ffmpeg вычитает из pts ровно `ss`, при
+`-copyts` ничего не вычитает. pts считаются по целому значению и time_base,
+допуск равен половине соседнего зазора. Любая подмена кадра теперь даёт громкий
+`AnalysisError`, а не тихую ошибку. Это проверено на реальной нарезке
+`mkvmerge --split` с RASL.
 
-### CR-01: повтор точки засчитывается дважды, и файл «выровнен» по одному кадру
+Новых блокеров нет. Остался один WARNING: ослабленная защита D-13. Повтор точки
+больше не голосует тем же кадром, но может проголосовать соседним кадром той же
+цели. Тогда «выровнено» файла держится на одном событии движения (воспроизведено,
+WR-04). Прежние IN-02..IN-05 не исправлялись и остаются открытыми, их
+формулировки уточнены.
 
-**Файл:** `src/enpipe/analysis/pair.py:155-165`, `src/enpipe/analysis/align.py:166-179`, `src/enpipe/analysis/align.py:239-251`
-**Проблема:** `_point_worker` при «неопределённо» берёт кадры `enc_frame + k·align_retry_step`
-и возвращает первую определённую повторную точку с её собственным `enc_frame`.
-Ни `retry_frames`, ни `check_pair_files`, ни `aggregate` не исключают кадры,
-которые уже взяты другими целями (`pick_points`) или повторами других точек.
-`aggregate` считает `n_aligned` по элементам списка, а не по разным кадрам.
-Поэтому один и тот же кадр энкода даёт два голоса «выровнено», и вердикт
-ALIGN_ALIGNED выносится при одном реально проверенном кадре: защита D-13 («не
-менее двух независимых точек») обходится. Как раз на малоподвижном материале,
-где ложное «выровнено» и опасно, повторы срабатывают чаще всего.
+## Статус находок прошлого ревью
 
-Воспроизведение: 96 кадров, статичная картинка везде, кроме кадров 44..52.
-Цели — 0, 24, 48, 71, 95. Повтор точки 0 попадает на кадр 0+48 = 48, то есть на
-цель 48:
-
-```
-True aligned 2 [(24,'undetermined'), (48,'aligned'), (48,'aligned'),
-                (71,'undetermined'), (95,'undetermined')]
-```
-
-`chk.ok == True`, хотя выровнен только кадр 48. Совпадения возникают при
-`t_j − t_i ∈ {48, 96, 144}` (файлы примерно до 600 кадров при пяти точках), а
-также когда повтор попадает на кадр склейки при любой длине файла. Повторы
-получают и цели без склейки при заданных `.scenes`: так бывает, когда склейка
-уже занята. Это расходится с docstring `retry_frames` («без .scenes»).
-
-**Исправление:** передавать в воркер множество занятых кадров и считать
-`n_aligned` только по разным кадрам:
-```python
-# pair.check_pair_files
-taken = frozenset(t.enc_frame for t in targets)
-tasks = [(..., t, verdict.offset, W, H, cfg, taken) for t in targets]
-...
-# _point_worker
-for f in align.retry_frames(target.enc_frame, len(enc_pts), cfg):
-    if f in taken:
-        continue
-    ...
-# align.aggregate — страховка
-aligned_frames = {p.enc_frame for p in ordered if p.verdict == ALIGN_ALIGNED and p.error is None}
-n_aligned = len(aligned_frames)
-```
-Повторы двух разных точек могут совпасть и между собой, поэтому подсчёт
-различных кадров в `aggregate` нужен в любом случае. Добавить в `test_pair.py`
-регрессионный тест по сценарию выше.
+| ID | Было | Статус | Доказательство |
+|----|------|--------|----------------|
+| CR-01 | повтор засчитывает кадр другой цели дважды | **закрыт** | `pair.py:264-267` строит `taken` из целей и кадров start−1 склеек, а `pair.py:182-184` пропускает занятые кадры. `align.py:175-178` считает `n_aligned` по различным `enc_frame` без ошибок. Сценарий прошлого ревью (96 кадров, движение 44..52) теперь даёт `undetermined`. Тесты `test_retry_does_not_double_count`, `test_retry_skips_junction_frames` и `test_aggregate_distinct_frames` зелёные. Остаточный эффект с соседним кадром описан в WR-04. |
+| WR-01 | `grab_frame_pair` отдаёт кадры отвергнутой пары | **закрыт** | Первое условие в `pair.py:332` — `not check.ok`, а `PairCheck.ok` (`pair.py:72-78`) требует пустых `reasons` и `alignment.verdict == aligned`. Тесты `test_grab_frame_pair_rejected_check` и `test_grab_frame_pair_not_aligned`. |
+| WR-02 | номер декодированного кадра не сверяется с таблицей pts (RASL) | **закрыт** | В `frames.py:356-390` добавлены `-vf showinfo`, `-copyts` при n = 0 и `_check_decoded_pts`, который сверяет каждый из `count` кадров с `pts[first+i]`. Если строк showinfo меньше нужного, time_base нет или pts расходится, функция бросает `AnalysisError`. Медиа-тесты `test_rasl_*` на настоящей open-GOP нарезке (lead ≥ 1 проверяется в фикстуре) и `test_seek_matches_framemd5` (CFR, VFR, start_time, AV1) зелёные. |
+| WR-03 | воркер точки пропускает неожиданные исключения | **закрыт** | `pair.py:193-197` и `pair.py:355-357` перехватывают `except Exception`, а `KeyboardInterrupt`/`SystemExit` проходят наружу. Тесты `test_point_unexpected_exception` (x2) и `test_grab_frame_pair_unexpected_exception`. |
+| IN-01 | `verdict.ok == True` у пары, отвергнутой выравниванием | **закрыт** | `pair.py:302-303`: при непустых reasons выполняется `replace(verdict, ok=False)`, это же задокументировано в `PairCheck` (`pair.py:60-61`). Тест `test_alignment_refusal_marks_verdict`. |
+| IN-02 | «сдвиг ≥ W» теряется в итоге файла и в строках кадров | **открыт частично** | Исправлена только строка причины (`pair.py:292`). В `FileAlignment` (`model.py:241-248`) и `FrameRow` (`model.py:266-283`) по-прежнему нет `shift_at_least`. `_alignment_summary` (`report.py:300`) и `_frame_cells` (`report.py:343`) вызывают `_alignment_text` без `at_least`. Подробнее в IN-02 ниже. |
+| IN-03 | `offset_hints` теряет диапазон после сцены нулевой длины | **открыт** | Воспроизведено: `offset_hints([(0,0),(0,5)], 5)` и `offset_hints([(0,3),(3,3),(3,8)], 5)` дают `([], 0)`, хотя `--offset 0` и `--offset 3` верны. Комментарий в `precheck.py:107-108` описывает исключение дубликатов, но окно `[lo+1, hi]` по-прежнему не рассматривается. |
+| IN-04 | `UnicodeDecodeError` в text-режиме | **открыт** | В `frames.py:100` `_run` вызывает `_proc.run(..., text=text)` без `errors=`. Уточнение: `UnicodeDecodeError` — подкласс `ValueError`, а `check_pair_files` (`pair.py:249`) вокруг `probe_stream`/`pts_table` ловит только `AnalysisError`, поэтому исключение выходит из функции, которая обещает «отказ данными». |
+| IN-05 | нет таймаута у ffmpeg/ffprobe | **открыт** | В `frames.py:100` `timeout=` не передаётся. |
+| CV-01 | `dict` вместо `typing.Dict` | **закрыт** | `align.py:236`: `chosen: Dict[int, AlignTarget]`. Для task в `pair.py:141-152` введён тип `_PointTask`. |
 
 ## Предупреждения
 
-### WR-01: `grab_frame_pair` отдаёт кадры отвергнутой пары
+### WR-04: повтор голосует соседним кадром цели, и «выровнено» файла держится на одном событии
 
-**Файл:** `src/enpipe/analysis/pair.py:290-292`
-**Проблема:** охранное условие проверяет только наличие `src_info`/`enc_info`/pts,
-но не результат проверки. `_refused()` заполняет все эти поля и у отвергнутой
-пары, поэтому `grab_frame_pair` строит кадры для пары, у которой, например,
-`pix_fmt yuv420p` и `color_transfer bt709` у энкода. Проверено: при
-`chk.ok == False` с двумя причинами функция вернула `FramePair` с вердиктом
-`aligned` и без ошибки. На реальном ffmpeg `-pix_fmt yuv420p10le` в
-`grab_frames` молча конвертирует 8-битный энкод, то есть ровно ту «тихую
-конвертацию», которую предпроверка запрещает. Используется и `verdict.offset`
-из отвергнутого вердикта. Сейчас у функции нет вызывающих, но этап метрик будет
-опираться на неё, а текст ошибки «пара не прошла проверку» показывает, что
-проверка здесь подразумевалась. Тест `test_grab_frame_pair_no_check` покрывает
-только пустой `PairCheck`.
-**Исправление:**
-```python
-if not check.verdict.ok or check.reasons or info is None or ...:
-    return None, "пара не прошла проверку"
+**Файл:** `src/enpipe/analysis/pair.py:182-189`, `src/enpipe/analysis/pair.py:264-267`, `src/enpipe/analysis/align.py:175-183`
+**Проблема:** исправление CR-01 исключает только *точное* совпадение кадров
+(`f in taken`, подсчёт различных `enc_frame`). Повтор цели A через шаг 48 может
+попасть на кадр B±1..B±W соседней цели B. Окна источника у двух точек тогда
+перекрываются, и обе измеряют одно и то же короткое движение. D-13 требует
+«не менее двух независимых точек»: два соседних кадра одной вспышки движения
+дают столько же уверенности, сколько один. На малоподвижном материале, где
+ложное «выровнено» опаснее всего, вердикт файла выносится по одному месту
+файла. Остальные точки остаются «неопределённо», и сдвиг в другой части файла
+(например, потерянный и компенсированный дублем кадр) не проверяется.
+
+Воспроизведение (запущено): 189 кадров, статичная картинка везде, кроме кадров
+44..52. Цели — 0, 47, 94, 141, 188. Повтор цели 0 попадает на 48, то есть на
+соседний кадр цели 47:
+
 ```
-Лучше проверять `check.ok`. Для этого фикстура `_check` в `test_pair.py` должна
-задавать `alignment=FileAlignment(verdict=ALIGN_ALIGNED, ...)`. Нужен тест на
-`PairCheck` с заполненными info/pts и непустыми `reasons`.
+A True aligned 2 [(47,'aligned'), (48,'aligned'), (94,'undetermined'),
+                  (141,'undetermined'), (188,'undetermined')]
+```
 
-### WR-02: не проверяется, что декодер вернул именно кадры из таблицы pts
+`chk.ok == True`, хотя проверено только одно место файла. Соседство возникает,
+когда разность целей близка к кратному 48 (|t_j − (t_i + 48k)| ≤ W). Шаг целей
+равен (n−1)/(points−1), поэтому при пяти точках это файлы примерно от 150 до
+600 кадров, а также любой файл, где повтор приходится рядом со склейкой.
+`AnalyzeConfig` к тому же не связывает `align_retry_step` с `align_window`: при
+`align_retry_step ≤ 2W` повторы одной точки перекрываются и между собой.
+**Исправление:** считать занятой окрестность, а не только кадр, и в
+`aggregate` считать голоса по разнесённым кадрам:
+```python
+# pair.check_pair_files: окрестность ±2W вокруг целей и start−1 склеек
+guard = 2 * cfg.align_window
+taken = frozenset(
+    f + d
+    for t in targets
+    for f in ((t.enc_frame, t.enc_frame - 1) if t.junction and t.enc_frame > 0 else (t.enc_frame,))
+    for d in range(-guard, guard + 1)
+)
 
-**Файл:** `src/enpipe/analysis/frames.py:215-235`, `src/enpipe/analysis/frames.py:279-302`
-**Проблема:** таблица строится по **пакетам** (`packet=pts_time`), а `grab_frames`
-получает **декодированные** кадры и проверяет только их число в байтах. Если
-часть пакетов не даёт кадров, индексы таблицы и номера декодированных кадров
-расходятся. Пример — RASL-кадры за CRA в начале HEVC-нарезки (open-GOP,
-`mkvmerge --split`): декодер hevc их отбрасывает. Для `n = 0` seek не делается
-(`ss is None`), и первым придёт первый *декодируемый* кадр, а не `pts[0]`. При
-этом `-frames:v count` доберёт нужное число кадров следующими, и проверка длины
-пройдёт. Получается тихая подмена номера кадра. На точках выравнивания её,
-вероятно, поймает вердикт (сдвиг или «неопределённо» у окна при `lo = 0`), но у
-`grab_frame_pair` для кадров отчёта около начала файла метрики посчитаются для
-чужого кадра. Длина таблицы вдобавок становится «числом кадров файла» и
-сравнивается с энкодом.
-**Исправление:** подтверждать pts полученных кадров. Можно запускать с
-`-copyts` и `-vf showinfo` в stderr (или `-enc_time_base`/`-f framemd5` во
-втором выводе), разбирать `pts_time` и сравнивать с `pts[first:first+count]`
-(допуск — полкадра). Расхождение — `AnalysisError`. Минимальный вариант:
-всегда давать `-ss` (для `n = 0` — `pts[0] − полкадра`, полкадра по `pts[1]`) и
-отвергать в предпроверке источник, у которого первый пакет не ключевой
-(`packet=pts_time,flags`).
-
-### WR-03: `_point_worker` ловит не все исключения и нарушает контракт воркера
-
-**Файл:** `src/enpipe/analysis/pair.py:166-167`, `src/enpipe/analysis/pair.py:238-239`
-**Проблема:** по контракту воркер «не бросает» и возвращает ошибку данными, но
-ловит только `AnalysisError`, `OSError` и `ValueError`. `MemoryError` (окно
-2W+2 кадров 4K до ~450 МБ на вызов при четырёх воркерах), `TypeError` или
-`FloatingPointError` из `metrics.psnr` проходят через `pool.map`, поднимаются в
-`check_pair_files` и обрывают проверку целиком. Ошибки остальных точек при этом
-теряются: `pool.map` пробрасывает первое исключение. Такое расходится и с
-docstring модуля, и с принятым в проекте drain-then-report.
-**Исправление:** в воркере ловить `Exception` и возвращать
-`(None, f"{type(e).__name__}: {e}")`. Если широкий перехват нежелателен,
-оставить узкий, но в `check_pair_files` собирать результаты через
-`pool.submit` и `fut.exception()`, чтобы ни одна точка не терялась.
+# align.aggregate: жадный отбор кадров с разносом > 2W
+aligned = sorted({p.enc_frame for p in ordered if p.verdict == ALIGN_ALIGNED and p.error is None})
+votes, last = 0, None
+for f in aligned:
+    if last is None or f - last > 2 * cfg.align_window:
+        votes, last = votes + 1, f
+n_aligned = votes
+```
+В `AnalyzeConfig.__post_init__` добавить проверку
+`align_retry_step > 2 * align_window`. Регрессионный тест — сценарий выше в
+`test_pair.py` (ожидается `ALIGN_UNDETERMINED`).
 
 ## Замечания
 
-### IN-01: `PairCheck.verdict.ok == True` у пары, отвергнутой выравниванием
+### IN-02: «сдвиг не менее W» теряется в итоге файла и в строках кадров (частично исправлено)
 
-**Файл:** `src/enpipe/analysis/pair.py:265-273`
-**Проблема:** если выравнивание дало сдвиг или «неопределённо», в `PairCheck`
-кладётся исходный `verdict` предпроверки с `ok=True`, а причины уходят только в
-`PairCheck.reasons`. Вызывающий, который проверит `check.verdict.ok` (так
-сделано в фикстуре `_check` и, вероятно, будет сделано на этапе метрик),
-сочтёт пару годной.
-**Исправление:** при непустых `reasons` записывать
-`verdict=replace(verdict, ok=False)` или явно задокументировать, что
-единственный признак годности — `PairCheck.ok`.
-
-### IN-02: «сдвиг не менее W» теряется в итоге файла и в строках кадров
-
-**Файл:** `src/enpipe/analysis/report.py:297-302`, `src/enpipe/analysis/report.py:343`, `src/enpipe/analysis/model.py:240-248`, `src/enpipe/analysis/model.py:278-279`
-**Проблема:** у `FileAlignment` и `FrameRow` нет поля `shift_at_least`.
-`_alignment_summary` печатает «сдвиг +3», хотя причина в `PairCheck.reasons`
-говорит «≥ +3». У кадров отчёта окно ±1, поэтому любой их сдвиг — «не менее»
-(`row_alignment` так и пишет), а `_frame_cells` выводит «сдвиг +1». В
-report.json граница тоже теряется.
+**Файл:** `src/enpipe/analysis/model.py:241-248`, `src/enpipe/analysis/model.py:278-279`, `src/enpipe/analysis/report.py:297-302`, `src/enpipe/analysis/report.py:343`
+**Проблема:** причина отказа теперь печатает «≥» (`pair.py:292`), но
+`_alignment_summary` выводит «итог: сдвиг +3», а `_frame_cells` у кадра отчёта
+(окно ±1, любой сдвиг здесь «не менее») выводит «сдвиг +1». В report.json
+граница тоже теряется. В одном отчёте рядом оказываются «≥ +3» в причине и
+«+3» в итоге.
 **Исправление:** добавить `shift_at_least: bool = False` последним полем в
-`FileAlignment` (берётся из первой сдвинутой точки) и в `FrameRow`, передать
-его в `_alignment_text`.
+`FileAlignment` (заполнять в `aggregate` из `shifted[0]`) и в `FrameRow`,
+передавать его в `_alignment_text`. Golden обновить осознанно.
 
-### IN-03: `offset_hints` пропускает диапазон после сцены нулевой длины
+### IN-03: `offset_hints` пропускает диапазон после сцены нулевой длины (не исправлено)
 
 **Файл:** `src/enpipe/analysis/precheck.py:102-110`
-**Проблема:** окно `[lo, hi]` с `lens[lo] == 0` отбрасывается, но `lo` сдвигается
-только при `total > n_enc`. Окно `[lo+1, hi]` той же суммы не рассматривается,
-и верная подсказка `--offset` теряется (сцены `[(0,0),(0,5)]`, `n_enc = 5` →
-подсказок нет). Тихой порчи нет: это лишь подсказка в тексте отказа.
-**Исправление:** после подсчёта суммы сдвигать `lo` через нулевые сцены:
-`while lo < hi and lens[lo] == 0: lo += 1` перед проверкой `total == n_enc`.
+**Проблема:** окно с `lens[lo] == 0` отбрасывается целиком, хотя окно
+`[lo+1, hi]` с той же суммой верно. Воспроизведено: `[(0,0),(0,5)]` и
+`[(0,3),(3,3),(3,8)]` при `n_enc = 5` дают пустые подсказки. Тихой порчи нет:
+теряется только подсказка в тексте отказа.
+**Исправление:** перед проверкой суммы пропускать нулевые сцены в начале окна:
+```python
+while lo < hi and lens[lo] == 0:
+    lo += 1
+if total == n_enc and lo <= hi and lens[lo] > 0 and lens[hi] > 0:
+```
+Добавить оба случая в `test_precheck.py`.
 
-### IN-04: декодирование stderr/stdout в text-режиме может бросить `UnicodeDecodeError`
+### IN-04: `UnicodeDecodeError` выходит из `check_pair_files` (не исправлено)
 
-**Файл:** `src/enpipe/analysis/frames.py:79`
-**Проблема:** при `text=True` `subprocess.run` декодирует вывод строго. Байты не
-в UTF-8 (имя файла в сообщении ffprobe `-v error`) дают `UnicodeDecodeError`
-вместо `AnalysisError`. `check_pair_files` ловит только `AnalysisError`, так что
-исключение выходит за пределы контракта «отказ данными».
-**Исправление:** `_proc.run(..., capture_output=True, text=text, errors="replace" if text else None)`
-или запуск в байтовом режиме и декодирование вручную с `"replace"`.
+**Файл:** `src/enpipe/analysis/frames.py:100`, `src/enpipe/analysis/pair.py:246-250`
+**Проблема:** `probe_stream` и `pts_table` запускают ffprobe с `text=True`, и
+строгое декодирование падает на байтах не в UTF-8 (имя файла в сообщении
+`-v error`). `UnicodeDecodeError` — подкласс `ValueError`, а цикл probe в
+`check_pair_files` ловит только `AnalysisError`. Исключение уходит к
+вызывающему вместо отказа в `PairCheck.reasons`.
+**Исправление:** запускать ffprobe в байтовом режиме и декодировать как в
+`grab_frames` (`decode("utf-8", "replace")`), либо передавать
+`errors="replace"` в `_proc.run`.
 
-### IN-05: нет таймаута у ffmpeg/ffprobe
+### IN-05: нет таймаута у ffmpeg/ffprobe (не исправлено)
 
-**Файл:** `src/enpipe/analysis/frames.py:79`
+**Файл:** `src/enpipe/analysis/frames.py:100`
 **Проблема:** повисший ffmpeg (битый файл, зависшее чтение с NAS) навсегда
-блокирует поток пула, а `check_pair_files` не возвращается. Для cron-запусков
-анализа параллельно с кодированием это зависание без диагностики.
-**Исправление:** передавать `timeout=` (для grab — с запасом по числу кадров) и
-превращать `subprocess.TimeoutExpired` в `AnalysisError`.
+блокирует поток пула, и `check_pair_files` не возвращается. Так бывает при
+cron-запусках.
+**Исправление:** передавать `timeout=` и превращать `subprocess.TimeoutExpired`
+в `AnalysisError`.
+
+### IN-06: итог «выровнено N из M» расходится с таблицей точек при дубликатах
+
+**Файл:** `src/enpipe/analysis/align.py:174-188`, `src/enpipe/analysis/report.py:302`
+**Проблема:** `aggregate` сохраняет дубликаты в `points`, а `n_aligned`
+считает по различным кадрам. Дубликат получается, когда `t_j = t_i + 48`: повтор
+t_i пропускает занятое t_j и идёт на t_j + 48, а это же первый повтор t_j. Тогда
+в таблице две строки «выровнено» для одного кадра, а в итоге и в причине
+написано «выровнено 1 из 5». Сам вердикт верен, но отчёт выглядит
+противоречиво.
+**Исправление:** помечать дубликат в отчёте (например, «повтор кадра N, не
+засчитан»), либо в знаменателе писать число различных кадров.
+
+### IN-07: замер jobs в scratch-скрипте обрывается на первой ошибке точки
+
+**Файл:** `scratch/analysis_pair_probe.py:169-192`
+**Проблема:** после 10-07 `grab_frames` громко отказывает на RASL-кадрах в
+начале нарезки. `pool.map(_grab_point, ...)` пробрасывает первое исключение,
+поэтому на таком источнике весь шаг 5 падает без замеров. Кроме того,
+`s0 = max(0, min(f + off - 3, len(sp) - 7))` при `len(sp) < 7` и окно
+`_WINDOW` больше файла дают `AnalysisError` вместо пропуска. Скрипт
+диагностический, на выход enpipe это не влияет.
+**Исправление:** ловить `AnalysisError` в `_grab_point` и считать неудачные
+точки отдельно; при `len(sp) < _WINDOW` брать окно `len(sp)`.
 
 ## Конвенции
 
-### CV-01: встроенный `dict` вместо `typing.Dict` в аннотации
-
-**Файл:** `src/enpipe/analysis/align.py:227`
-**Отклонение:** `chosen: dict = {}`.
-**Конвенция:** CLAUDE.md, раздел Typing Patterns — использовать дженерики `typing`
-(`Dict`, `List`, ...), а не встроенные.
-**Рекомендация:** `chosen: Dict[int, AlignTarget] = {}` с импортом `Dict`.
-Аналогично стоит типизировать параметр `task` у `_point_worker`
-(`pair.py:137`) как `Tuple[...]`.
+Проверка конвенций JS/TS к Python-файлам не применяется (rule packs только для
+`.cjs/.js/.mjs/.ts/.tsx`). Ручная проверка по CLAUDE.md нарушений в изменениях
+10-06/10-07 не нашла: дженерики `typing`, русские комментарии и docstring, вызов
+процессов только через `enpipe.shared.proc`.
 
 ---
 
-_Проверено: 2026-10-07T14:56:41Z_
+_Проверено: 2026-10-08T21:55:48Z_
 _Ревьюер: Claude (bm-code-reviewer)_
 _Глубина: standard_
