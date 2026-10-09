@@ -99,7 +99,7 @@ Plans:
   4. Для энкода частичного диапазона (`--from/--to`) без `--offset` сдвиг обнаруживается и приводит к отказу, а с `--offset` пара сравнивается корректно
   5. Извлечение работает без GPU и `/dev/dri` (программный декод по умолчанию) и не мешает идущему кодированию
 
-**Plans**: 7 plans (5 + 2 gap closure)
+**Plans**: 8 plans (5 + 3 gap closure)
 
 Plans:
 **Wave 1**
@@ -126,6 +126,10 @@ Plans:
 **Gap closure — Wave 2** *(blocked on 10-06)*
 
 - [x] 10-07-PLAN.md — WR-02: сверка pts декодированных кадров в grab_frames (showinfo, -copyts для n = 0), RASL-фикстура open-GOP HEVC + медиа-тесты
+
+**Gap closure — Wave 3**
+
+- [ ] 10-08-PLAN.md — WR-04: голоса D-13 по разнесённым (> 2W) местам файла, окрестность ±2W занятых кадров для повторов, align_retry_step > 2·align_window в конфиге, регрессия 189 кадров; ALN-04 → Complete
 
 ### Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI
 
