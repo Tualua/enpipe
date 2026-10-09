@@ -126,7 +126,9 @@ def test_shift_plus_one_refused(fake):
 
 
 def test_static_undetermined_with_retries(fake):
-    f = fake({SRC: static_film(), ENC: static_film()})
+    # 121 кадр: повторы не попадают в окрестность ±2W чужих целей, кроме 96
+    # (рядом с целью 90), который пропускается.
+    f = fake({SRC: static_film(121), ENC: static_film(121)})
     chk = pair.check_pair_files(SRC, ENC, CFG)
     assert not chk.ok
     assert chk.alignment.verdict == ALIGN_UNDETERMINED
@@ -135,6 +137,7 @@ def test_static_undetermined_with_retries(fake):
     # 5 точек + повторы (не более align_retry_max на точку)
     assert len(enc_calls) > 5
     assert len(enc_calls) <= 5 * (1 + CFG.align_retry_max)
+    assert sorted(c[1] for c in enc_calls) == [0, 30, 48, 60, 78, 90, 108, 120]
 
 
 def test_precheck_fail_no_grab(fake):
@@ -421,3 +424,37 @@ def test_grab_frame_pair_unexpected_exception(fake):
     f.fail_grab_exc = TypeError("boom")
     fp, err = pair.grab_frame_pair(SRC, ENC, _check(src, src), 10, CFG)
     assert fp is None and err == "TypeError: boom"
+
+
+def test_retry_neighbour_not_independent(fake):
+    film = static_film(189)
+    for i in range(44, 53):
+        film[i] = _frame(1000 + i)
+    f = fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=None)
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 47, 94, 141, 188]
+    assert chk.ok is False
+    assert chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == 1
+    assert any("выровнено 1 из 5" in r for r in chk.reasons)
+    assert (ENC, 48, 1) not in f.calls
+
+
+def test_taken_neighbourhood():
+    got = pair._taken_frames([align.AlignTarget(24, 1, True)], CFG.align_window)
+    assert 17 in got and 30 in got
+    assert 16 not in got and 31 not in got
+    t0 = pair._taken_frames([align.AlignTarget(0), align.AlignTarget(47)], CFG.align_window)
+    assert 48 in t0 and 41 in t0 and 53 in t0 and 54 not in t0
+
+
+def test_short_encode_undetermined(fake):
+    film = noisy_film(7)
+    fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG)
+    assert chk.alignment is not None
+    assert chk.ok is False
+    assert chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == 1
+    assert any("выровнено 1 из 5" in r for r in chk.reasons)
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 2, 3, 5, 6]

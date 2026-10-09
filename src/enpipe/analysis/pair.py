@@ -152,14 +152,34 @@ _PointTask = Tuple[
 ]
 
 
+def _taken_frames(targets: Sequence[align.AlignTarget], window: int) -> FrozenSet[int]:
+    """Кадры, запрещённые для повторов: окрестность ±2W занятых кадров.
+
+    Занятые — enc_frame каждой цели и, для склеек, кадр start−1. Повтор,
+    попавший в ±2W от чужой цели, смотрит в перекрывающееся окно источника и
+    измеряет то же событие; точное совпадение кадров (CR-01) этого не ловит
+    (WR-04: 189 кадров, движение 44..52, повтор цели 0 падает на кадр 48 рядом
+    с целью 47).
+    """
+    guard = 2 * window
+    busy = set()
+    for t in targets:
+        busy.add(t.enc_frame)
+        if t.junction and t.enc_frame > 0:
+            busy.add(t.enc_frame - 1)
+    return frozenset(
+        f + d for f in busy for d in range(-guard, guard + 1) if f + d >= 0
+    )
+
+
 def _point_worker(task: _PointTask) -> Tuple[Optional[PointAlignment], Optional[str]]:
     """Вердикт одной точки: (точка, None) или (None, текст ошибки).
 
     task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg, taken).
-    taken — кадры энкода, уже занятые целями (и кадр start−1 склеек): повтор
-    не должен голосовать кадром другой цели, иначе один кадр засчитается дважды.
-    Повторы двух разных точек между собой могут совпасть (воркеры параллельны,
-    общего состояния нет) — это закрывает подсчёт различных кадров в
+    taken — окрестность ±2W занятых кадров (цели и start−1 склеек), а не сами
+    кадры: повтор рядом с чужой целью измеряет то же событие. Повторы разных
+    точек между собой могут оказаться рядом (воркеры параллельны, общего
+    состояния нет) — это закрывает разнесённый подсчёт голосов в
     ``align.aggregate``. Не бросает и не завершает процесс (контракт фонового
     воркера).
     """
@@ -261,10 +281,7 @@ def check_pair_files(
         return _refused(verdict.reasons, src_info, enc_info, src_pts, enc_pts, verdict)
 
     targets = align.pick_points(len(enc_pts), scenes, verdict.offset, cfg)
-    taken = frozenset(
-        {t.enc_frame for t in targets}
-        | {t.enc_frame - 1 for t in targets if t.junction and t.enc_frame > 0}
-    )
+    taken = _taken_frames(targets, cfg.align_window)
     tasks = [
         (
             src, enc, src_pts, enc_pts, t, verdict.offset,
