@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-10-09T04:16:05.033Z"
+last_updated: "2026-10-09T23:27:30.051Z"
 last_activity: 2026-10-08 -- Phase 10 execution started
 progress:
   total_phases: 10
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 17
-  completed_plans: 12
-  percent: 10
+  completed_plans: 13
+  percent: 20
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10 (frame-extraction-alignment) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Executing Phase 10
 Last activity: 2026-10-08 -- Phase 10 execution started
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 76%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10-04]: повтор неопределённой точки решается только в _point_worker; склейки без повторов — решение в одном месте, кандидат калибровки фазы 13
 - [Phase 10]: 10-06: WR-03 воркеры ловят Exception, не BaseException
 - [Phase 10]: 10-07: n=0 использует -copyts без -ss, pts сверяются по showinfo (WR-02)
+- [Phase 10]: 10-08: D-13 = >=2 разнесённых (>2W) места файла; повторы обходят ±2W; align_retry_step > 2·align_window
 
 ### Pending Todos
 
@@ -102,6 +103,7 @@ None yet.
 | Phase 10 P04 | 40m | 3 tasks | 3 files |
 | Phase 10 P06 | 15m | 2 tasks | 5 files |
 | Phase 10 P07 | 10min | 2 tasks | 3 files |
+| Phase 10 P08 | 20m | 3 tasks | 8 files |
 
 ## Deferred Items
 
@@ -128,7 +130,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-08T21:49:58.642Z
+Last session: 2026-10-09T23:27:25.221Z
 Stopped at: Phase 10 context gathered
 Resume file: .planning/phases/10-frame-extraction-alignment/10-CONTEXT.md
 
