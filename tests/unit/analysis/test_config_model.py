@@ -202,6 +202,9 @@ def test_build_thresholds_distinct_values_and_types():
         {"align_min_aligned": 6},
         {"align_retry_max": -1},
         {"align_retry_step": 0},
+        {"align_retry_step": 1},
+        {"align_retry_step": 6},
+        {"align_window": 8, "align_retry_step": 16},
         {"fps_rel_tol": 0.0},
         {"fps_rel_tol": 1.0},
         {"vfr_gap_lo": 0.0},
@@ -214,6 +217,13 @@ def test_build_thresholds_distinct_values_and_types():
 def test_invalid_config_raises(kwargs):
     with pytest.raises(c.AnalysisError):
         c.AnalyzeConfig(**kwargs)
+
+
+def test_retry_step_vs_window_boundary():
+    c.AnalyzeConfig(align_retry_step=7)
+    c.AnalyzeConfig(align_window=8, align_retry_step=17)
+    with pytest.raises(c.AnalysisError, match="align_retry_step"):
+        c.AnalyzeConfig(align_retry_step=6)
 
 
 def test_itp_strip_rows_even_positive():

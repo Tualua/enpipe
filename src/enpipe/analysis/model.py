@@ -244,7 +244,7 @@ class FileAlignment:
     verdict: str  # ALIGN_*
     shift: Optional[int] = None
     offset: int = 0
-    n_aligned: int = 0
+    n_aligned: int = 0  # число разнесённых (> 2W) голосов «выровнено», см. align.aggregate
     points: Tuple[PointAlignment, ...] = ()
 
 

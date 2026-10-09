@@ -126,6 +126,7 @@ class AnalyzeConfig:
     align_min_aligned: int = 2
     # Число повторных попыток на точку без .scenes (D-11) и шаг, кадров.
     align_retry_max: int = 3
+    # Должен быть > 2·align_window: окна ±W повторов одной точки не пересекаются.
     align_retry_step: int = 48
     # Предпроверка пары: относительный допуск avg_frame_rate (D-16).
     fps_rel_tol: float = 5e-4
@@ -164,6 +165,14 @@ class AnalyzeConfig:
         if not 1 <= self.align_window <= ALIGN_WINDOW_MAX:
             raise AnalysisError(
                 f"align_window должен быть в 1..{ALIGN_WINDOW_MAX}, получено {self.align_window}"
+            )
+        # Окна ±W двух повторов одной точки не должны перекрываться, иначе два
+        # голоса измеряют одно и то же место файла (D-13).
+        if self.align_retry_step <= 2 * self.align_window:
+            raise AnalysisError(
+                "align_retry_step должен быть > 2·align_window (иначе окна повторов "
+                f"одной точки перекрываются), получено {self.align_retry_step} "
+                f"при align_window {self.align_window}"
             )
         if not 1 <= self.align_min_aligned <= self.align_points:
             raise AnalysisError("требуется 1 <= align_min_aligned <= align_points")

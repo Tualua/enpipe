@@ -163,15 +163,39 @@ def test_row_alignment():
 
 def test_aggregate_rules():
     a, s, u = ALIGN_ALIGNED, ALIGN_SHIFT, ALIGN_UNDETERMINED
-    r = aggregate([_pa(i, a if i < 2 else u) for i in range(5)], CFG, 7)
+    r = aggregate([_pa(i * 48, a if i < 2 else u) for i in range(5)], CFG, 7)
     assert (r.verdict, r.n_aligned, r.offset) == (a, 2, 7)
-    r = aggregate([_pa(i, a, 0) for i in range(4)] + [_pa(4, s, 1)], CFG, 0)
+    r = aggregate([_pa(i * 48, a, 0) for i in range(4)] + [_pa(192, s, 1)], CFG, 0)
     assert (r.verdict, r.shift) == (s, 1)
-    r = aggregate([_pa(0, a, 0)] + [_pa(i, u) for i in range(1, 5)], CFG, 0)
+    r = aggregate([_pa(0, a, 0)] + [_pa(i * 48, u) for i in range(1, 5)], CFG, 0)
     assert r.verdict == u
-    err = PointAlignment(1, a, shift=0, error="boom")
+    err = PointAlignment(48, a, shift=0, error="boom")
     r = aggregate([_pa(0, a, 0), err], CFG, 0)
     assert r.verdict == u and r.n_aligned == 1
+
+
+def test_aggregate_separated_votes():
+    a = ALIGN_ALIGNED
+    r = aggregate([_pa(47, a, 0), _pa(48, a, 0)], CFG, 0)
+    assert r.verdict == ALIGN_UNDETERMINED and r.n_aligned == 1
+    # разнос 6 = 2W не больше 2W: окна источника касаются
+    r = aggregate([_pa(47, a, 0), _pa(53, a, 0)], CFG, 0)
+    assert r.n_aligned == 1
+    r = aggregate([_pa(47, a, 0), _pa(54, a, 0)], CFG, 0)
+    assert r.verdict == a and r.n_aligned == 2
+    # жадно от последнего засчитанного
+    r = aggregate([_pa(0, a, 0), _pa(5, a, 0), _pa(10, a, 0)], CFG, 0)
+    assert r.n_aligned == 2
+    # дубликаты остаются в points
+    r = aggregate([_pa(0, a, 0), _pa(0, a, 0), _pa(48, a, 0)], CFG, 0)
+    assert r.n_aligned == 2 and len(r.points) == 3
+    # порог берётся из cfg
+    narrow = AnalyzeConfig(align_window=1)
+    r = aggregate([_pa(47, a, 0), _pa(50, a, 0)], narrow, 0)
+    assert r.n_aligned == 2
+    # любой сдвиг по-прежнему даёт сдвиг
+    r = aggregate([_pa(47, a, 0), _pa(48, ALIGN_SHIFT, 1)], CFG, 0)
+    assert r.verdict == ALIGN_SHIFT
 
 
 # --------------------------------------------------------------------------- #

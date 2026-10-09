@@ -166,16 +166,24 @@ def row_alignment(p: PointAlignment) -> Tuple[str, Optional[int], Optional[str]]
 def aggregate(points: Sequence[PointAlignment], cfg: AnalyzeConfig, offset: int) -> FileAlignment:
     """Вердикт файла: любой сдвиг — сдвиг; достаточно «выровнено» — выровнено.
 
-    Голос — кадр, а не элемент списка: повторы разных точек могут совпасть
-    (защита D-13 от вердикта по одному кадру), поэтому n_aligned считается по
-    различным enc_frame. В ``points`` дубликаты сохраняются: отчёт показывает
-    каждую цель.
+    Голос — место файла, а не кадр: два кадра ближе 2W+1 видят перекрывающиеся
+    окна источника ±W и измеряют одно событие (WR-04), поэтому засчитываются
+    один раз; |f1 − f2| > 2W ⇔ окна [f−W, f+W] не пересекаются. Жадный отбор по
+    возрастанию от последнего засчитанного даёт максимум разнесённых голосов
+    на прямой. Следствие: энкод короче 2W+2 кадров никогда не получит два
+    голоса и всегда даёт «неопределённо» — отказ при сомнении сознателен. В
+    ``points`` дубликаты и соседи сохраняются: отчёт показывает каждую цель.
     """
     ordered = tuple(sorted(points, key=lambda p: p.enc_frame))
-    aligned_frames = {
-        p.enc_frame for p in ordered if p.verdict == ALIGN_ALIGNED and p.error is None
-    }
-    n_aligned = len(aligned_frames)
+    aligned_frames = sorted(
+        {p.enc_frame for p in ordered if p.verdict == ALIGN_ALIGNED and p.error is None}
+    )
+    n_aligned = 0
+    last: Optional[int] = None
+    for f in aligned_frames:
+        if last is None or f - last > 2 * cfg.align_window:
+            n_aligned += 1
+            last = f
     shifted = [p for p in ordered if p.verdict == ALIGN_SHIFT]
     if shifted:
         verdict, shift = ALIGN_SHIFT, shifted[0].shift
