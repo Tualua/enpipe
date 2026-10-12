@@ -25,7 +25,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
+from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 from enpipe.analysis import align, frames, metrics, precheck
 from enpipe.analysis.config import (
@@ -152,17 +152,20 @@ _PointTask = Tuple[
 ]
 
 
-def _taken_frames(targets: Sequence[align.AlignTarget], window: int) -> FrozenSet[int]:
-    """Кадры, запрещённые для повторов: окрестность ±2W занятых кадров.
+def _taken_frames(targets: Sequence[align.AlignTarget], cfg: AnalyzeConfig) -> FrozenSet[int]:
+    """Кадры, запрещённые для повторов: окрестность ±vote_separation(cfg) занятых кадров.
 
-    Занятые — enc_frame каждой цели и, для склеек, кадр start−1. Повтор,
-    попавший в ±2W от чужой цели, смотрит в перекрывающееся окно источника и
-    измеряет то же событие; точное совпадение кадров (CR-01) этого не ловит
-    (WR-04: 189 кадров, движение 44..52, повтор цели 0 падает на кадр 48 рядом
-    с целью 47).
+    Занятые — enc_frame каждой цели и, для склеек, кадр start−1. Окрестность
+    ≈ 1 с (24 кадра при дефолтах), та же величина, что в ``align.aggregate``:
+    повтор ближе — то же место файла (WR-04: 189 кадров, движение 44..52;
+    WR-05: 165 кадров, движение 41..49, цель 41 и повтор цели 0 на 48).
+    Повтор собственной цели в окрестность не попадает, потому что
+    align_retry_step > vote_separation(cfg). Известное следствие (IN-08): повтор
+    в чужой окрестности пропускается, а не сдвигается, поэтому на части длин
+    (121, 165, 189) отпадают все повторы.
     """
-    guard = 2 * window
-    busy = set()
+    guard = align.vote_separation(cfg)
+    busy: Set[int] = set()
     for t in targets:
         busy.add(t.enc_frame)
         if t.junction and t.enc_frame > 0:
@@ -176,7 +179,7 @@ def _point_worker(task: _PointTask) -> Tuple[Optional[PointAlignment], Optional[
     """Вердикт одной точки: (точка, None) или (None, текст ошибки).
 
     task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg, taken).
-    taken — окрестность ±2W занятых кадров (цели и start−1 склеек), а не сами
+    taken — окрестность ±align.vote_separation(cfg) занятых кадров (цели и start−1 склеек), а не сами
     кадры: повтор рядом с чужой целью измеряет то же событие. Повторы разных
     точек между собой могут оказаться рядом (воркеры параллельны, общего
     состояния нет) — это закрывает разнесённый подсчёт голосов в
@@ -281,7 +284,7 @@ def check_pair_files(
         return _refused(verdict.reasons, src_info, enc_info, src_pts, enc_pts, verdict)
 
     targets = align.pick_points(len(enc_pts), scenes, verdict.offset, cfg)
-    taken = _taken_frames(targets, cfg.align_window)
+    taken = _taken_frames(targets, cfg)
     tasks = [
         (
             src, enc, src_pts, enc_pts, t, verdict.offset,

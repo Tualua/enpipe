@@ -126,18 +126,20 @@ def test_shift_plus_one_refused(fake):
 
 
 def test_static_undetermined_with_retries(fake):
-    # 121 кадр: повторы не попадают в окрестность ±2W чужих целей, кроме 96
-    # (рядом с целью 90), который пропускается.
-    f = fake({SRC: static_film(121), ENC: static_film(121)})
+    # 401 кадр: цели [0, 100, 200, 300, 400], окрестность ±24. Повторы 96/196/
+    # 296/396 рядом с целями пропущены, 444/448 за концом; остаются 48, 144, 148
+    # и т.д.
+    f = fake({SRC: static_film(401), ENC: static_film(401)})
     chk = pair.check_pair_files(SRC, ENC, CFG)
     assert not chk.ok
     assert chk.alignment.verdict == ALIGN_UNDETERMINED
     assert any("выровнено 0 из 5" in r for r in chk.reasons)
     enc_calls = [c for c in f.calls if c[0] == ENC]
-    # 5 точек + повторы (не более align_retry_max на точку)
     assert len(enc_calls) > 5
     assert len(enc_calls) <= 5 * (1 + CFG.align_retry_max)
-    assert sorted(c[1] for c in enc_calls) == [0, 30, 48, 60, 78, 90, 108, 120]
+    assert sorted(c[1] for c in enc_calls) == [
+        0, 48, 100, 144, 148, 200, 244, 248, 300, 344, 348, 400
+    ]
 
 
 def test_precheck_fail_no_grab(fake):
@@ -167,8 +169,9 @@ def test_point_error_reason(fake):
     chk = pair.check_pair_files(SRC, ENC, CFG)
     assert not chk.ok
     assert any(r.startswith("точка 48:") for r in chk.reasons)
-    # остальные точки обработаны
-    assert chk.alignment.n_aligned == 4
+    # остальные точки обработаны: выровнены 0, 24, 71, 95; засчитаны 0 и 71
+    # (24 − 0 и 95 − 71 не больше sep = 24)
+    assert chk.alignment.n_aligned == 2
     bad = [p for p in chk.alignment.points if p.enc_frame == 48]
     assert bad and bad[0].error
 
@@ -414,7 +417,8 @@ def test_point_unexpected_exception(fake, exc, text):
     chk = pair.check_pair_files(SRC, ENC, CFG)
     assert not chk.ok
     assert any(r.startswith(f"точка 48: {text}") for r in chk.reasons)
-    assert chk.alignment.n_aligned == 4
+    # выровнены 0, 24, 71, 95; засчитаны 0 и 71 (разнос 24 не больше sep)
+    assert chk.alignment.n_aligned == 2
 
 
 def test_grab_frame_pair_unexpected_exception(fake):
@@ -441,11 +445,75 @@ def test_retry_neighbour_not_independent(fake):
 
 
 def test_taken_neighbourhood():
-    got = pair._taken_frames([align.AlignTarget(24, 1, True)], CFG.align_window)
-    assert 17 in got and 30 in got
-    assert 16 not in got and 31 not in got
-    t0 = pair._taken_frames([align.AlignTarget(0), align.AlignTarget(47)], CFG.align_window)
-    assert 48 in t0 and 41 in t0 and 53 in t0 and 54 not in t0
+    # занятые 23 и 24, окрестность ±24, отрицательные отброшены
+    got = pair._taken_frames([align.AlignTarget(24, 1, True)], CFG)
+    assert got == frozenset(range(0, 49))
+    got = pair._taken_frames([align.AlignTarget(0), align.AlignTarget(47)], CFG)
+    assert got == frozenset(range(0, 72))
+    # sep = 16 (2W доминирует): 47 ± 16
+    c2 = AnalyzeConfig(align_window=8, align_retry_step=17)
+    assert pair._taken_frames([align.AlignTarget(47)], c2) == frozenset(range(31, 64))
+
+
+# --- регрессии ревью: WR-05 (вспышка движения — одно место файла) -----------
+
+
+@pytest.mark.parametrize("lo, hi, n_al", [(41, 50, 1), (41, 49, 1), (89, 97, 0)])
+def test_flash_is_one_place(fake, lo, hi, n_al):
+    # n=165: цели [0, 41, 82, 123, 164], окрестность ±24 закрывает повторы
+    # 48, 89, 96; вспышка движения не даёт второго голоса.
+    film = static_film(165)
+    for i in range(lo, hi):
+        film[i] = _frame(1000 + i)
+    f = fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=None)
+    assert chk.ok is False
+    assert chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == n_al
+    assert any(f"выровнено {n_al} из 5" in r for r in chk.reasons)
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 41, 82, 123, 164]
+    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 41, 82, 123, 164]
+
+
+def test_retries_far_apart_aligned(fake):
+    # n=401: повтор цели 0 на 48 (движение 45..51) и повтор цели 100 на 148
+    # (движение 145..151) — разные места, D-11 работает.
+    film = static_film(401)
+    for i in list(range(45, 52)) + list(range(145, 152)):
+        film[i] = _frame(1000 + i)
+    fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=None)
+    assert chk.ok is True
+    assert chk.alignment.verdict == ALIGN_ALIGNED
+    assert chk.alignment.n_aligned == 2
+    assert [p.enc_frame for p in chk.alignment.points][:2] == [48, 148]
+
+
+def test_retries_same_flash_one_vote(fake):
+    # n=401, движение 140..152: повторы 144 (цель 0 после 48 и пропущенного 96)
+    # и 148 (цель 100) — одна вспышка, разнос 4 <= 24, один голос.
+    film = static_film(401)
+    for i in range(140, 153):
+        film[i] = _frame(1000 + i)
+    fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=None)
+    assert chk.ok is False
+    assert chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == 1
+    assert any("выровнено 1 из 5" in r for r in chk.reasons)
+    pts = {(p.enc_frame, p.verdict) for p in chk.alignment.points}
+    assert (144, ALIGN_ALIGNED) in pts and (148, ALIGN_ALIGNED) in pts
+
+
+def test_static_121_retries_skipped(fake):
+    # Известное следствие (IN-08): на 121 кадре все повторы в окрестности ±24
+    # чужих целей и пропускаются; вердикт «неопределённо» без повторов.
+    f = fake({SRC: static_film(121), ENC: static_film(121)})
+    chk = pair.check_pair_files(SRC, ENC, CFG)
+    assert not chk.ok
+    assert chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert any("выровнено 0 из 5" in r for r in chk.reasons)
+    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 30, 60, 90, 120]
 
 
 def test_short_encode_undetermined(fake):
