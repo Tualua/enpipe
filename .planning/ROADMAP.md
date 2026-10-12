@@ -133,7 +133,7 @@ Plans:
 
 **Gap closure — Wave 4**
 
-- [ ] 10-09-PLAN.md — WR-05: разнос голосов D-13 ≈ 1 с — align.vote_separation = max(2W, align_retry_step // 2) в aggregate и _taken_frames, регрессия n=165/41..49, уточнение D-13
+- [x] 10-09-PLAN.md — WR-05: разнос голосов D-13 ≈ 1 с — align.vote_separation = max(2W, align_retry_step // 2) в aggregate и _taken_frames, регрессия n=165/41..49, уточнение D-13
 
 ### Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI
 
@@ -192,7 +192,7 @@ Plans:
 | 7. Adopt Fixed qsvencc + Regression Lock              | v1.2      | 5/5            | Complete    | 2026-10-02 |
 | 8. Усиление замка COR-02                              | v1.2      | 6/6            | Complete    | 2026-10-03 |
 | 9. Чистое ядро анализа и ридеры                       | v1.3      | 5/5 | Complete   | 2026-10-06 |
-| 10. Извлечение кадров и выравнивание                  | v1.3      | 8/8 | Complete   | 2026-10-09 |
+| 10. Извлечение кадров и выравнивание                  | v1.3      | 9/9 | Complete   | 2026-10-12 |
 | 11. Анализ одной пары: кандидаты, кропы, отчёт, CLI   | v1.3      | 0/0            | Not started | -          |
 | 12. Скан цвета по сценам и батч по папке              | v1.3      | 0/0            | Not started | -          |
 | 13. Калибровка, сравнение двух энкодов, приёмка       | v1.3      | 0/0            | Not started | -          |
