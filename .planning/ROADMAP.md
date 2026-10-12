@@ -99,7 +99,7 @@ Plans:
   4. Для энкода частичного диапазона (`--from/--to`) без `--offset` сдвиг обнаруживается и приводит к отказу, а с `--offset` пара сравнивается корректно
   5. Извлечение работает без GPU и `/dev/dri` (программный декод по умолчанию) и не мешает идущему кодированию
 
-**Plans**: 8 plans (5 + 3 gap closure)
+**Plans**: 9 plans (5 + 4 gap closure)
 
 Plans:
 **Wave 1**
@@ -130,6 +130,10 @@ Plans:
 **Gap closure — Wave 3**
 
 - [x] 10-08-PLAN.md — WR-04: голоса D-13 по разнесённым (> 2W) местам файла, окрестность ±2W занятых кадров для повторов, align_retry_step > 2·align_window в конфиге, регрессия 189 кадров; ALN-04 → Complete
+
+**Gap closure — Wave 4**
+
+- [ ] 10-09-PLAN.md — WR-05: разнос голосов D-13 ≈ 1 с — align.vote_separation = max(2W, align_retry_step // 2) в aggregate и _taken_frames, регрессия n=165/41..49, уточнение D-13
 
 ### Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI
 
