@@ -1,14 +1,14 @@
 ---
-status: partial
+status: diagnosed
 phase: 10-frame-extraction-alignment
 source: [10-VERIFICATION.md]
 started: 2026-10-08T21:59:42Z
-updated: 2026-10-09T23:59:00Z
+updated: 2026-10-12T00:00:00Z
 ---
 
 ## Current Test
 
-[ожидает решения оператора по WR-05]
+[решение принято]
 
 ## Tests
 
@@ -18,14 +18,14 @@ result: issue — оператор: закрыть WR-04 до фазы 11 (гэ�
 
 ### 2. Решить по WR-05: масштаб «независимости» голосов выравнивания (D-13)
 expected: Решение оператора о том, какой разнос голосов считать «разными местами файла». Сейчас разнос > 2W кадров (7 при W=3); «выровнено» может держаться на одной вспышке движения ≥ 2W+2 = 8 кадров (воспроизведено: n=165, движение 41..49 → ok=True, n_aligned=2). Развилка — 10-REVIEW.md, WR-05.
-result: [pending]
+result: issue — оператор: разнос ≈ 1 с, max(2W, align_retry_step // 2) в aggregate и _taken_frames; гэп-план 10-09
 
 ## Summary
 
 total: 2
 passed: 0
-issues: 1
-pending: 1
+issues: 2
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -37,3 +37,10 @@ blocked: 0
   severity: major
   test: 1
   fix: "окрестность ±2W вокруг занятых кадров (pair.py), разнесённый подсчёт в align.aggregate, align_retry_step > 2*align_window в AnalyzeConfig, регрессионный тест — 10-08"
+
+- truth: "D-13: голоса «выровнено» засчитываются раздельно только при разносе ≈ 1 с (max(2W, align_retry_step // 2)), одна вспышка движения не даёт двух мест"
+  status: failed
+  reason: "WR-05 (10-REVIEW.md): порог 2W лишь поднял минимальную вспышку до 8 кадров; n=165, движение 41..49 → ok=True, n_aligned=2"
+  severity: major
+  test: 2
+  fix: "sep = max(2*align_window, align_retry_step // 2) в align.aggregate и как guard в pair._taken_frames; регрессия n=165/41..49 → undetermined; поправить docstring aggregate про окна склеек"
