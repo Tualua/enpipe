@@ -127,6 +127,8 @@ class AnalyzeConfig:
     # Число повторных попыток на точку без .scenes (D-11) и шаг, кадров.
     align_retry_max: int = 3
     # Должен быть > 2·align_window: окна ±W повторов одной точки не пересекаются.
+    # Разнос голосов align.vote_separation = max(2·align_window, align_retry_step // 2)
+    # меньше шага, поэтому повтор не попадает в окрестность своей цели.
     align_retry_step: int = 48
     # Предпроверка пары: относительный допуск avg_frame_rate (D-16).
     fps_rel_tol: float = 5e-4

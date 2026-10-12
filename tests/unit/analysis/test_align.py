@@ -16,6 +16,7 @@ from enpipe.analysis.align import (
     retry_frames,
     row_alignment,
     seek_time_for_frame,
+    vote_separation,
     window_range,
 )
 from enpipe.analysis.config import AnalysisError, AnalyzeConfig
@@ -174,25 +175,50 @@ def test_aggregate_rules():
     assert r.verdict == u and r.n_aligned == 1
 
 
+def test_vote_separation():
+    # sep = max(2W, align_retry_step // 2); по умолчанию ≈ 1 с
+    assert vote_separation(AnalyzeConfig()) == 24
+    # 2W доминирует
+    wide = AnalyzeConfig(align_window=8, align_retry_step=17)
+    assert vote_separation(wide) == 16
+    narrow = AnalyzeConfig(align_window=1, align_retry_step=8)
+    assert vote_separation(narrow) == 4
+    tight = AnalyzeConfig(align_retry_step=7)
+    assert vote_separation(tight) == 6
+    for c in (AnalyzeConfig(), wide, narrow, tight):
+        assert c.align_retry_step > vote_separation(c)
+
+
 def test_aggregate_separated_votes():
     a = ALIGN_ALIGNED
     r = aggregate([_pa(47, a, 0), _pa(48, a, 0)], CFG, 0)
     assert r.verdict == ALIGN_UNDETERMINED and r.n_aligned == 1
-    # разнос 6 = 2W не больше 2W: окна источника касаются
+    # разнос 6 < sep
     r = aggregate([_pa(47, a, 0), _pa(53, a, 0)], CFG, 0)
     assert r.n_aligned == 1
-    r = aggregate([_pa(47, a, 0), _pa(54, a, 0)], CFG, 0)
+    # разнос 7 = 2W+1: прежний порог засчитал бы два голоса (WR-05)
+    r = aggregate([_pa(41, a, 0), _pa(48, a, 0)], CFG, 0)
+    assert r.verdict == ALIGN_UNDETERMINED and r.n_aligned == 1
+    # разнос 24 = sep не больше sep
+    r = aggregate([_pa(47, a, 0), _pa(71, a, 0)], CFG, 0)
+    assert r.n_aligned == 1
+    # разнос 25 > sep
+    r = aggregate([_pa(47, a, 0), _pa(72, a, 0)], CFG, 0)
     assert r.verdict == a and r.n_aligned == 2
-    # жадно от последнего засчитанного
-    r = aggregate([_pa(0, a, 0), _pa(5, a, 0), _pa(10, a, 0)], CFG, 0)
+    # жадно от последнего засчитанного: 0 засчитан, 20 и 40 -> 40 - 0 > 24
+    r = aggregate([_pa(0, a, 0), _pa(20, a, 0), _pa(40, a, 0)], CFG, 0)
     assert r.n_aligned == 2
     # дубликаты остаются в points
     r = aggregate([_pa(0, a, 0), _pa(0, a, 0), _pa(48, a, 0)], CFG, 0)
     assert r.n_aligned == 2 and len(r.points) == 3
-    # порог берётся из cfg
-    narrow = AnalyzeConfig(align_window=1)
-    r = aggregate([_pa(47, a, 0), _pa(50, a, 0)], narrow, 0)
-    assert r.n_aligned == 2
+    # порог берётся из cfg: sep = 4
+    narrow = AnalyzeConfig(align_window=1, align_retry_step=8)
+    assert aggregate([_pa(47, a, 0), _pa(51, a, 0)], narrow, 0).n_aligned == 1
+    assert aggregate([_pa(47, a, 0), _pa(52, a, 0)], narrow, 0).n_aligned == 2
+    # sep = 16 (2W доминирует)
+    wide = AnalyzeConfig(align_window=8, align_retry_step=17)
+    assert aggregate([_pa(0, a, 0), _pa(16, a, 0)], wide, 0).n_aligned == 1
+    assert aggregate([_pa(0, a, 0), _pa(17, a, 0)], wide, 0).n_aligned == 2
     # любой сдвиг по-прежнему даёт сдвиг
     r = aggregate([_pa(47, a, 0), _pa(48, ALIGN_SHIFT, 1)], CFG, 0)
     assert r.verdict == ALIGN_SHIFT
@@ -274,5 +300,6 @@ def test_aggregate_distinct_frames():
     fa = aggregate(pts, CFG, 0)
     assert fa.verdict == ALIGN_UNDETERMINED and fa.n_aligned == 1
     assert len(fa.points) == 4
-    two = aggregate([_pa(24, a, 0), _pa(48, a, 0)], CFG, 0)
+    # разнос 25 > sep (24 уже не засчитывается)
+    two = aggregate([_pa(24, a, 0), _pa(49, a, 0)], CFG, 0)
     assert two.verdict == ALIGN_ALIGNED and two.n_aligned == 2
