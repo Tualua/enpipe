@@ -505,8 +505,41 @@ def test_retries_same_flash_one_vote(fake):
     assert (144, ALIGN_ALIGNED) in pts and (148, ALIGN_ALIGNED) in pts
 
 
+def _allowed_retries(n: int) -> List[int]:
+    """Повторы D-11, которые реально выполнятся на энкоде из n кадров (дефолтный CFG)."""
+    targets = align.pick_points(n, None, 0, CFG)
+    taken = pair._taken_frames(targets, CFG)
+    return [
+        f
+        for t in targets
+        for f in align.retry_frames(t.enc_frame, n, CFG)
+        if f not in taken
+    ]
+
+
+# WR-06 (решение оператора, вариант (б)): повторы D-11 не выполняются на энкодах
+# 49..225 кадров, а также 241 и 289; граница 225/226 закреплена.
+# n=225: цели [0, 56, 112, 168, 224], окрестность ±24 покрывает весь файл;
+# n=226: повторы 144 и 200 лежат вне окрестностей целей.
+@pytest.mark.parametrize(
+    "n, expected",
+    [(48, []), (225, []), (226, [144, 200]), (241, []), (289, [])],
+)
+def test_retries_allowed_boundary(n, expected):
+    got = _allowed_retries(n)
+    assert got == expected
+    if n == 48:
+        # повторов нет вообще (первый повтор 48 за концом файла), а не «отпали»
+        assert all(
+            not align.retry_frames(t.enc_frame, 48, CFG)
+            for t in align.pick_points(48, None, 0, CFG)
+        )
+    if n == 226:
+        assert len(got) >= 1
+
+
 def test_static_121_retries_skipped(fake):
-    # Известное следствие (IN-08): на 121 кадре все повторы в окрестности ±24
+    # Известное следствие (IN-08 → WR-06, частный случай диапазона 49..225): на 121 кадре все повторы в окрестности ±24
     # чужих целей и пропускаются; вердикт «неопределённо» без повторов.
     f = fake({SRC: static_film(121), ENC: static_film(121)})
     chk = pair.check_pair_files(SRC, ENC, CFG)
