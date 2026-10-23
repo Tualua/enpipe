@@ -167,8 +167,9 @@ RUN set -eux; \
 # Почему BtbN static: в сборке есть bitstream-фильтр `dovi_rpu` с поддержкой AV1 и
 # libdav1d с метаданными Dolby Vision (проверка DV в AV1-выходе), av1_qsv/hevc_qsv/
 # vpp_qsv/scale_qsv, libopus/flac. Системный ffmpeg 6.1 AV1 DV проверить не умеет.
-# Точная сборка (n9.0.2-22-g46d8f462ee, autobuild 2026-10-01) проверена на A380:
-# `enpipe detect` даёт побайтно идентичные .scenes с ffmpeg 6.1 (dv-p81, hdr10plus).
+# Побайтная идентичность .scenes с ffmpeg 6.1 (dv-p81, hdr10plus) проверялась на A380
+# на предыдущем пине (ежедневная сборка 1 октября 2026, ныне удалена BtbN); текущий пин —
+# n9.0.2-17-g2a571b6068 (autobuild 2026-09-30), та же ветка релиза n9.0.2.
 # Пин — неизменяемый тег autobuild + sha256 (проверка ДО распаковки): сборка
 # детерминирована, подмена архива роняет сборку образа. Оба Dockerfile обязаны нести
 # одинаковые ARG FFMPEG_URL/FFMPEG_SHA256 (страж: tests/unit/shared/test_ffmpeg_pin_sync.py).
@@ -176,11 +177,12 @@ RUN set -eux; \
 # (он на PATH раньше /usr/bin) делают их основными. Побочный довод: ffmpeg av1_qsv
 # держит пулы поверхностей per-process и иммунен к межпроцессной порче кадров
 # qsvencc (backlog 999.1).
-# ОГРАНИЧЕНИЕ: BtbN чистит старые autobuild-релизы, URL РАНО ИЛИ ПОЗДНО даст 404 —
-# сборка упадёт громко, а не молча. План: зеркалировать архив ассетом GitHub Release
-# проекта (прецедент: deps-qsvencc-r4634) и сменить FFMPEG_URL; sha256 остаётся прежним.
-ARG FFMPEG_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-01-13-06/ffmpeg-n9.0.2-22-g46d8f462ee-linux64-gpl-9.0.tar.xz
-ARG FFMPEG_SHA256=a6170faecf757381ad0338d7a6ba26e97c2ebe2b9c1568633421e15d1ed436a9
+# ОГРАНИЧЕНИЕ: пиним ТОЛЬКО сборку конца месяца (autobuild-ГГГГ-ММ-<последний день>):
+# ежедневные autobuild-* BtbN удаляет примерно через 2 недели (так умер пин 2026-10-01),
+# месячные пока сохраняет. План на случай их удаления: зеркалировать архив ассетом
+# GitHub Release проекта (прецедент: deps-qsvencc-r4634) и сменить FFMPEG_URL.
+ARG FFMPEG_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz
+ARG FFMPEG_SHA256=68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269
 RUN set -eux; \
     curl -fsSL -o /tmp/ffmpeg.tar.xz "$FFMPEG_URL"; \
     echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -; \
