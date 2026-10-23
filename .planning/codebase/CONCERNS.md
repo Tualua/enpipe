@@ -249,7 +249,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 
 **Status:** RESOLVED - ffmpeg/ffprobe are BtbN static n9.0.2 pinned by URL + SHA256 (`ARG FFMPEG_URL`/`ARG FFMPEG_SHA256`) at /opt/ffmpeg-9 symlinked into /usr/local/bin in both images; the pin is kept in sync by `tests/unit/shared/test_ffmpeg_pin_sync.py`.
 
-**Residual risk (URL longevity):** BtbN prunes old autobuild releases, so `FFMPEG_URL` will eventually return 404. The image build fails loudly (not silently wrong).
+**Residual risk (URL longevity):** BtbN prunes old autobuild releases, so `FFMPEG_URL` will eventually return 404. The image build fails loudly (not silently wrong). Daily autobuild-* releases are deleted after ~2 weeks (the 2026-10-01 pin returned 404 on 2026-10-23), so the pin was moved to the retained month-end build autobuild-2026-09-30-13-08 (n9.0.2-17-g2a571b6068); month-end builds are not guaranteed forever either.
 
 **Follow-up:** mirror the tarball as a GitHub Release asset in the project repo (precedent: deps-qsvencc-r4634) and switch `FFMPEG_URL` in both Dockerfiles; SHA256 stays unchanged.
 
