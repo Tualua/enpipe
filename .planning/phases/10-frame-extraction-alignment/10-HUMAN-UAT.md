@@ -1,14 +1,14 @@
 ---
-status: partial
+status: diagnosed
 phase: 10-frame-extraction-alignment
 source: [10-VERIFICATION.md]
 started: 2026-10-08T21:59:42Z
-updated: 2026-10-23T07:04:41Z
+updated: 2026-10-23T07:06:30Z
 ---
 
 ## Current Test
 
-[ожидает решения оператора — тест 4]
+[решение принято]
 
 ## Tests
 
@@ -26,14 +26,14 @@ result: issue — оператор: вариант (б) — поведение �
 
 ### 4. Решить по WR-07/IN-10: формулировка обоснования в docstring pair._taken_frames и комментарии test_retries_allowed_boundary
 expected: Решение оператора. Масштаб (49..225, 241, 289) верен, но «сдвигать повтор некуда» истинно только до n ≤ 197 (на 225 свободно 28 кадров, 241 — 44, 289 — 92); диапазон верен только без .scenes (IN-10). Поведение не меняется. Варианты: мини-правка текста или backlog. Отдельно — IN-11 (граничный тест дублирует условие пропуска, не идёт через _point_worker).
-result: [pending]
+result: issue — оператор: мини-правка текста по WR-07/IN-10 (ограничить «сдвигать некуда» условием n ≤ 197, оговорка «без .scenes», исправить комментарий теста) и исправить IN-11 сейчас (граничный тест через check_pair_files с Fake, а не дублем условия); поведение повторов не меняется; гэп-план
 
 ## Summary
 
 total: 4
 passed: 0
-issues: 3
-pending: 1
+issues: 4
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -59,3 +59,10 @@ blocked: 0
   severity: minor
   test: 3
   fix: "поведение не менять; исправить формулировку в docstring _taken_frames (и _point_worker при необходимости) и в 10-09-SUMMARY; граничный тест: n=225 — ни одного разрешённого повтора, n=226 — есть хотя бы один"
+
+- truth: "Обоснование масштаба в docstring pair._taken_frames и комментарии теста верно (n ≤ 197 — сдвигать некуда; 198..225, 241, 289 — пропуск по решению; диапазон без .scenes), а граничный тест проверяет реальный путь _point_worker"
+  status: failed
+  reason: "WR-07/IN-10/IN-11 (10-REVIEW.md, 10-VERIFICATION.md): «сдвигать повтор некуда» неверно на 198..225, 241, 289; нет оговорки «без .scenes»; test_retries_allowed_boundary дублирует условие пропуска"
+  severity: minor
+  test: 4
+  fix: "поведение не менять; уточнить docstring _taken_frames (и retry_frames при необходимости) и комментарий теста; переписать граничный тест через check_pair_files с Fake"
