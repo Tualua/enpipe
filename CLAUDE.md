@@ -10,7 +10,7 @@
 ### Constraints
 
 - **Tech stack**: Python 3.12; external binaries `ffmpeg`/`ffprobe`, `qsvencc` (Rigaya QSVEnc), `mkvmerge` invoked via `subprocess` — no persistent daemon. Must stay compatible with existing behavior.
-- **Hardware**: Intel Arc GPU (Alchemist, e.g. A380) with QSV/VA-API (`iHD` driver) and `/dev/dri` passthrough required; reference storage is a spinning-disk ZFS pool.
+- **Hardware**: Intel Arc GPU (currently Intel Arc B50 (Battlemage); replaced Arc A380 (Alchemist) on 2026-10-23 — A380-era hardware findings are pending re-verification on B50, backlog 999.7) with QSV/VA-API (`iHD` driver) and `/dev/dri` passthrough required; reference storage is a spinning-disk ZFS pool.
 - **Environment**: Development and runtime happen inside the `.devcontainer/` (Docker/Podman); Ubuntu 24.04 (devcontainer: intel/dlstreamer base; runtime image: ubuntu:24.04 + Intel graphics PPA) — qsvencc .deb needs glibc ≥ 2.39; intel-opencl-icd from the PPA enables --psnr/--ssim.
 - **Correctness**: Frame-count verification and keyframe-alignment invariants must be preserved through any refactor — silent output corruption is the primary risk.
 <!-- GSD:project-end -->
@@ -48,10 +48,10 @@
 - qsvencc 8.32+vppsync10 (r4677, tag 8.32-vppsync10, sha256 5f42839f…; Tualua/QSVEnc fork, GitHub releases, pinned by SHA256 in both `Dockerfile` and `.devcontainer/Dockerfile`) - Intel Arc AV1 hardware encoder; invoked with `--backend qsv --avhw` in `src/enpipe/encoding/chunk.py`
 - mkvmerge (mkvtoolnix apt package) - final `.mkv` muxing via `src/enpipe/encoding/pipeline.py`
 - dovi_tool (x86_64-unknown-linux-musl static binary, GitHub releases) - Dolby Vision RPU extraction; currently unused (DEBT-04, reserved for Phase 4)
-- Intel Media driver (iHD, from Intel PPA `kobuk-team/intel-graphics`) - VA-API for Intel Arc A380
+- Intel Media driver (iHD, from Intel PPA `kobuk-team/intel-graphics`) - VA-API for Intel Arc (currently B50 (Battlemage))
 - oneVPL (libvpl2, libmfx-gen1.2 from Ubuntu 24.04 + Intel PPA) - GPU dispatcher and runtime
 - Patched vpl-gpu-rt 26.3.2-av1auxdata (Tualua/QSVEnc release 8.32-vppsync10, sha256 054b7887…0a35) in `/opt/vpl-gpu-rt-av1auxdata`, selected by the dispatcher via `ONEVPL_PRIORITY_PATH=/opt/vpl-gpu-rt-av1auxdata/lib` (both images + devcontainer `containerEnv`); the system libmfx-gen1.2 is not replaced and must be 26.3.2 (the image build checks this). It enables qsvencc `--av1-chroma-delta-q`; enpipe does not use the option yet (CAL-02)
-- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable, measured on r4658: 0 failures from 640 sessions)
+- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable, measured on Arc A380 with r4658: 0 failures from 640 sessions; B50 — backlog 999.7)
 - vainfo (libva-utils) - VA-API diagnostics
 ## Configuration
 - `ICQ` (default "23") - qsvencc quality (lower = better)
@@ -70,7 +70,7 @@
 - `.dockerignore` - production build context (excludes `.git`, `tests/`, `legacy/`, `.planning/`, dev files to minimize image size)
 ## Platform Requirements
 - Docker or Podman with devcontainer CLI support
-- Intel Arc GPU on host exposing `/dev/dri/renderD128` (Alchemist, e.g., A380)
+- Intel Arc GPU on host exposing a `/dev/dri/renderD*` node (currently Arc B50 (Battlemage))
 - Host directories: `/data/media` (input videos), `/data/downloads` (scratch/output) as per `.devcontainer/devcontainer.json` `mounts`
 - Named volumes for credential persistence: `enpipe-claude`, `enpipe-qwen`, `enpipe-opencode-data`, `enpipe-opencode-config`
 - Podman rootless: `--group-add keep-groups` required for render-group membership

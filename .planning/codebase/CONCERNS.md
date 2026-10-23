@@ -12,7 +12,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 
 ### Hardware-Specific Validation Requirements
 
-**Issue:** Key correctness invariants depend on Phase 8 test execution on Intel Arc A380 hardware, which was not possible during the phase-8-fix iteration due to environment constraints.
+**Issue:** Key correctness invariants depend on Phase 8 test execution on Intel Arc hardware (now Arc B50; see backlog 999.7), which was not possible during the phase-8-fix iteration due to environment constraints.
 
 **Files:** 
 - `src/enpipe/encoding/pipeline.py` (chunk scheduling, frame-count validation)
@@ -27,7 +27,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 - WR-06: Replaced ΔPSNR gate with per-scene comparison in `parity_encode` — latent path, only surfaces if qsvencc becomes non-deterministic.
 - IN-04: Heuristic for retry decision based on error-message visibility threshold — depends on qsvencc error behavior on hardware.
 
-**Fix approach:** Run Phase 8 hardware tests on Arc A380 with:
+**Fix approach:** Run Phase 8 hardware tests on Arc B50 with:
 - Concurrent JOBS 3, 5, 8 (production and stress)
 - Both metric variants (metrics=True/False)
 - Real Dolby Vision + HDR10/HDR10+ sources from the hardening test corpus
@@ -133,7 +133,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 
 ### Concurrent Metrics Subsystem Stability
 
-**Issue:** Phase 8 fixed VIDEOMETRIC failures on r4634/upstream 8.32 via the fork r4658, reaching 0 failures in 640 test sessions. However, this is not production-proven at scale.
+**Issue:** Phase 8 fixed VIDEOMETRIC failures on r4634/upstream 8.32 via the fork r4658, reaching 0 failures in 640 test sessions on Arc A380 (B50 — backlog 999.7). However, this is not production-proven at scale.
 
 **Files:** `src/enpipe/encoding/chunk.py`, `src/enpipe/encoding/metrics.py`, `.devcontainer/Dockerfile`
 
@@ -153,7 +153,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 
 **Status:** Documented by design, not a bug.
 
-**Issue:** `PIPELINE_DESIGN.md` concluded that a streaming producer/consumer pipeline would offer -5% to +10% wall-time improvement on current hardware (spinning-disk ZFS + Arc A380), with realistic scenario being a loss due to seek contention during detection + encoding overlap.
+**Issue:** `PIPELINE_DESIGN.md` concluded that a streaming producer/consumer pipeline would offer -5% to +10% wall-time improvement on current hardware (spinning-disk ZFS + Arc A380 — the hardware it was derived on; current card is Arc B50, re-check in backlog 999.7), with realistic scenario being a loss due to seek contention during detection + encoding overlap.
 
 **Mitigation:** Sequential workflow is the intended operational mode on current hardware. No architecture change planned until storage moves to SSD/NVMe.
 
@@ -192,7 +192,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 - Integration tests for boundary detection (`tests/integration/test_parallel_regression.py`)
 - Regression lock comparing new vs. legacy output on real media (`tests/integration/test_hardware_real_media.py`)
 
-**Hardware verification needed:** Run regression lock on Arc A380 to confirm frame-perfect alignment between new `src/enpipe` and frozen `legacy/` oracle on a corpus of real HDR/DV sources.
+**Hardware verification needed:** Run regression lock on Arc B50 to confirm frame-perfect alignment between new `src/enpipe` and frozen `legacy/` oracle on a corpus of real HDR/DV sources.
 
 ---
 
@@ -282,7 +282,7 @@ Phases 1–8 of v1.0–v1.2 milestones are complete (2026-07-08 through 2026-10-
 
 ### Hardware-Gated Tests Not Run During Phase 8
 
-**Issue:** Phase 8 code review and fixes were iterated without Arc A380 hardware available. Several safety-critical tests are marked with `@pytest.mark.hardware` and require GPU access.
+**Issue:** Phase 8 code review and fixes were iterated without Intel Arc hardware available (now Arc B50; see backlog 999.7). Several safety-critical tests are marked with `@pytest.mark.hardware` and require GPU access.
 
 **Files:**
 - `tests/integration/test_concurrency_immunity.py` (regression lock COR-02)
@@ -305,7 +305,7 @@ Hardware tests (not run):
 
 **Impact:** Fixes related to metrics stability (WR-03, WR-05), frame-loss detection, and per-scene SSIM accuracy cannot be confirmed to work until hardware validation is done.
 
-**Recommendation:** Schedule hardware validation run on Arc A380 as soon as access is available. Expected duration: 2–4 hours (stress matrix alone is ~640 sessions).
+**Recommendation:** Schedule hardware validation run on Arc B50 as soon as access is available. Expected duration: 2–4 hours (stress matrix alone is ~640 sessions).
 
 ### Large-File Scalability Testing
 
@@ -330,7 +330,7 @@ Hardware tests (not run):
 
 **Content:** Fomerly Phases 7–10 (v1.2); proposed introducing a `backends/` abstraction layer, ffmpeg `av1_qsv` for SDR, HDR10 via ffmpeg, decision on DV/HDR10+ strategy.
 
-**Why parked:** Upstream fix `45003f1` in qsvencc was released and verified on Arc A380 (Phase 7), eliminating the primary motivation (silent frame corruption) for switching backends. Additional benefits (CLI stability, fewer tuning knobs) were secondary.
+**Why parked:** Upstream fix `45003f1` in qsvencc was released and verified on Arc A380 (Phase 7; not yet re-verified on B50 — backlog 999.7), eliminating the primary motivation (silent frame corruption) for switching backends. Additional benefits (CLI stability, fewer tuning knobs) were secondary.
 
 **Retention:** Planning artifacts remain in `.planning/phases/999.1/` for potential future use if circumstances change (e.g., qsvencc development becomes unstable, ffmpeg gains production-proven HDR support, etc.).
 
@@ -351,7 +351,7 @@ Hardware tests (not run):
 
 **Status:** Open. Investigation complete; action is upstream migration + runtime fallback.
 
-**Facts (Phase 8 measurement on r4658):**
+**Facts (Phase 8 measurement on r4658, on Arc A380; B50 — backlog 999.7):**
 - METRICS_FAILED = 0 of 640 sessions (JOBS 3, 5, 8; both metric variants)
 - SSIM: ±1e-6 agreement with ffmpeg
 - PSNR: Calculated from per-frame MSE, agreement exact
@@ -372,7 +372,7 @@ Hardware tests (not run):
 
 **Status:** Current operational mode is sequential (detect → encode); streaming overlap is optional future work, parked due to storage constraints.
 
-**Reason:** Per `PIPELINE_DESIGN.md`, overlapped producer/consumer would offer -5% to +10% wall-time improvement *if* storage is SSD/NVMe. On current spinning-disk ZFS + Arc A380, realistic outcome is neutral or slightly negative.
+**Reason:** Per `PIPELINE_DESIGN.md`, overlapped producer/consumer would offer -5% to +10% wall-time improvement *if* storage is SSD/NVMe. On the spinning-disk ZFS + Arc A380 it was derived on (current card is Arc B50; re-check in backlog 999.7), realistic outcome is neutral or slightly negative.
 
 **Operational impact:** Full detection pass required before encoding can start. For large files (35–45 GB), detection adds 400–600s to total wall time. Not a bug, but a known capacity ceiling.
 
@@ -393,7 +393,7 @@ Hardware tests (not run):
 
 ## Recommendations for Next Phase / Future Work
 
-1. **Hardware Validation (immediate):** Run Phase 8 regression lock and stress matrix on Arc A380 to confirm all fixes and safety checks are sound. Expected duration: 2–4 hours. Blockers for production deployment if not passed.
+1. **Hardware Validation (immediate):** Run Phase 8 regression lock and stress matrix on Arc B50 to confirm all fixes and safety checks are sound. Expected duration: 2–4 hours. Blockers for production deployment if not passed.
 
 2. **Upstream Monitoring (ongoing):** Track rigaya/QSVEnc and intel-opencl-icd releases for inclusion of patches #319/#320 and any new VIDEOMETRIC stability issues. Set calendar alert for monthly release check.
 

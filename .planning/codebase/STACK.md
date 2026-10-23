@@ -61,10 +61,10 @@ Development:
 - dovi_tool (x86_64-unknown-linux-musl static binary, GitHub releases) - Dolby Vision RPU extraction; currently unused (DEBT-04, reserved for Phase 4)
 
 **GPU/Media Stack (environment dependencies, not Python imports):**
-- Intel Media driver (iHD, from Intel PPA `kobuk-team/intel-graphics`) - VA-API for Intel Arc A380
+- Intel Media driver (iHD, from Intel PPA `kobuk-team/intel-graphics`) - VA-API for Intel Arc (currently B50 (Battlemage))
 - oneVPL (libvpl2, libmfx-gen1.2 from Ubuntu 24.04 + Intel PPA) - GPU dispatcher and runtime
 - Patched vpl-gpu-rt 26.3.2-av1auxdata (Tualua/QSVEnc release 8.32-vppsync10, sha256 054b7887…0a35) in `/opt/vpl-gpu-rt-av1auxdata`, selected by the dispatcher via `ONEVPL_PRIORITY_PATH=/opt/vpl-gpu-rt-av1auxdata/lib` (both images + devcontainer `containerEnv`); the system libmfx-gen1.2 is not replaced and must be 26.3.2 (the image build checks this). It enables qsvencc `--av1-chroma-delta-q`; enpipe does not use the option yet (CAL-02)
-- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable, measured on r4658: 0 failures from 640 sessions)
+- OpenCL (intel-opencl-icd, ocl-icd-libopencl1) - qsvencc VPP metrics (--psnr/--ssim stable, measured on Arc A380 with r4658: 0 failures from 640 sessions; B50 — backlog 999.7)
 - vainfo (libva-utils) - VA-API diagnostics
 
 ## Configuration
@@ -91,7 +91,7 @@ Development:
 
 **Development:**
 - Docker or Podman with devcontainer CLI support
-- Intel Arc GPU on host exposing `/dev/dri/renderD128` (Alchemist, e.g., A380)
+- Intel Arc GPU on host exposing a `/dev/dri/renderD*` node (currently Arc B50 (Battlemage))
 - Host directories: `/data/media` (input videos), `/data/downloads` (scratch/output) as per `.devcontainer/devcontainer.json` `mounts`
 - Named volumes for credential persistence: `enpipe-claude`, `enpipe-qwen`, `enpipe-opencode-data`, `enpipe-opencode-config`
 - Podman rootless: `--group-add keep-groups` required for render-group membership

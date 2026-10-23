@@ -41,7 +41,7 @@ All invoked via subprocess; no SDK wrappers or client libraries:
   - `src/enpipe/encoding/chunk.py` - frame count verification via packet count
   - `src/enpipe/encoding/hdr.py` - HDR10/HDR10+/Dolby Vision metadata detection via side_data
   - `src/enpipe/encoding/audio.py` - audio stream probing and transcode/copy
-- Requires: `LIBVA_DRIVER_NAME=iHD` + `/dev/dri/renderD128` for QSV decode path
+- Requires: `LIBVA_DRIVER_NAME=iHD` + `/dev/dri/renderD*` for QSV decode path
 - Package: BtbN static n9.0.2 pinned URL+SHA256 at /opt/ffmpeg-9 symlinked into /usr/local/bin in both images (runtime image no longer installs apt ffmpeg; devcontainer shadows dlstreamer ffmpeg 6.1.1)
 - Entry point:  via `src/enpipe/shared/proc.py::run()` wrapper
 
@@ -52,7 +52,7 @@ All invoked via subprocess; no SDK wrappers or client libraries:
   - PSNR/SSIM metrics parsed from stderr (regex patterns in `src/enpipe/encoding/chunk.py`)
   - Frame count verification post-encode (via `count_frames()` → ffprobe)
 - Requires: Intel Arc GPU, `--backend qsv --avhw` flags
-- Metrics (--psnr/--ssim) depend on OpenCL/VPP: stable on r4658, same patches in r4663, r4665 and r4677 (r4677 adds #333) (0 failures from 640 concurrent sessions; r4634 and upstream 8.32 had VIDEOMETRIC failures in Phase 8 matrix)
+- Metrics (--psnr/--ssim) depend on OpenCL/VPP: stable on r4658, same patches in r4663, r4665 and r4677 (r4677 adds #333) (0 failures from 640 concurrent sessions, measured on Arc A380; B50 — backlog 999.7; r4634 and upstream 8.32 had VIDEOMETRIC failures in Phase 8 matrix)
 - Version constraint: minimum r4677 (carries the `--seek` fix, the open-GOP `--trim` fix and #333), enforced at runtime via `src/enpipe/shared/qsvencc_version.py`
 
 **mkvmerge (mkvtoolnix):**
@@ -154,11 +154,12 @@ All invoked via subprocess; no SDK wrappers or client libraries:
 
 ## Hardware Integration
 
-**Intel Arc A380 (Alchemist):**
-- GPU device: `/dev/dri/renderD128` (or `/dev/dri/card*` for display output)
+**Intel Arc B50 (Battlemage):**
+- GPU device: `/dev/dri/renderD*` (or `/dev/dri/card*` for display output)
 - Drivers required: iHD (Intel Media driver), oneVPL dispatcher, GPU runtime (libmfx-gen1.2)
 - OpenCL: intel-opencl-icd (required for qsvencc VPP metrics)
 - VA-API: `LIBVA_DRIVER_NAME=iHD` environment variable selects Intel Media driver
+- Kernel driver (i915/xe) and the full media stack (iHD, patched vpl-gpu-rt via ONEVPL_PRIORITY_PATH, intel-opencl-icd) on B50 are not yet verified — backlog 999.7. Previous card: Arc A380 (Alchemist), on which all current hardware findings were measured (see 999.7).
 
 **Environment variables for GPU access:**
 - `LIBVA_DRIVER_NAME=iHD` - VA-API driver selection

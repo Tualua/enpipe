@@ -17,7 +17,7 @@ Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks,
 - pins qsvencc to the Tualua/QSVEnc fork release **8.32+vppsync10 (r4677)** in both images — rigaya master 864a688 (after 8.32) with `45003f1`, the metrics VPP sync, the flush frame drop, `--seek`/`--seekto` fixes and #333 (last-frame loss on the OpenCL path), plus the fork fix for open-GOP `--trim` offset;
 - installs the patched vpl-gpu-rt 26.3.2-av1auxdata (release 8.32-vppsync10, sha256 054b7887…) into `/opt/vpl-gpu-rt-av1auxdata` and selects it via `ONEVPL_PRIORITY_PATH` (both images + devcontainer `containerEnv`); the system libmfx-gen1.2 is untouched and must be 26.3.2; it only makes qsvencc `--av1-chroma-delta-q` available (not used by enpipe yet, CAL-02);
 - fails fast (`QSVENCC_MIN_REV = 4677`) on any older qsvencc in `enpipe encode`/`run` and in the post-create self-check;
-- locks correctness with a hardware-gated COR-02 regression test: byte identity (sha256) against an isolated reference, packets == decoded == scene frames, the HW-decode + P010 + B-pyramid triad checked on every session, both metrics variants. A380 evidence: 640-session stress matrix, 0 mismatches; non-vacuity proven on r4604.
+- locks correctness with a hardware-gated COR-02 regression test: byte identity (sha256) against an isolated reference, packets == decoded == scene frames, the HW-decode + P010 + B-pyramid triad checked on every session, both metrics variants. Evidence (measured on Arc A380; re-verification on B50 — backlog 999.7): 640-session stress matrix, 0 mismatches; non-vacuity proven on r4604.
 
 Both images ship BtbN static **ffmpeg n9.0.2** (URL+sha256 pinned); the runtime image is ubuntu:24.04 + Intel PPA with OpenCL (`--psnr/--ssim` reliable). ffmpeg `av1_qsv` is a proven corruption-free alternative (Phase 6 gate; re-confirmed 2026-10-04 on ffmpeg 9: 320 sessions, 0 corrupt) parked as backlog 999.1.
 
@@ -91,7 +91,7 @@ Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog
 
 <!-- Explicit boundaries with reasoning to prevent re-adding. -->
 
-- **Overlapped / streaming orchestrator** (in-process `queue.Queue` producer/consumer running detect + encode *concurrently*) — `PIPELINE_DESIGN.md`'s own verdict is "do not build" on current spinning-disk ZFS + Arc A380 hardware: Amdahl ceiling ~10–18%, erased by disk seek contention (realistic −5% to ~0%). Deferred until the source moves to SSD/NVMe. The v1.1 `enpipe run` command is the *sequential* wrapper, distinct from this.
+- **Overlapped / streaming orchestrator** (in-process `queue.Queue` producer/consumer running detect + encode *concurrently*) — `PIPELINE_DESIGN.md`'s own verdict is "do not build" on the spinning-disk ZFS + Arc A380 hardware it was derived on (current card is Arc B50; re-check in backlog 999.7): Amdahl ceiling ~10–18%, erased by disk seek contention (realistic −5% to ~0%). Deferred until the source moves to SSD/NVMe. The v1.1 `enpipe run` command is the *sequential* wrapper, distinct from this.
 - Rewriting the core detect/encode algorithms or seek/trim math — the correctness-by-construction invariants (keyframe-aligned chunks, DV RPU survives `cat`) are load-bearing; productionization must preserve them, not re-derive them.
 - A non-QSV / software AV1 encode path — the toolchain is deliberately coupled to Intel Arc QSV. (ffmpeg `av1_qsv` is still QSV and remains a parked option, backlog 999.1.)
 - Any network service, auth, or multi-user layer — this is a local/NAS CLI toolchain by design.
@@ -107,7 +107,7 @@ Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog
 ## Constraints
 
 - **Tech stack**: Python 3.12; external binaries `ffmpeg`/`ffprobe`, `qsvencc` (Rigaya QSVEnc), `mkvmerge` invoked via `subprocess` — no persistent daemon. Must stay compatible with existing behavior.
-- **Hardware**: Intel Arc GPU (Alchemist, e.g. A380) with QSV/VA-API (`iHD` driver) and `/dev/dri` passthrough required; reference storage is a spinning-disk ZFS pool.
+- **Hardware**: Intel Arc GPU (currently Intel Arc B50 (Battlemage); replaced Arc A380 (Alchemist) on 2026-10-23 — A380-era hardware findings are pending re-verification on B50, backlog 999.7) with QSV/VA-API (`iHD` driver) and `/dev/dri` passthrough required; reference storage is a spinning-disk ZFS pool.
 - **Environment**: Development and runtime happen inside the `.devcontainer/` (Docker/Podman); Ubuntu 24.04 (devcontainer: intel/dlstreamer base; runtime image: ubuntu:24.04 + Intel graphics PPA) — qsvencc .deb needs glibc ≥ 2.39; intel-opencl-icd from the PPA enables --psnr/--ssim.
 - **Correctness**: Frame-count verification and keyframe-alignment invariants must be preserved through any refactor — silent output corruption is the primary risk.
 
@@ -124,7 +124,7 @@ Not yet defined — start with `/gsd:new-milestone`. Candidates from the backlog
 | v1.2 re-scope (2026-10-02): adopt fixed qsvencc instead of migrating to ffmpeg `av1_qsv`; park ffmpeg as 999.1 | Root cause found and fixed in qsvencc (45003f1); keeps DV/HDR10+ path untouched | ✓ Good — corruption eliminated with no encoder change |
 | Fail closed on old qsvencc (runtime gate + self-check) rather than warn | Silent corruption is the primary risk; a stale binary must never encode | ✓ Good — threshold raised r4634 → r4658 → r4663 → r4665 → r4677 as fixes landed |
 | Pin qsvencc to the Tualua fork until an official release carries the fixes | Upstream release lags; fixes (metrics sync, flush drop, seek, open-GOP trim) needed now | ⚠️ Revisit — return to official release (backlog 999.4) |
-| Byte identity (sha256 vs isolated reference) as the lock criterion instead of PSNR threshold | Hardware encode proved deterministic; PSNR ≥ 30 dB missed partial corruption | ✓ Good — 640 sessions, 0 mismatches; r4604 still caught |
+| Byte identity (sha256 vs isolated reference) as the lock criterion instead of PSNR threshold | Hardware encode proved deterministic; PSNR ≥ 30 dB missed partial corruption | ✓ Good — 640 sessions, 0 mismatches (on A380; B50 — backlog 999.7); r4604 still caught |
 | ffmpeg 9 (BtbN n9.0.2 static, pinned URL+sha256) as the primary ffmpeg in both images | dovi_rpu for AV1, av1_qsv; one pinned binary for dev and runtime | ✓ Good — ENV-01 and COR-01 re-verified on it 2026-10-04 |
 
 ## Evolution
