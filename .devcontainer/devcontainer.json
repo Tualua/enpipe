@@ -21,7 +21,7 @@
     "ghcr.io/devcontainers/features/node:2": { "version": "lts" }
   },
 
-  // --- Проброс Intel Arc A380 (VA-API/QSV): узлы /dev/dri (card* + renderD*) ---
+  // --- Проброс Intel Arc B50 (Battlemage) (VA-API/QSV): узлы /dev/dri (card* + renderD*) ---
   // Права на renderD-узел выдаёт post-create (GID группы render зависит от хоста).
   //
   // --group-add keep-groups (rootless Podman → crun run.oci.keep_original_groups=1):
@@ -82,7 +82,7 @@
   ],
 
   "containerEnv": {
-    // iHD — драйвер Intel Media для Arc/Alchemist (тот же, что на хосте)
+    // iHD — драйвер Intel Media для Intel Arc (тот же, что на хосте)
     "LIBVA_DRIVER_NAME": "iHD",
 
     // Патченный vpl-gpu-rt (/opt, из релиза 8.32-vppsync10) грузится диспетчером
