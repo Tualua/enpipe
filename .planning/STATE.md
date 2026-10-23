@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 Phase: 10 (frame-extraction-alignment) — EXECUTING
 Plan: 2 of 9
 Status: Executing Phase 10
-Last activity: 2026-10-23 - Completed quick task 261023-gpq: перепин ffmpeg на месячную сборку BtbN
+Last activity: 2026-10-23 - Completed quick task 261023-9hm: документация текущего железа — Arc B50 вместо A380
 
 Progress: [████████░░] 78%
 
@@ -67,6 +67,7 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261023-9hm | Рабочая карта Arc A380 → Arc B50 (Battlemage): текущее железо в CLAUDE.md, PROJECT.md, codebase/STACK/INTEGRATIONS/CONCERNS и комментариях Dockerfile/devcontainer; замеры A380 (0/640 метрик r4658, 45003f1, побайтные сверки) оставлены как история с пометкой и ссылкой на backlog 999.7. Поведение кода и сборки не менялось | 2026-10-23 | 41d0203 | [261023-9hm-b50-replaces-a380-docs](./quick/261023-9hm-b50-replaces-a380-docs/) |
 | 261023-gpq | ffmpeg BtbN → месячная сборка autobuild-2026-09-30-13-08 (n9.0.2-17): старый autobuild-2026-10-01 удалён (404), devcontainer не собирался; пин URL+sha256 в обоих Dockerfile, политика «только сборка конца месяца». Devcontainer собран с новым пином; рантайм-образ проходит шаг ffmpeg, но падает на `enpipe --help` (libGL.so.1 из opencv-python — отдельная проблема) | 2026-10-23 | 6ce07be | [261023-gpq-ffmpeg-btbn-2026-09-30-404-autobuild-202](./quick/261023-gpq-ffmpeg-btbn-2026-09-30-404-autobuild-202/) |
 | 261005-k5w | qsvencc → 8.32+vppsync10 (r4677, апстрим-мастер + фикс #333): пин URL+sha256, порог 4677; патченный vpl-gpu-rt 26.3.2-av1auxdata в /opt + ONEVPL_PRIORITY_PATH (ENV/containerEnv), сверка версии libmfx-gen1.2 при сборке; на A380 вывод без опции побайтно равен стоковому, --av1-chroma-delta-q -32 работает; аппаратный тир 13+2 passed. Образы не пересобраны | 2026-10-05 | 810945c | [261005-k5w-qsvencc-8-32-vppsync10-r4677-url-sha256-](./quick/261005-k5w-qsvencc-8-32-vppsync10-r4677-url-sha256-/) |
 | 260709-4h8 | `-o` accepts a directory → `<stem>.Encoded<suffix>` inside it (fixes chunks-workdir PermissionError) | 2026-07-09 | cb49cc7 | [260709-4h8-o-accepts-a-directory-output-filename-be](./quick/260709-4h8-o-accepts-a-directory-output-filename-be/) |
