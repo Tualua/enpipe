@@ -4,7 +4,7 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-10-23T06:57:45.211Z"
+last_updated: "2026-10-23T06:57:49.797Z"
 last_activity: 2026-10-23 -- Phase 10 execution started
 progress:
   total_phases: 11
@@ -54,6 +54,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: 10-07: n=0 использует -copyts без -ss, pts сверяются по showinfo (WR-02)
 - [Phase 10]: 10-08: D-13 = >=2 разнесённых (>2W) места файла; повторы обходят ±2W; align_retry_step > 2·align_window
 - [Phase 10]: Phase 10-09: разнос голосов sep = max(2W, align_retry_step // 2) ≈ 1 с, единая align.vote_separation (WR-05)
+- [Phase 10]: [Phase 10-10] WR-06 вариант (б): поведение повторов D-11 не менялось; масштаб 49..225, 241, 289 задокументирован и закреплён тестом
 
 ### Pending Todos
 
@@ -108,6 +109,7 @@ None yet.
 | Phase 10 P07 | 10min | 2 tasks | 3 files |
 | Phase 10 P08 | 20m | 3 tasks | 8 files |
 | Phase 10 P09 | 15m | 3 tasks | 7 files |
+| Phase 10 P10 | 5m | 2 tasks | 4 files |
 
 ## Deferred Items
 
