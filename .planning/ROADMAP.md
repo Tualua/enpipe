@@ -252,3 +252,13 @@ Plans:
 Plans:
 
 - [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.7: Перепроверка аппаратных выводов A380 на Arc B50 (Battlemage) (BACKLOG)
+
+**Goal:** [Captured for future planning] 2026-10-23 оператор заменил Intel Arc A380 (Alchemist) на Arc B50 (Battlemage). Все аппаратные выводы проекта сняты на A380, и на B50 их нужно подтвердить заново, а не переносить как есть: (1) стабильность VPP-метрик qsvencc `--psnr`/`--ssim` (0 отказов из 640 сессий на r4658), которая обосновывает `QSVENCC_METRICS_MIN_REV = 4658` (смежный пункт 999.4); (2) исправление межсессионной порчи кадров (апстрим 45003f1); (3) предпосылки гейта `QSVENCC_MIN_REV`, r4677: фикс `--seek`, фикс open-GOP `--trim`, rigaya #333 (потеря последнего кадра на OpenCL-пути). Отдельно проверить стек на B50: kernel-драйвер (i915/xe), iHD, патченный vpl-gpu-rt 26.3.2-av1auxdata через `ONEVPL_PRIORITY_PATH`, intel-opencl-icd.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with /gsd:review-backlog when ready)
