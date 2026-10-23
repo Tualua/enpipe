@@ -511,6 +511,8 @@ def test_retries_same_flash_one_vote(fake):
 # ±24 покрывают весь файл. При n=225 (цели [0, 56, 112, 168, 224]) свободны 28
 # кадров, но ни один повтор в них не попадает; при n=226 повторы 144 и 200 лежат
 # вне окрестностей целей.
+# Весь диапазон 49..225 закреплён test_retries_absent_whole_range, пример со
+# .scenes — test_retries_with_scenes_example.
 @pytest.mark.parametrize(
     "n, retries",
     [(48, []), (225, []), (226, [144, 200]), (241, []), (289, [])],
@@ -523,6 +525,33 @@ def test_retries_boundary_via_worker(fake, n, retries):
     if n == 48:
         # повторов нет вообще (первый повтор 48 за концом файла), а не «отпали»
         assert all(not align.retry_frames(t, 48, CFG) for t in targets)
+
+
+# Закрепляет «ни на одном энкоде 49..225» из docstring _taken_frames (без .scenes,
+# WR-06, вариант (б)). Граница 225/226 и длины 48, 241, 289 закреплены в
+# test_retries_boundary_via_worker. Чистый перебор, а не 177 прогонов через Fake:
+# условие пропуска то же (f in taken), а реальный путь на соседних длинах уже
+# проверяет граничный тест.
+def test_retries_absent_whole_range():
+    for n in range(49, 226):
+        targets = align.pick_points(n, None, 0, CFG)
+        taken = pair._taken_frames(targets, CFG)
+        allowed = [
+            f
+            for t in targets
+            for f in align.retry_frames(t.enc_frame, n, CFG)
+            if f not in taken
+        ]
+        assert allowed == [], f"n={n}: разрешённые повторы {allowed}"
+
+
+# Пример IN-10 из docstring _taken_frames: со .scenes обычные цели повторы
+# получают — повтор 96 цели 48 лежит вне всех окрестностей и запрошен через
+# _point_worker.
+def test_retries_with_scenes_example(fake):
+    f = fake({SRC: static_film(192), ENC: static_film(192)})
+    pair.check_pair_files(SRC, ENC, CFG, scenes=[(0, 152), (152, 192)])
+    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 48, 96, 143, 151, 191]
 
 
 def test_static_121_retries_skipped(fake):
