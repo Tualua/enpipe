@@ -11,6 +11,8 @@ from enpipe.analysis.align import (
     aggregate,
     combine_junction,
     frame_verdict,
+    junction_replacements,
+    junction_targets,
     pick_points,
     point_verdict,
     retry_frames,
@@ -19,6 +21,7 @@ from enpipe.analysis.align import (
     vote_separation,
     window_range,
 )
+from enpipe.analysis import pair
 from enpipe.analysis.config import AnalysisError, AnalyzeConfig
 from enpipe.analysis.model import (
     ALIGN_ALIGNED,
@@ -164,8 +167,9 @@ def test_row_alignment():
 
 def test_aggregate_rules():
     a, s, u = ALIGN_ALIGNED, ALIGN_SHIFT, ALIGN_UNDETERMINED
+    # по (в) оставшаяся «неопределённо» блокирует «выровнено», хотя голосов 2
     r = aggregate([_pa(i * 48, a if i < 2 else u) for i in range(5)], CFG, 7)
-    assert (r.verdict, r.n_aligned, r.offset) == (a, 2, 7)
+    assert (r.verdict, r.n_aligned, r.offset) == (u, 2, 7)
     r = aggregate([_pa(i * 48, a, 0) for i in range(4)] + [_pa(192, s, 1)], CFG, 0)
     assert (r.verdict, r.shift) == (s, 1)
     r = aggregate([_pa(0, a, 0)] + [_pa(i * 48, u) for i in range(1, 5)], CFG, 0)
@@ -173,6 +177,26 @@ def test_aggregate_rules():
     err = PointAlignment(48, a, shift=0, error="boom")
     r = aggregate([_pa(0, a, 0), err], CFG, 0)
     assert r.verdict == u and r.n_aligned == 1
+
+
+# Контрпример plan-checker к (в): раньше aggregate давал «выровнено», пока
+# 3 голоса есть, а две точки остались «неопределённо» (часть файла не проверена).
+def test_aggregate_undetermined_blocks_aligned():
+    a, s, u = ALIGN_ALIGNED, ALIGN_SHIFT, ALIGN_UNDETERMINED
+    frames_ = [0, 56, 112, 168, 224]
+    r = aggregate(
+        [_pa(0, a, 0), _pa(56, a, 0), _pa(112, a, 0), _pa(168, u), _pa(224, u)], CFG, 0
+    )
+    assert (r.verdict, r.n_aligned) == (u, 3)
+    r = aggregate(
+        [_pa(0, a, 0), _pa(56, a, 0), _pa(112, a, 0), _pa(168, s, 2), _pa(224, u)], CFG, 0
+    )
+    assert (r.verdict, r.shift) == (s, 2)
+    r = aggregate([_pa(f, a, 0) for f in frames_], CFG, 0)
+    assert (r.verdict, r.n_aligned) == (a, 5)
+    err = PointAlignment(224, u, error="boom")
+    r = aggregate([_pa(f, a, 0) for f in frames_[:4]] + [err], CFG, 0)
+    assert r.verdict == u
 
 
 def test_vote_separation():
@@ -289,9 +313,77 @@ def test_window_range_out_of_file():
         window_range(96, 3, 96)
 
 
+# (а), назад, общий лимит: вперёд, пока есть кадры, остаток попыток — назад.
 def test_retry_frames():
     assert retry_frames(0, 1000, CFG) == [48, 96, 144]
-    assert retry_frames(950, 1000, CFG) == [998]
+    # вперёд один (998), два назад: общий лимит align_retry_max = 3
+    assert retry_frames(950, 1000, CFG) == [998, 902, 854]
+    # дрейф сетки: шаг от сдвинутого кадра (вариант 1 WR-06), не 49/96/144
+    assert retry_frames(0, 200, CFG, frozenset({0, 47, 48})) == [49, 97, 145]
+    t225 = pair._taken_frames(pick_points(225, None, 0, CFG), CFG)
+    assert retry_frames(0, 225, CFG, t225) == [81, 137, 193]
+    assert retry_frames(224, 225, CFG, t225) == [143, 87, 31]
+    t401 = pair._taken_frames(pick_points(401, None, 0, CFG), CFG)
+    assert retry_frames(400, 401, CFG, t401) == [352, 275, 227]
+
+
+# Инварианты retry_frames без .scenes на всех длинах 1..1000.
+def test_retry_frames_invariants():
+    sep = vote_separation(CFG)
+    for n in range(1, 1001):
+        targets = pick_points(n, None, 0, CFG)
+        taken = pair._taken_frames(targets, CFG)
+        for t in targets:
+            r = retry_frames(t.enc_frame, n, CFG, taken)
+            assert len(r) <= CFG.align_retry_max, n
+            assert all(0 <= f < n and f not in taken for f in r), (n, r)
+            fwd = [f for f in r if f > t.enc_frame]
+            back = [f for f in r if f < t.enc_frame]
+            assert r == fwd + back, (n, r)
+            if back:
+                assert len(fwd) < CFG.align_retry_max, (n, r)
+            allf = [t.enc_frame] + r
+            for i, x in enumerate(allf):
+                for y in allf[i + 1:]:
+                    assert abs(x - y) > sep, (n, allf)
+
+
+def _scenes_from_starts(starts, n):
+    ends = list(starts[1:]) + [n]
+    return list(zip(starts, ends))
+
+
+# 3а: одинаковые кадры склеек схлопываются, остаётся первый индекс сцены.
+def test_junction_targets_dedup():
+    sc = [(0, 250), (250, 500), (500, 600), (600, 600), (600, 750)]
+    got = junction_targets(1000, sc, 0)
+    assert [t.enc_frame for t in got] == [0, 250, 500, 600]
+    assert got[3].scene == 3
+    assert all(t.junction for t in got)
+    # склейки вне [offset, offset + n) не берутся
+    got = junction_targets(300, [(50, 100), (250, 300), (400, 500)], 100)
+    assert [(t.enc_frame, t.scene) for t in got] == [(150, 1)]
+
+
+# 1б (занятая окрестность своей склейки), порядок (следующие, потом предыдущие),
+# лимит align_retry_max и 2б (разнос замен > vote_separation).
+def test_junction_replacements_rules():
+    def repl(starts, frame, n=1000):
+        sc = _scenes_from_starts(starts, n)
+        targets = pick_points(n, sc, 0, CFG)
+        taken = pair._taken_frames(targets, CFG)
+        junctions = junction_targets(n, sc, 0)
+        target = next(t for t in targets if t.enc_frame == frame)
+        return [t.enc_frame for t in junction_replacements(target, junctions, taken, CFG)]
+
+    # 1б: 260 лежит в окрестности своей цели 250, замен нет
+    assert repl([0, 250, 260, 500, 750, 900], 250) == []
+    starts = [0, 250, 500, 560, 620, 680, 700, 750, 900]
+    assert repl(starts, 0) == [560, 620, 680]
+    assert repl(starts, 500) == [560, 620, 680]
+    # следующая 900 занята; назад: 700, 680 пропущен (разнос 20 <= 24), 620, 560
+    assert repl(starts, 750) == [700, 620, 560]
+    assert repl(starts, 900) == [700, 620, 560]
 
 
 def test_aggregate_distinct_frames():
