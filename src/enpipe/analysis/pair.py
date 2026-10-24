@@ -149,6 +149,7 @@ _PointTask = Tuple[
     int,
     AnalyzeConfig,
     FrozenSet[int],
+    Tuple["align.AlignTarget", ...],
 ]
 
 
@@ -189,36 +190,55 @@ def _taken_frames(targets: Sequence[align.AlignTarget], cfg: AnalyzeConfig) -> F
     )
 
 
+def _measure_target(
+    src: Path,
+    enc: Path,
+    src_pts: Sequence[float],
+    enc_pts: Sequence[float],
+    target: "align.AlignTarget",
+    offset: int,
+    width: int,
+    height: int,
+    cfg: AnalyzeConfig,
+) -> PointAlignment:
+    """Вердикт цели: склейка по кадрам start−1/start (при start = 0 — один кадр)."""
+    if target.junction and target.enc_frame > 0:
+        frames_ = [target.enc_frame - 1, target.enc_frame]
+        pts_ = _measure(
+            src, enc, src_pts, enc_pts, frames_, offset, width, height, cfg, target.scene
+        )
+        return align.combine_junction(pts_)
+    return _measure(
+        src, enc, src_pts, enc_pts, [target.enc_frame], offset, width, height, cfg,
+        target.scene,
+    )[0]
+
+
 def _point_worker(task: _PointTask) -> Tuple[Optional[PointAlignment], Optional[str]]:
     """Вердикт одной точки: (точка, None) или (None, текст ошибки).
 
-    task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg, taken).
-    taken — окрестность ±align.vote_separation(cfg) занятых кадров (цели и start−1 склеек), а не сами
-    кадры: повтор рядом с чужой целью измеряет то же событие. Повторы разных
-    точек между собой могут оказаться рядом (воркеры параллельны, общего
-    состояния нет) — это закрывает разнесённый подсчёт голосов в
-    ``align.aggregate``. Не бросает и не завершает процесс (контракт фонового
-    воркера).
+    task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg, taken,
+    junctions). Не бросает и не завершает процесс (контракт фонового воркера).
     """
-    src, enc, src_pts, enc_pts, target, offset, width, height, cfg, taken = task
+    src, enc, src_pts, enc_pts, target, offset, width, height, cfg, taken, junctions = task
     try:
-        if target.junction and target.enc_frame > 0:
-            frames_ = [target.enc_frame - 1, target.enc_frame]
-            pts_ = _measure(
-                src, enc, src_pts, enc_pts, frames_, offset, width, height, cfg, target.scene
-            )
-            return align.combine_junction(pts_), None
-        point = _measure(
-            src, enc, src_pts, enc_pts, [target.enc_frame], offset, width, height, cfg,
-            target.scene,
-        )[0]
-        if point.verdict != ALIGN_UNDETERMINED or target.junction:
+        point = _measure_target(
+            src, enc, src_pts, enc_pts, target, offset, width, height, cfg
+        )
+        if point.verdict != ALIGN_UNDETERMINED:
             return point, None
-        # Повтор через шаг только для обычных точек (D-11); склейки повторов
-        # не получают — известное ограничение.
-        for f in align.retry_frames(target.enc_frame, len(enc_pts), cfg):
-            if f in taken:
-                continue
+        if target.junction:
+            # Замена соседней склейкой (решения 2026-10-24: 1б, 2б, 3а).
+            for rep in align.junction_replacements(target, junctions, taken, cfg):
+                again = _measure_target(
+                    src, enc, src_pts, enc_pts, rep, offset, width, height, cfg
+                )
+                if again.verdict != ALIGN_UNDETERMINED:
+                    return again, None
+            return point, None
+        # Повтор через шаг для обычных точек (D-11): вперёд со сдвигом за taken,
+        # затем назад, общий лимит align_retry_max.
+        for f in align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken):
             again = _measure(
                 src, enc, src_pts, enc_pts, [f], offset, width, height, cfg, None
             )[0]
@@ -299,10 +319,11 @@ def check_pair_files(
 
     targets = align.pick_points(len(enc_pts), scenes, verdict.offset, cfg)
     taken = _taken_frames(targets, cfg)
+    junctions = tuple(align.junction_targets(len(enc_pts), scenes, verdict.offset))
     tasks = [
         (
             src, enc, src_pts, enc_pts, t, verdict.offset,
-            src_info.width, src_info.height, cfg, taken,
+            src_info.width, src_info.height, cfg, taken, junctions,
         )
         for t in targets
     ]
@@ -329,10 +350,19 @@ def check_pair_files(
             f"{first.enc_frame} — метрики не строятся"
         )
     elif alignment.verdict == ALIGN_UNDETERMINED:
-        reasons.append(
+        text = (
             f"выравнивание не подтверждено: выровнено {alignment.n_aligned} из "
-            f"{len(alignment.points)} точек, нужно ≥ {cfg.align_min_aligned}"
+            f"{len(alignment.points)} точек, нужно ≥ {cfg.align_min_aligned} "
+            "и ни одной неопределённой"
         )
+        undetermined = sorted(
+            {p.enc_frame for p in alignment.points if p.verdict == ALIGN_UNDETERMINED}
+        )
+        if undetermined:
+            text += "; неопределённые точки (кадры энкода): " + ", ".join(
+                str(f) for f in undetermined
+            )
+        reasons.append(text)
     if reasons:
         verdict = replace(verdict, ok=False)
     return PairCheck(

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 from enpipe.analysis.config import AnalysisError, AnalyzeConfig
 from enpipe.analysis.model import (
@@ -206,7 +206,9 @@ def aggregate(points: Sequence[PointAlignment], cfg: AnalyzeConfig, offset: int)
     shifted = [p for p in ordered if p.verdict == ALIGN_SHIFT]
     if shifted:
         verdict, shift = ALIGN_SHIFT, shifted[0].shift
-    elif n_aligned >= cfg.align_min_aligned:
+    elif n_aligned >= cfg.align_min_aligned and not any(
+        p.verdict == ALIGN_UNDETERMINED for p in ordered
+    ):
         verdict, shift = ALIGN_ALIGNED, None
     else:
         verdict, shift = ALIGN_UNDETERMINED, None
@@ -272,16 +274,79 @@ def pick_points(
     return [chosen[f] for f in sorted(chosen)]
 
 
-def retry_frames(enc_frame: int, n_enc: int, cfg: AnalyzeConfig) -> List[int]:
-    """Кадры повторных попыток обычной (не склеечной) точки: через шаг, не за концом файла.
+def retry_frames(
+    enc_frame: int, n_enc: int, cfg: AnalyzeConfig, taken: FrozenSet[int] = frozenset()
+) -> List[int]:
+    """Кадры повторных попыток обычной (не склеечной) точки.
 
-    Склейки повторов не получают (решает вызывающий по ``AlignTarget.junction``):
-    малоподвижные склейки дадут «неопределённо» без попытки соседней точки.
+    Сначала вперёд, пока есть кадры, затем назад оставшимися попытками; всего не
+    более align_retry_max. Кадр в taken сдвигается: вперёд вверх, назад вниз, не
+    за пределы [0, n_enc). Следующий повтор отсчитывается шагом от предыдущего
+    (сдвинутого) кадра, а не от сетки enc_frame + k·шаг: 49 → 97 → 145 при taken
+    {0, 47, 48}. Разнос повторов точки больше vote_separation, потому что шаг
+    больше. Склейки сюда не идут: для них junction_replacements. Закреплено
+    test_retry_frames, test_retry_frames_invariants, test_retry_shifts_past_taken.
     """
     out: List[int] = []
-    for k in range(1, cfg.align_retry_max + 1):
-        f = enc_frame + k * cfg.align_retry_step
+    f = enc_frame
+    while len(out) < cfg.align_retry_max:
+        f += cfg.align_retry_step
+        while f in taken and f < n_enc:
+            f += 1
         if f >= n_enc:
             break
         out.append(f)
+    f = enc_frame
+    while len(out) < cfg.align_retry_max:
+        f -= cfg.align_retry_step
+        while f in taken and f >= 0:
+            f -= 1
+        if f < 0:
+            break
+        out.append(f)
+    return out
+
+
+def junction_targets(
+    n_enc: int, scenes: Optional[Sequence[Tuple[int, int]]], offset: int
+) -> List[AlignTarget]:
+    """Все склейки .scenes внутри энкода: кадр start − offset, по возрастанию.
+
+    Одинаковые кадры схлопываются, остаётся индекс первой сцены (3а).
+    """
+    found: Dict[int, int] = {}
+    for idx, (start, _end) in enumerate(scenes or ()):
+        if offset <= start < offset + n_enc:
+            found.setdefault(start - offset, idx)
+    return [AlignTarget(f, found[f], True) for f in sorted(found)]
+
+
+def junction_replacements(
+    target: AlignTarget,
+    junctions: Sequence[AlignTarget],
+    taken: FrozenSet[int],
+    cfg: AnalyzeConfig,
+) -> List[AlignTarget]:
+    """Соседние склейки взамен «неопределённой» склейки: сначала следующие, потом предыдущие.
+
+    Пропускаются склейки, у которых start−1 или start в taken (весь taken, своя
+    окрестность тоже, 1б), и склейки ближе vote_separation к уже выбранной замене
+    (2б). Не более align_retry_max замен. Закреплено
+    test_junction_replacements_rules.
+    """
+    sep = vote_separation(cfg)
+    after = sorted((j for j in junctions if j.enc_frame > target.enc_frame),
+                   key=lambda j: j.enc_frame)
+    before = sorted((j for j in junctions if j.enc_frame < target.enc_frame),
+                    key=lambda j: -j.enc_frame)
+    out: List[AlignTarget] = []
+    for cand in after + before:
+        if len(out) >= cfg.align_retry_max:
+            break
+        f = cand.enc_frame
+        if f in taken or (f > 0 and f - 1 in taken):
+            continue
+        if any(abs(f - o.enc_frame) <= sep for o in out):
+            continue
+        out.append(cand)
     return out
