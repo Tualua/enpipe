@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-10-24T05:46:39.598Z"
-last_activity: 2026-10-23 -- Phase 10 execution started
+last_updated: "2026-10-24T06:03:33.997Z"
+last_activity: 2026-10-24 -- Phase 10 execution started
 progress:
   total_phases: 11
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 22
-  completed_plans: 17
-  percent: 9
+  completed_plans: 18
+  percent: 18
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10 (frame-extraction-alignment) — EXECUTING
-Plan: 2 of 12
+Plan: 13 of 13 (10-13 выполнен)
 Status: Executing Phase 10
-Last activity: 2026-10-23 -- Phase 10 execution started
+Last activity: 2026-10-24 -- Phase 10 execution started
 
-Progress: [████████░░] 81%
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: 10-08: D-13 = >=2 разнесённых (>2W) места файла; повторы обходят ±2W; align_retry_step > 2·align_window
 - [Phase 10]: Phase 10-09: разнос голосов sep = max(2W, align_retry_step // 2) ≈ 1 с, единая align.vote_separation (WR-05)
 - [Phase 10]: [Phase 10-10] WR-06 вариант (б): поведение повторов D-11 не менялось; масштаб 49..225, 241, 289 задокументирован и закреплён тестом
+- [Phase 10]: [10-13] (в): «выровнено» только без «неопределённо» точек; повторы сдвигаются и идут назад; замены склеек 1б/2б/3а
 
 ### Pending Todos
 
@@ -110,6 +111,7 @@ None yet.
 | Phase 10 P08 | 20m | 3 tasks | 8 files |
 | Phase 10 P09 | 15m | 3 tasks | 7 files |
 | Phase 10 P10 | 5m | 2 tasks | 4 files |
+| Phase 10 P13 | ~1h | 3 tasks | 5 files |
 
 ## Deferred Items
 
@@ -136,7 +138,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-23T08:13:42.052Z
+Last session: 2026-10-24T06:03:29.916Z
 Stopped at: Phase 10 context gathered
 Resume file: .planning/phases/10-frame-extraction-alignment/10-CONTEXT.md
 
