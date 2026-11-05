@@ -290,14 +290,17 @@ def pick_points(
 def retry_frames(
     enc_frame: int, n_enc: int, cfg: AnalyzeConfig, taken: FrozenSet[int] = frozenset()
 ) -> List[int]:
-    """Кадры повторных попыток обычной (не склеечной) точки.
+    """Кадры повторных попыток точки: обычной, а также склейки после замен (WR-08).
 
     Сначала вперёд, пока есть кадры, затем назад оставшимися попытками; всего не
     более align_retry_max. Кадр в taken сдвигается: вперёд вверх, назад вниз, не
     за пределы [0, n_enc). Следующий повтор отсчитывается шагом от предыдущего
     (сдвинутого) кадра, а не от сетки enc_frame + k·шаг: 49 → 97 → 145 при taken
     {0, 47, 48}. Разнос повторов точки больше vote_separation, потому что шаг
-    больше. Склейки сюда не идут: для них junction_replacements. Закреплено
+    больше. Для склейки
+    pair._point_worker берёт префикс длиной в остаток общего лимита после
+    junction_replacements; префикс равен результату при меньшем align_retry_max
+    (test_retry_frames_prefix). Закреплено
     test_retry_frames, test_retry_frames_invariants, test_retry_shifts_past_taken.
     """
     out: List[int] = []
