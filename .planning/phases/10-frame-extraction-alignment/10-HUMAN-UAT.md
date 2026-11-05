@@ -123,5 +123,5 @@ blocked: 0
   reason: "WR-08 (10-REVIEW.md после 10-13) и UAT тест 9: частичный энкод Young Sherlock S01E01 сцен 40..42, --offset 4737, с .scenes — отказ «неопределённые точки (кадры энкода): 75, 149» (запас 2.4/2.6 дБ < 3.0, замен нет); без .scenes — aligned 5/5"
   severity: major
   test: 8
-  fix: "_point_worker: для склейки после замен (или без них) — повторы align.retry_frames(start, n, cfg, taken) остатком общего лимита align_retry_max (замены+повторы ≤ 3); регрессия на Fake: 3 сцены, склейки «неопределённо», повтор «выровнено» → aligned; повтор «сдвиг» → shift; лимит; склейка 0; docstring _point_worker/junction_replacements/AlignTarget (IN-16, IN-17) — 10-14
+  fix: "_point_worker: для склейки после замен (или без них) — повторы align.retry_frames(start, n, cfg, taken) остатком общего лимита align_retry_max (замены+повторы ≤ 3); регрессия на Fake: 3 сцены, склейки «неопределённо», повтор «выровнено» → aligned; повтор «сдвиг» → shift; лимит; склейка 0; docstring _point_worker и junction_replacements под новое поведение — 10-14
 
