@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 import math
+from dataclasses import replace
 
 from enpipe.analysis.align import (
     AlignTarget,
@@ -351,6 +352,34 @@ def test_retry_frames_invariants():
 def _scenes_from_starts(starts, n):
     ends = list(starts[1:]) + [n]
     return list(zip(starts, ends))
+
+
+# Обосновывает срез retry_frames(...)[:остаток] в pair._point_worker: результат при
+# меньшем align_retry_max равен префиксу результата при полном лимите. Контракт
+# retry_frames не меняется.
+_PSC = [(0, 100), (100, 175), (175, 249), (249, 502), (502, 600)]
+
+
+@pytest.mark.parametrize(
+    "ns,scenes,offset",
+    [
+        pytest.param(range(1, 601), None, 0, id="no_scenes"),
+        pytest.param([402], _PSC, 100, id="partial"),
+        pytest.param(
+            [1000], _scenes_from_starts([0, 250, 500, 600, 750, 900], 1000), 0,
+            id="jstarts",
+        ),
+    ],
+)
+def test_retry_frames_prefix(ns, scenes, offset):
+    for n in ns:
+        targets = pick_points(n, scenes, offset, CFG)
+        taken = pair._taken_frames(targets, CFG)
+        for t in targets:
+            full = retry_frames(t.enc_frame, n, CFG, taken)
+            for k in range(CFG.align_retry_max + 1):
+                cfg_k = replace(CFG, align_retry_max=k)
+                assert retry_frames(t.enc_frame, n, cfg_k, taken) == full[:k], (n, t, k)
 
 
 # 3а: одинаковые кадры склеек схлопываются, остаётся первый индекс сцены.
