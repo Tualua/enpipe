@@ -8,7 +8,7 @@ updated: 2026-10-24T07:30:00Z
 
 ## Current Test
 
-[ожидает оператора: тесты 8, 9]
+[ожидает оператора: тест 8]
 
 ## Tests
 
@@ -50,14 +50,20 @@ commands: |
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --jobs 1,2
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv          # частичный энкод, без --offset → «сдвиг»
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --offset N
-result: [pending]
+result: pass (корректность) — прогон Claude по просьбе оператора 2026-11-05, B50, пара Young Sherlock S01E01 (HEVC PQ 3840x1600 → AV1 enpipe):
+  - полная пара (76378 кадров, .scenes 592 сцены): aligned 5/5 (648, 19050, 38111, 57516, 71293), запас 3.9..24.9 дБ; jobs 1 — 4.75 с/точку, jobs 2 — 2.90 с/точку
+  - частичный энкод сцен 40..42 ([4737, 5139), 402 кадра) без --offset: отказ «число кадров различается», подсказка «--offset 4737 (сцены 40..42)» первой
+  - тот же энкод, --offset 4737, с .scenes: ОТКАЗ на верной паре — «выровнено 3 из 5 …; неопределённые точки (кадры энкода): 75, 149» (склейки сцен 41 и 42, запас 2.4 и 2.6 дБ < align_margin_db 3.0; замен нет — все три склейки энкода уже цели)
+  - тот же энкод без .scenes (check_pair_files напрямую): --offset 4737 → aligned 5/5; 4738 → shift −1 во всех 5 точках; 4736 → shift +1 во всех 5 точках
+  - --offset 4738 с .scenes отвергается предпроверкой («не совпадает с началом ни одной сцены»), до выравнивания не доходит
+  Ложного «выровнено» нет; сдвиг ±1 ловится. Наблюдение для теста 8: WR-08 шире кадра 0 — частичный энкод из 1–3 сцен с .scenes даёт ложный отказ на любой склейке «неопределённо» (замен нет).
 
 ## Summary
 
 total: 9
-passed: 0
+passed: 1
 issues: 7
-pending: 2
+pending: 1
 skipped: 0
 blocked: 0
 
