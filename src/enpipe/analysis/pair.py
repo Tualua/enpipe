@@ -234,18 +234,23 @@ def _point_worker(task: _PointTask) -> Tuple[Optional[PointAlignment], Optional[
         )
         if point.verdict != ALIGN_UNDETERMINED:
             return point, None
+        budget = cfg.align_retry_max
         if target.junction:
-            # Замена соседней склейкой (решения 2026-10-24: 1б, 2б, 3а).
-            for rep in align.junction_replacements(target, junctions, taken, cfg):
+            # Замены первыми (решения 2026-10-24: 1б, 2б, 3а), остаток общего
+            # лимита — на повторы (WR-08, 2026-11-05).
+            reps = align.junction_replacements(target, junctions, taken, cfg)
+            for rep in reps:
                 again = _measure_target(
                     src, enc, src_pts, enc_pts, rep, offset, width, height, cfg
                 )
                 if again.verdict != ALIGN_UNDETERMINED:
                     return again, None
-            return point, None
-        # Повтор через шаг для обычных точек (D-11): вперёд со сдвигом за taken,
-        # затем назад, общий лимит align_retry_max.
-        for f in align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken):
+            budget -= len(reps)
+        # Повтор через шаг (D-11): вперёд со сдвигом за taken, затем назад. Срез
+        # равен retry_frames при лимите budget (test_retry_frames_prefix), поэтому
+        # контракт retry_frames не меняется; повтор склейки отсчитывается от её
+        # кадра start и меряется одиночным кадром, как обычная точка.
+        for f in align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken)[:budget]:
             again = _measure(
                 src, enc, src_pts, enc_pts, [f], offset, width, height, cfg, None
             )[0]
