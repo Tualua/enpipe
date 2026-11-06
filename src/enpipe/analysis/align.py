@@ -323,6 +323,36 @@ def retry_frames(
     return out
 
 
+def junction_retry_frames(
+    target: AlignTarget,
+    junctions: Sequence[AlignTarget],
+    n_enc: int,
+    cfg: AnalyzeConfig,
+    taken: FrozenSet[int] = frozenset(),
+) -> List[int]:
+    """Повторы склейки только внутри её сцены [start, следующая склейка энкода).
+
+    Сцена — чанк энкода, а ошибка seek/trim со вставленным числом кадров даёт сдвиг,
+    ограниченный чанком; соседний чанк его не покажет (решение оператора 2026-11-06,
+    CR-01). Поэтому из ``retry_frames`` остаются кадры f, target.enc_frame <= f < end,
+    где end — ближайшая следующая склейка, а для последней — n_enc. Повторы назад
+    лежат в предыдущей сцене и отбрасываются всегда; вперёд отбрасывается кадр за
+    концом сцены, в том числе сдвинутый за taken. Результат — префикс
+    ``retry_frames``, поэтому срез [:budget] в воркере корректен. Пустой список —
+    склейка остаётся «неопределённо». Закреплено test_junction_retry_frames; через
+    ``check_pair_files`` — test_junction_retry_in_scene_refused.
+    """
+    end = min(
+        (j.enc_frame for j in junctions if j.enc_frame > target.enc_frame),
+        default=n_enc,
+    )
+    return [
+        f
+        for f in retry_frames(target.enc_frame, n_enc, cfg, taken)
+        if target.enc_frame <= f < end
+    ]
+
+
 def junction_targets(
     n_enc: int, scenes: Optional[Sequence[Tuple[int, int]]], offset: int
 ) -> List[AlignTarget]:

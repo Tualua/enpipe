@@ -214,28 +214,36 @@ def _measure_target(
     )[0]
 
 
-def _point_worker(task: _PointTask) -> Tuple[Optional[PointAlignment], Optional[str]]:
-    """Вердикт одной точки: (точка, None) или (None, текст ошибки).
+def _point_worker(
+    task: _PointTask,
+) -> Tuple[Tuple[PointAlignment, ...], Optional[str]]:
+    """Вердикт одной точки: (точки, None) или ((), текст ошибки).
 
     task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg, taken,
-    junctions). Обычные точки: повторы через ``align.retry_frames(..., taken)``
-    (вперёд со сдвигом за taken, затем назад, лимит align_retry_max). Склейки:
-    сначала замены через ``align.junction_replacements``, замена проверяется как
-    склейка; если замен нет или все «неопределённо», склейка получает повторы
-    ``align.retry_frames(target.enc_frame, n, cfg, taken)`` с правилами обычной
-    точки, повтор проверяется одиночным кадром. Лимит align_retry_max общий на
-    замены и повторы склейки: сначала замены, остаток — повторы (WR-08, решение
-    оператора 2026-11-05). Остаток задаётся срезом префикса, он равен
-    retry_frames при меньшем лимите (test_retry_frames_prefix). При дефолтах
-    склейка декодирует не больше 8 кадров энкода (2 + 3·2), обычная точка — не
-    больше 4. Якоря: test_partial_junctions_retried_aligned (повторы без замен),
-    test_junction_budget_shared (3 замены — повторов нет), test_junction_zero_retry
-    (склейка на кадре 0). Возвращается первый не-«неопределённо» результат, иначе
-    исходная точка. Совпадающие повторы и замены у разных точек декодируются
-    повторно (общего состояния у воркеров нет, например n=225 без .scenes: кадр
-    193 трижды); голоса считает ``align.aggregate`` по уникальным кадрам
-    (test_retries_via_worker, test_junction_shared_replacement). Не бросает и не
-    завершает процесс (контракт фонового воркера).
+    junctions). В кортеже точек [0] — итог цели, [1:] — голоса замен «выровнено»,
+    не закрывших цель (``check_pair_files`` кладёт все в points).
+
+    Обычная точка: повторы ``align.retry_frames(..., taken)`` (вперёд со сдвигом
+    за taken, затем назад, лимит align_retry_max). Склейка «неопределённо»:
+    1) замены ``align.junction_replacements`` по порядку, каждая меряется как
+    склейка и тратит 1 из общего лимита; «сдвиг» замены — сразу итог цели;
+    «выровнено» замены — голос, перебор замен прекращается, цель не закрыта
+    (замена — начало другого чанка, WR-09); «неопределённо» — следующая замена;
+    2) повторы ``align.junction_retry_frames`` только внутри сцены склейки
+    остатком общего лимита (align_retry_max − измеренные замены; WR-08, CR-01),
+    повтор меряется одиночным кадром; первый не-«неопределённо» — итог цели.
+    Ничто не закрыло цель — итог остаётся исходной «неопределённо», и правило (в)
+    ``align.aggregate`` даёт отказ. Остаток задаётся срезом префикса
+    (test_retry_frames_prefix). При дефолтах склейка декодирует не больше 8 кадров
+    энкода (2 + 3·2), обычная точка — не больше 1 + 3. Якоря:
+    test_junction_retry_in_scene_refused, test_junction_replacement_not_closing,
+    test_junction_in_scene_shift, test_junction_replacement_vote_budget,
+    test_partial_junctions_retried_aligned, test_junction_budget_shared,
+    test_junction_zero_retry. Совпадающие повторы и замены у разных точек
+    декодируются повторно (общего состояния у воркеров нет, например n=225 без
+    .scenes: кадр 193 трижды); голоса считает ``align.aggregate`` по уникальным
+    кадрам (test_retries_via_worker, test_junction_shared_replacement). Не бросает
+    и не завершает процесс (контракт фонового воркера).
     """
     src, enc, src_pts, enc_pts, target, offset, width, height, cfg, taken, junctions = task
     try:
@@ -243,37 +251,44 @@ def _point_worker(task: _PointTask) -> Tuple[Optional[PointAlignment], Optional[
             src, enc, src_pts, enc_pts, target, offset, width, height, cfg
         )
         if point.verdict != ALIGN_UNDETERMINED:
-            return point, None
+            return (point,), None
         budget = cfg.align_retry_max
+        votes: List[PointAlignment] = []
         if target.junction:
             # Замены первыми (решения 2026-10-24: 1б, 2б, 3а), остаток общего
-            # лимита — на повторы (WR-08, 2026-11-05).
-            reps = align.junction_replacements(target, junctions, taken, cfg)
-            for rep in reps:
+            # лимита — на повторы в сцене (WR-08, 2026-11-05).
+            for rep in align.junction_replacements(target, junctions, taken, cfg):
                 again = _measure_target(
                     src, enc, src_pts, enc_pts, rep, offset, width, height, cfg
                 )
-                if again.verdict != ALIGN_UNDETERMINED:
-                    return again, None
-            budget -= len(reps)
-        # Повтор через шаг (D-11): вперёд со сдвигом за taken, затем назад. Срез
-        # равен retry_frames при лимите budget (test_retry_frames_prefix), поэтому
-        # контракт retry_frames не меняется; повтор склейки отсчитывается от её
-        # кадра start и меряется одиночным кадром, как обычная точка.
-        for f in align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken)[:budget]:
+                budget -= 1
+                if again.verdict == ALIGN_SHIFT:
+                    return (again,), None
+                if again.verdict == ALIGN_ALIGNED:
+                    # Другой чанк: голос, но цель не закрыта (WR-09). Следующие
+                    # замены цель закрыть не могут и съели бы остаток лимита,
+                    # нужный повторам в сцене, поэтому перебор прекращается.
+                    votes.append(again)
+                    break
+            retries = align.junction_retry_frames(target, junctions, len(enc_pts), cfg, taken)
+        else:
+            retries = align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken)
+        # Повтор через шаг (D-11): срез равен retries при лимите budget
+        # (test_retry_frames_prefix); повтор меряется одиночным кадром.
+        for f in retries[: max(budget, 0)]:
             again = _measure(
                 src, enc, src_pts, enc_pts, [f], offset, width, height, cfg, None
             )[0]
             if again.verdict != ALIGN_UNDETERMINED:
-                return again, None
-        return point, None
+                return (again, *votes), None
+        return (point, *votes), None
     except (AnalysisError, OSError, ValueError) as e:
-        return None, str(e)
+        return (), str(e)
     except Exception as e:  # noqa: BLE001
         # drain-then-report: одна точка не должна обрывать остальные и прятать
         # их ошибки; MemoryError возможен на окне 4K. KeyboardInterrupt и
         # SystemExit не Exception и проходят наружу.
-        return None, f"{type(e).__name__}: {e}"
+        return (), f"{type(e).__name__}: {e}"
 
 
 # --------------------------------------------------------------------------- #
@@ -354,13 +369,15 @@ def check_pair_files(
 
     reasons: List[str] = []
     points: List[PointAlignment] = []
-    for target, (point, err) in zip(targets, results):
-        if point is None:
+    for target, (pts, err) in zip(targets, results):
+        if not pts:
             reasons.append(f"точка {target.enc_frame}: {err}")
-            point = PointAlignment(
-                target.enc_frame, ALIGN_UNDETERMINED, scene=target.scene, error=err
+            pts = (
+                PointAlignment(
+                    target.enc_frame, ALIGN_UNDETERMINED, scene=target.scene, error=err
+                ),
             )
-        points.append(point)
+        points.extend(pts)
 
     alignment = align.aggregate(points, cfg, verdict.offset)
     if alignment.verdict == ALIGN_SHIFT:
