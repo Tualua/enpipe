@@ -13,6 +13,7 @@ from enpipe.analysis.align import (
     combine_junction,
     frame_verdict,
     junction_replacements,
+    junction_retry_frames,
     junction_targets,
     pick_points,
     point_verdict,
@@ -424,3 +425,25 @@ def test_aggregate_distinct_frames():
     # разнос 25 > sep (24 уже не засчитывается)
     two = aggregate([_pa(24, a, 0), _pa(49, a, 0)], CFG, 0)
     assert two.verdict == ALIGN_ALIGNED and two.n_aligned == 2
+
+
+# Повтор склейки — только в её сцене [start, следующая склейка) (CR-01): назад всегда
+# вне сцены, вперёд за концом отбрасывается, в том числе кадр, сдвинутый за taken за
+# конец сцены. Результат — префикс retry_frames.
+def test_junction_retry_frames():
+    def jn(*starts):
+        return [AlignTarget(f, i, True) for i, f in enumerate(starts)]
+
+    js = jn(0, 250, 500, 600, 750, 900)
+    assert junction_retry_frames(
+        AlignTarget(500, 2, True), jn(0, 250, 500, 520, 750, 900), 1000, CFG
+    ) == []
+    assert junction_retry_frames(AlignTarget(500, 2, True), js, 1000, CFG) == [548, 596]
+    assert junction_retry_frames(AlignTarget(900, 5, True), js, 1000, CFG) == [948, 996]
+    assert junction_retry_frames(AlignTarget(152, 1, True), jn(0, 152), 192, CFG) == []
+    assert junction_retry_frames(AlignTarget(0, 0, True), jn(0, 152), 192, CFG) == [
+        48, 96, 144
+    ]
+    assert junction_retry_frames(
+        AlignTarget(500, 0, True), jn(500, 560), 1000, CFG, frozenset(range(540, 560))
+    ) == []

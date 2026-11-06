@@ -364,8 +364,10 @@ def test_retry_shifts_past_taken(fake):
         [i / 24 for i in range(200)], [i / 24 for i in range(200)],
         align.AlignTarget(0), 0, W, H, CFG, frozenset({0, 47, 48}), (),
     )
-    point, err = pair._point_worker(task)
-    assert err is None and point.enc_frame == 0
+    pts, err = pair._point_worker(task)
+    assert err is None and len(pts) == 1
+    point = pts[0]
+    assert point.enc_frame == 0
     assert point.verdict == ALIGN_UNDETERMINED
     assert (ENC, 48, 1) not in f.calls
     assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 49, 97, 145]
@@ -597,13 +599,15 @@ def test_retries_present_from_198():
 
 
 # Со .scenes: цель 48 получает повтор 96, цели 143 и 191 — повторы назад 95 и 118;
-# склейки 0 и 152 замен не получают (единственный другой кандидат в taken)
-# и получают повторы 73 и 104 (WR-08).
+# склейки 0 и 152 замен не получают (единственный другой кандидат в taken).
+# Склейка 0 получает повтор 73 в своей сцене [0, 152). У склейки 152 повторов нет:
+# вперёд кадров нет, а повтор назад 104 лежит в предыдущей сцене и отбрасывается
+# (CR-01: сцена — чанк, чужой чанк сдвиг склейки не покажет).
 def test_retries_with_scenes_example(fake):
     f = fake({SRC: static_film(192), ENC: static_film(192)})
     pair.check_pair_files(SRC, ENC, CFG, scenes=[(0, 152), (152, 192)])
     assert sorted(c[1] for c in f.calls if c[0] == ENC) == [
-        0, 48, 73, 95, 96, 104, 118, 143, 151, 191
+        0, 48, 73, 95, 96, 118, 143, 151, 191
     ]
 
 
@@ -746,26 +750,28 @@ def test_junction_all_noisy(fake):
     assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 749, 899]
 
 
-# Статичная склейка 500 заменяется следующей по кадру склейкой 600 (сцена 3).
+# Статичная склейка 500: замена 600 «выровнено» — только голос (WR-09), цель
+# закрывает повтор 548 внутри её сцены [500, 600).
 def test_junction_replaced_by_next(fake):
     film = _static_ranges(noisy_film(1000), (490, 510))
     f = fake({SRC: film, ENC: film})
     chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(JSTARTS))
     assert chk.ok is True and chk.alignment.verdict == ALIGN_ALIGNED
-    assert chk.alignment.n_aligned == 5
-    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 600, 750, 900]
-    assert [p.scene for p in chk.alignment.points][2] == 3
-    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 599, 749, 899]
+    assert chk.alignment.n_aligned == 6
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 548, 600, 750, 900]
+    assert [p.scene for p in chk.alignment.points][3] == 3
+    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 548, 599, 749, 899]
 
 
-# Последняя склейка 900 статична, следующих нет: замена назад на 600.
+# Последняя склейка 900 статична, следующих нет: замена назад на 600 — голос (WR-09),
+# цель закрывает повтор 948 в её сцене [900, 1000).
 def test_junction_replaced_backward(fake):
     film = _static_ranges(noisy_film(1000), (890, 910))
     f = fake({SRC: film, ENC: film})
     chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(JSTARTS))
     assert chk.ok is True and chk.alignment.verdict == ALIGN_ALIGNED
-    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 500, 600, 750]
-    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 599, 749, 899]
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 500, 600, 750, 948]
+    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 599, 749, 899, 948]
 
 
 # Статичны 500 и 600: замена 600 «неопределённо», остаток лимита 2 -> повторы 548 и 596
@@ -805,27 +811,31 @@ def test_junction_replacement_spacing(fake):
     assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 548, 596, 599, 749, 899]
 
 
-# Одна склейка-замена у двух целей (250 и 500): запрошена у обеих, голос один.
+# Одна склейка-замена у двух целей (250 и 500): запрошена у обеих, голос один (WR-09:
+# замена — голос, цели закрывают повторы в своих сценах: 298 в [250, 500), 548 в [500, 560)).
 def test_junction_shared_replacement(fake):
     starts = [0, 250, 500, 560, 620, 680, 700, 750, 900]
     film = _static_ranges(noisy_film(1000), (240, 260), (490, 510))
     f = fake({SRC: film, ENC: film})
     chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(starts))
     assert chk.ok is True and chk.alignment.verdict == ALIGN_ALIGNED
-    assert chk.alignment.n_aligned == 4
-    assert [p.enc_frame for p in chk.alignment.points] == [0, 560, 560, 750, 900]
-    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 559, 559, 749, 899]
+    assert chk.alignment.n_aligned == 5
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 298, 548, 560, 560, 750, 900]
+    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [
+        0, 249, 298, 499, 548, 559, 559, 749, 899
+    ]
 
 
-# 3а: две склейки с одним кадром (600, 600) схлопываются, 599 запрошен один раз.
+# 3а: две склейки с одним кадром (600, 600) схлопываются, 599 запрошен один раз;
+# замена 600 — голос (WR-09), цель 500 закрывает повтор 548 в сцене [500, 600).
 def test_junction_duplicate_start(fake):
     sc = [(0, 250), (250, 500), (500, 600), (600, 600), (600, 750), (750, 900), (900, 1000)]
     film = _static_ranges(noisy_film(1000), (490, 510))
     f = fake({SRC: film, ENC: film})
     chk = pair.check_pair_files(SRC, ENC, CFG, scenes=sc)
     assert chk.ok is True and chk.alignment.verdict == ALIGN_ALIGNED
-    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 600, 750, 900]
-    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 599, 749, 899]
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 548, 600, 750, 900]
+    assert sorted(c[1] for c in f.calls if c[0] == ENC) == [0, 249, 499, 548, 599, 749, 899]
 
 
 def test_short_encode_undetermined(fake):
@@ -886,7 +896,10 @@ def test_partial_junction_retry_shift(fake):
     assert any("сдвиг +1" in r and "в точке энкода 197" in r for r in chk.reasons)
 
 
-# Все повторы склеек «неопределённо»: отказ, у каждой склейки ровно 3 повтора.
+# Все повторы склеек «неопределённо»: отказ. CR-01: повторы только в своей сцене —
+# у склейки 75 один повтор 123 (сцена [75, 149)), у склейки 149 три (197, 245, 326).
+# Повторы 174 и 222 склейки 75 лежат за концом её сцены и не запрашиваются; статичные
+# диапазоны (171, 177), (219, 225) защищают от возврата этих кадров (М9).
 def test_partial_junction_retries_all_undetermined(fake):
     src, enc = _partial(
         (70, 80), (120, 126), (144, 154), (171, 177), (194, 200), (219, 225),
@@ -898,7 +911,7 @@ def test_partial_junction_retries_all_undetermined(fake):
     assert chk.alignment.n_aligned == 3
     assert chk.reasons[-1].endswith("неопределённые точки (кадры энкода): 75, 149")
     assert _enc_calls(f) == [
-        (0, 1), (74, 2), (123, 1), (148, 2), (174, 1), (197, 1), (222, 1),
+        (0, 1), (74, 2), (123, 1), (148, 2), (197, 1),
         (245, 1), (301, 1), (326, 1), (401, 1),
     ]
 
@@ -937,4 +950,71 @@ def test_junction_budget_shared(fake):
     assert chk.reasons[-1].endswith("неопределённые точки (кадры энкода): 500")
     assert _enc_calls(f) == [
         (0, 1), (249, 2), (499, 2), (559, 2), (619, 2), (679, 2), (749, 2), (899, 2)
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# CR-01 / WR-09: склейка закрывается только своей сценой (решения оператора 2026-11-06)
+# --------------------------------------------------------------------------- #
+
+
+def _shift_in(static, shift):
+    """src со статикой static; enc = src, но кадры shift[0]..shift[1] взяты на +1."""
+    src = _static_ranges(noisy_film(1000), static)
+    enc = list(src)
+    for i in range(shift[0], shift[1] + 1):
+        enc[i] = src[i + 1]
+    return src, enc
+
+
+# Зонд CR-01: сцена 500..519 сдвинута на +1, соседние чанки исправны. На HEAD повтор
+# 548 лежал в чужой сцене и давал ложное «выровнено» (ok True). Теперь повтор вне сцены
+# [500, 520) отброшен, замен нет, склейка остаётся «неопределённо» -> отказ.
+def test_junction_retry_in_scene_refused(fake):
+    src, enc = _shift_in((490, 510), (500, 519))
+    f = fake({SRC: src, ENC: enc})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc([0, 250, 500, 520, 750, 900]))
+    assert chk.ok is False and chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.reasons[-1].endswith("неопределённые точки (кадры энкода): 500")
+    assert _enc_calls(f) == [(0, 1), (249, 2), (499, 2), (749, 2), (899, 2)]
+
+
+# Зонд WR-09: замена 560 «выровнено» (чужой чанк) — голос, но цель 500 не закрывает.
+# На HEAD замена закрывала цель, и файл был «выровнено» при сдвиге в сцене 500..519.
+def test_junction_replacement_not_closing(fake):
+    src, enc = _shift_in((490, 510), (500, 519))
+    f = fake({SRC: src, ENC: enc})
+    chk = pair.check_pair_files(
+        SRC, ENC, CFG, scenes=_sc([0, 250, 500, 520, 560, 750, 900])
+    )
+    assert chk.ok is False and chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == 5
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 500, 560, 750, 900]
+    assert chk.reasons[-1].endswith("неопределённые точки (кадры энкода): 500")
+    assert _enc_calls(f) == [(0, 1), (249, 2), (499, 2), (559, 2), (749, 2), (899, 2)]
+
+
+# Сдвиг +1 внутри сцены [500, 600) при статичном начале: замена 600 «выровнено» (голос),
+# повтор 548 в сцене видит сдвиг -> вердикт файла «сдвиг». На HEAD замена 600 закрывала
+# цель и давала ложное «выровнено».
+def test_junction_in_scene_shift(fake):
+    src, enc = _shift_in((490, 510), (530, 560))
+    fake({SRC: src, ENC: enc})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(JSTARTS))
+    assert chk.ok is False and chk.alignment.verdict == ALIGN_SHIFT
+    assert chk.alignment.shift == 1
+    assert any("сдвиг +1" in r and "в точке энкода 548" in r for r in chk.reasons)
+
+
+# Общий лимит: замена 700 «выровнено» (голос) тратит 1 из 3, на повторы остаётся 2
+# (548, 596 статичны); третий повтор 644 не берётся, склейка 500 не закрыта -> отказ.
+def test_junction_replacement_vote_budget(fake):
+    film = _static_ranges(noisy_film(1000), (490, 600))
+    f = fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc([0, 250, 500, 700, 750, 900]))
+    assert chk.ok is False and chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == 5
+    assert chk.reasons[-1].endswith("неопределённые точки (кадры энкода): 500")
+    assert _enc_calls(f) == [
+        (0, 1), (249, 2), (499, 2), (548, 1), (596, 1), (699, 2), (749, 2), (899, 2)
     ]
