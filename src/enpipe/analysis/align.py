@@ -353,6 +353,44 @@ def junction_retry_frames(
     ]
 
 
+def junction_prev_retry_frames(
+    target: AlignTarget,
+    junctions: Sequence[AlignTarget],
+    n_enc: int,
+    cfg: AnalyzeConfig,
+    taken: FrozenSet[int] = frozenset(),
+) -> List[int]:
+    """Повторы стороны start−1 склейки только внутри предыдущей сцены.
+
+    Кадр start−1 — последний кадр ПРЕДЫДУЩЕГО чанка; сдвиг seek/trim при сохранённом
+    числе кадров ограничен чанком, и чанк после склейки его не покажет (решение
+    оператора 2026-11-07, CR-02). Поэтому повторы идут назад от start−1 шагом
+    align_retry_step, со сдвигом вниз за taken (зеркально ветке «назад»
+    ``retry_frames``), и только кадры f, lo <= f < start−1, где lo — ближайшая
+    предыдущая склейка энкода (по умолчанию 0). Не более align_retry_max; разнос
+    повторов больше шага. Пустой список (start = 0, предыдущая сцена короче шага или
+    занята taken) — сторона остаётся «неопределённо», цель не закрыта. n_enc в теле
+    не нужен, остаётся в сигнатуре для симметрии с ``junction_retry_frames``.
+    Закреплено test_junction_prev_retry_frames; через ``check_pair_files`` —
+    test_junction_prev_side_refused.
+    """
+    if target.enc_frame <= 0:
+        return []
+    lo = max(
+        (j.enc_frame for j in junctions if j.enc_frame < target.enc_frame), default=0
+    )
+    out: List[int] = []
+    f = target.enc_frame - 1
+    while len(out) < cfg.align_retry_max:
+        f -= cfg.align_retry_step
+        while f in taken and f >= lo:
+            f -= 1
+        if f < lo:
+            break
+        out.append(f)
+    return out
+
+
 def junction_targets(
     n_enc: int, scenes: Optional[Sequence[Tuple[int, int]]], offset: int
 ) -> List[AlignTarget]:

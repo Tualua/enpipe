@@ -1018,3 +1018,56 @@ def test_junction_replacement_vote_budget(fake):
     assert _enc_calls(f) == [
         (0, 1), (249, 2), (499, 2), (548, 1), (596, 1), (699, 2), (749, 2), (899, 2)
     ]
+
+
+# --------------------------------------------------------------------------- #
+# CR-02: каждую сторону склейки закрывает своя сцена (решение оператора 2026-11-07)
+# --------------------------------------------------------------------------- #
+
+CR02_STARTS = [0, 250, 480, 500, 750, 900]
+
+
+def _shifted(statics, shift, d):
+    """src со статикой statics; enc = src, но кадры shift[0]..shift[1] взяты со сдвигом d.
+
+    enc[i] = src[i + d] для i в shift[0]..shift[1] включительно; shift None — без сдвига.
+    """
+    src = _static_ranges(noisy_film(1000), *statics)
+    enc = list(src)
+    if shift is not None:
+        for i in range(shift[0], shift[1] + 1):
+            enc[i] = src[i + d]
+    return src, enc
+
+
+# Зонд CR-02 (10-REVIEW.md): предыдущий чанк 480..499 сдвинут на -1, его хвост 488..499
+# статичен. Склейка 500 меряется кадрами 499 (хвост сдвинутого чанка, «неопределённо») и
+# 500 (свой чанк, «выровнено»). На HEAD повтор 548 из чужой сцены [500, 750) закрывал
+# склейку и давал ложное «выровнено». Теперь сторону start-1 закрывает только повтор
+# внутри предыдущей сцены [480, 499): кадров нет (499-48 = 451 < 480) -> отказ. Вызовы ENC
+# совпадают с кодом до 10-14 (fe6af86).
+def test_junction_prev_side_refused(fake):
+    src, enc = _shifted([(488, 499)], (480, 499), -1)
+    f = fake({SRC: src, ENC: enc})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(CR02_STARTS))
+    assert chk.ok is False and chk.alignment.verdict == ALIGN_UNDETERMINED
+    assert chk.alignment.n_aligned == 4
+    assert [p.enc_frame for p in chk.alignment.points] == [0, 250, 500, 750, 900]
+    assert chk.reasons[-1].endswith("неопределённые точки (кадры энкода): 500")
+    assert _enc_calls(f) == [(0, 1), (249, 2), (499, 2), (749, 2), (899, 2)]
+
+
+# Сдвиг предыдущего чанка (400..499, -1) виден только повтору стороны start-1: 451 лежит
+# в предыдущей сцене [400, 500). Замена 400 статична («неопределённо», тратит 1), сторона
+# start (500) уже «выровнено». На HEAD закрывал повтор 548 (ложное «выровнено»), до 10-14 —
+# отказ «неопределённо».
+def test_junction_prev_side_shift(fake):
+    src, enc = _shifted([(395, 405), (488, 499)], (400, 499), -1)
+    f = fake({SRC: src, ENC: enc})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc([0, 250, 400, 500, 750, 900]))
+    assert chk.ok is False and chk.alignment.verdict == ALIGN_SHIFT
+    assert chk.alignment.shift == -1
+    assert any("сдвиг -1" in r and "в точке энкода 451" in r for r in chk.reasons)
+    assert _enc_calls(f) == [
+        (0, 1), (249, 2), (399, 2), (451, 1), (499, 2), (749, 2), (899, 2)
+    ]

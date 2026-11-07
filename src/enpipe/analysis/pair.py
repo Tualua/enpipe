@@ -204,18 +204,25 @@ def _measure_target(
     width: int,
     height: int,
     cfg: AnalyzeConfig,
-) -> PointAlignment:
-    """Вердикт цели: склейка по кадрам start−1/start (при start = 0 — один кадр)."""
+) -> Tuple[PointAlignment, Tuple[PointAlignment, ...]]:
+    """(сводный вердикт цели, половины): склейка меряется кадрами start−1 и start.
+
+    Для склейки с start > 0 половины — (start−1, start) из одного вызова ``_measure``
+    (один grab, число декодов не растёт); иначе — одна точка. Половины нужны воркеру:
+    сводное «неопределённо» не говорит, какая сторона неоднозначна, а каждую сторону
+    закрывает только повтор своей сцены (CR-02, решение оператора 2026-11-07).
+    """
     if target.junction and target.enc_frame > 0:
         frames_ = [target.enc_frame - 1, target.enc_frame]
         pts_ = _measure(
             src, enc, src_pts, enc_pts, frames_, offset, width, height, cfg, target.scene
         )
-        return align.combine_junction(pts_)
-    return _measure(
+        return align.combine_junction(pts_), tuple(pts_)
+    one = _measure(
         src, enc, src_pts, enc_pts, [target.enc_frame], offset, width, height, cfg,
         target.scene,
     )[0]
+    return one, (one,)
 
 
 def _point_worker(
@@ -251,7 +258,7 @@ def _point_worker(
     """
     src, enc, src_pts, enc_pts, target, offset, width, height, cfg, taken, junctions = task
     try:
-        point = _measure_target(
+        point, halves = _measure_target(
             src, enc, src_pts, enc_pts, target, offset, width, height, cfg
         )
         if point.verdict != ALIGN_UNDETERMINED:
@@ -260,9 +267,9 @@ def _point_worker(
         votes: List[PointAlignment] = []
         if target.junction:
             # Замены первыми (решения 2026-10-24: 1б, 2б, 3а), остаток общего
-            # лимита — на повторы в сцене (WR-08, 2026-11-05).
+            # лимита — на повторы сторон (WR-08, 2026-11-05).
             for rep in align.junction_replacements(target, junctions, taken, cfg):
-                again = _measure_target(
+                again, _ = _measure_target(
                     src, enc, src_pts, enc_pts, rep, offset, width, height, cfg
                 )
                 budget -= 1
@@ -274,11 +281,56 @@ def _point_worker(
                     # нужный повторам в сцене, поэтому перебор прекращается.
                     votes.append(again)
                     break
-            retries = align.junction_retry_frames(target, junctions, len(enc_pts), cfg, taken)
-        else:
-            retries = align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken)
-        # Повтор через шаг (D-11): срез равен retries при лимите budget
-        # (test_retry_frames_prefix); повтор меряется одиночным кадром.
+            # Две стороны (CR-02): start−1 — кадр предыдущего чанка, start — своего.
+            # Сторона открыта, пока её половина не «выровнено» без ошибки; закрывает
+            # её только повтор «выровнено» в её сцене. Сторона start−1 есть только
+            # при двух половинах (start > 0).
+            def _open(h: PointAlignment) -> bool:
+                return h.verdict != ALIGN_ALIGNED or h.error is not None
+
+            queues: Dict[str, List[int]] = {}
+            if _open(halves[-1]):
+                queues["start"] = align.junction_retry_frames(
+                    target, junctions, len(enc_pts), cfg, taken
+                )
+            if len(halves) == 2 and _open(halves[0]):
+                queues["prev"] = align.junction_prev_retry_frames(
+                    target, junctions, len(enc_pts), cfg, taken
+                )
+            closers: List[PointAlignment] = []
+            open_sides = set(queues)
+            # Поочерёдно «start, затем start−1» (каждой открытой стороне попытка при
+            # общем лимите); закрытая или исчерпанная сторона пропускается.
+            while budget > 0:
+                progressed = False
+                for side in ("start", "prev"):
+                    if budget <= 0:
+                        break
+                    if side not in open_sides or not queues[side]:
+                        continue
+                    f = queues[side].pop(0)
+                    again = _measure(
+                        src, enc, src_pts, enc_pts, [f], offset, width, height, cfg,
+                        None,
+                    )[0]
+                    budget -= 1
+                    progressed = True
+                    if again.verdict == ALIGN_SHIFT:
+                        return (again, *closers, *votes), None
+                    if again.verdict == ALIGN_ALIGNED and again.error is None:
+                        # Сторона закрыта своей сценой; повтор — точка «выровнено».
+                        closers.append(again)
+                        open_sides.discard(side)
+                if not progressed:
+                    break
+            if closers and not open_sides:
+                return (*closers, *votes), None
+            # Цель открыта: итог — исходная «неопределённо» (правило (в) даёт отказ);
+            # закрывший одну сторону повтор лишь голос, как замена (WR-09).
+            return (point, *closers, *votes), None
+        # Обычная точка: повтор через шаг (D-11), срез равен retries при лимите
+        # budget (test_retry_frames_prefix); повтор меряется одиночным кадром.
+        retries = align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken)
         for f in retries[: max(budget, 0)]:
             again = _measure(
                 src, enc, src_pts, enc_pts, [f], offset, width, height, cfg, None
