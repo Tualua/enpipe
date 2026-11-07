@@ -34,7 +34,7 @@ def _probe_argv(path):
 def _pts_argv(path):
     return _NICE + [
         "ffprobe", "-v", "error", "-select_streams", "V:0",
-        "-show_entries", "packet=pts_time", "-of", "csv=p=0", "-i", str(path),
+        "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", "-i", str(path),
     ]
 
 
@@ -331,7 +331,7 @@ def test_pts_cache_corrupt_recomputed(fp, tmp_path):
     good = json.loads(f.read_text())
     variants = [
         "{broken",
-        json.dumps({**good, "v": 2}),
+        json.dumps({**good, "v": 1}),
         json.dumps({**good, "key": {**good["key"], "path": "/elsewhere"}}),
         json.dumps({**good, "pts": ["a", "b"]}),
         json.dumps({**good, "pts": []}),

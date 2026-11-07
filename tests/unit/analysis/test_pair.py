@@ -74,8 +74,12 @@ class Fake:
         self.fail_grab_at: Optional[Tuple[Path, int]] = None
         self.fail_probe: Optional[Path] = None
         self.fail_grab_exc: Optional[BaseException] = None
+        # WR-10: индексы ключевых кадров по файлам; по умолчанию ключевой каждый кадр,
+        # поэтому тесты выравнивания сверку .scenes с энкодом проходят.
+        self.keyframes: Dict[Path, Tuple[int, ...]] = {}
         mp.setattr(frames, "probe_stream", self.probe)
         mp.setattr(frames, "pts_table", self.pts)
+        mp.setattr(frames, "packet_table", self.packets)
         mp.setattr(frames, "grab_frames", self.grab)
 
     def probe(self, path):
@@ -85,6 +89,12 @@ class Fake:
 
     def pts(self, path, cache_dir=None):
         return [i / 24 for i in range(len(self.films[path]))]
+
+    def packets(self, path, cache_dir=None):
+        return (
+            self.pts(path),
+            self.keyframes.get(path, tuple(range(len(self.films[path])))),
+        )
 
     def grab(self, path, pts, first, count, width, height, threads=2):
         self.calls.append((path, first, count))
@@ -1182,3 +1192,20 @@ def test_junction_start_side_only_closed(fake):
     assert _enc_calls(f) == [
         (0, 1), (249, 2), (499, 2), (548, 1), (599, 2), (749, 2), (899, 2)
     ]
+
+
+# --------------------------------------------------------------------------- #
+# WR-10: сверка .scenes с энкодом (решение оператора 2026-11-07)
+# --------------------------------------------------------------------------- #
+
+
+# Полный энкод, а ключевой кадр энкода 600 отсутствует: .scenes не тот, по которому шёл
+# энкод. На HEAD 68ec633 полный энкод сцены не смотрел и давал ok True.
+def test_scenes_keyframe_mismatch_refused(fake):
+    film = noisy_film(1000)
+    f = fake({SRC: film, ENC: film})
+    f.keyframes[ENC] = (0, 250, 500, 750, 900)
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(JSTARTS))
+    assert chk.ok is False and chk.alignment is None
+    assert f.calls == []
+    assert any("не на ключевых кадрах энкода" in r and "600" in r for r in chk.reasons)

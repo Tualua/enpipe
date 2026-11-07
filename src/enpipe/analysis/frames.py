@@ -31,7 +31,12 @@ Vision P7 есть второй видеопоток — mjpeg-обложка, �
 
 Таблица pts строится по пакетам видео. Пакеты идут в порядке декода, поэтому
 таблица сортируется (порядок показа); число кадров файла — длина таблицы.
-Таблица кэшируется JSON-файлом в каталоге отчёта (D-21).
+Таблица кэшируется JSON-файлом в каталоге отчёта (D-21). Тем же проходом ffprobe
+(``packet=pts_time,flags``, второго прохода нет) берутся флаги ключевых кадров:
+предпроверка сверяет по ним начала сцен из .scenes с энкодом (WR-10). Индексы
+ключевых кадров — позиции в отсортированной таблице (порядок показа), поэтому
+пары (pts, флаг) сортируются вместе. Кэш версии 2 хранит и ``keyframes``; кэш
+старого формата пересчитывается.
 
 Функции бросают AnalysisError, а не завершают процесс: решение, что делать с
 ошибкой, принимает вызывающий (оркестратор и его воркеры).
@@ -72,7 +77,7 @@ _PROBE_ENTRIES = (
     ":format=format_name"
 )
 _UNKNOWN_TAGS = ("unknown", "unspecified", "n/a", "")
-_PTS_CACHE_VERSION = 1
+_PTS_CACHE_VERSION = 2
 _STDERR_TAIL = 500
 # Допуск сверки pts для таблицы из одного кадра (соседей для зазора нет).
 _PTS_TOL_SINGLE = 0.002
@@ -195,7 +200,10 @@ def _cache_file(cache_dir: Path, abs_path: str) -> Path:
     return cache_dir / f"{h}.pts.json"
 
 
-def _read_cache(f: Path, key: Dict[str, Any]) -> Optional[List[float]]:
+def _read_cache(
+    f: Path, key: Dict[str, Any]
+) -> Optional[Tuple[List[float], Tuple[int, ...]]]:
+    """(pts, ключевые кадры) из кэша; любое несоответствие — None (пересчёт)."""
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
         if data.get("v") != _PTS_CACHE_VERSION or data.get("key") != key:
@@ -204,21 +212,35 @@ def _read_cache(f: Path, key: Dict[str, Any]) -> Optional[List[float]]:
         if not isinstance(pts, list) or not pts:
             return None
         out = [float(x) for x in pts]
+        kf = data.get("keyframes")
+        if not isinstance(kf, list):
+            return None
+        # bool — подкласс int: True как индекс кадра 1 не принимаем.
+        if any(type(i) is not int for i in kf):
+            return None
+        if any(not 0 <= i < len(out) for i in kf):
+            return None
+        if any(a >= b for a, b in zip(kf, kf[1:])):
+            return None
     except (OSError, ValueError, TypeError, AttributeError):
         return None
-    return out if all(math.isfinite(x) for x in out) else None
+    if not all(math.isfinite(x) for x in out):
+        return None
+    return out, tuple(kf)
 
 
-def pts_table(path: Path, cache_dir: Optional[Path] = None) -> List[float]:
-    """Отсортированная (порядок показа) таблица pts видеопотока.
+def packet_table(
+    path: Path, cache_dir: Optional[Path] = None
+) -> Tuple[List[float], Tuple[int, ...]]:
+    """Таблица pts (порядок показа) и индексы ключевых кадров одним ffprobe.
 
-    Кэш — JSON ``{"v", "key", "pts"}`` в ``cache_dir`` с ключом (абсолютный
-    путь, размер, mtime_ns); несовпадение ключа или версии, битый файл и
-    нечисловые значения — пересчёт, а не ошибка. Известное ограничение ключа:
-    копия с сохранённым mtime и тем же размером, но другим содержимым даст
-    устаревшую таблицу. Вероятность крайне мала, кэш живёт в каталоге отчёта
-    конкретного прогона; содержимое не хешируется сознательно — это чтение
-    всего файла, ради избежания которого кэш и существует.
+    Кэш — JSON ``{"v", "key", "pts", "keyframes"}`` в ``cache_dir`` с ключом
+    (абсолютный путь, размер, mtime_ns); несовпадение ключа или версии, битый
+    файл, нечисловые значения и неверные ``keyframes`` — пересчёт, а не ошибка.
+    Известное ограничение ключа: копия с сохранённым mtime и тем же размером, но
+    другим содержимым даст устаревшую таблицу. Вероятность крайне мала, кэш живёт
+    в каталоге отчёта конкретного прогона; содержимое не хешируется сознательно —
+    это чтение всего файла, ради избежания которого кэш и существует.
     """
     try:
         st = os.stat(path)
@@ -236,38 +258,64 @@ def pts_table(path: Path, cache_dir: Optional[Path] = None) -> List[float]:
     res = _run(
         [
             "ffprobe", "-v", "error", "-select_streams", "V:0",
-            "-show_entries", "packet=pts_time", "-of", "csv=p=0", "-i", str(path),
+            "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", "-i", str(path),
         ],
         text=True,
     )
-    vals: List[float] = []
-    for tok in res.stdout.replace(",", " ").split():
+    pairs: List[Tuple[float, bool]] = []
+    for ln in res.stdout.splitlines():
+        fields = ln.strip().split(",")
+        tok = fields[0].strip()
+        if not tok:
+            continue
         if tok.upper() == "N/A":
             raise AnalysisError(
                 "у пакетов видео нет pts: вход должен быть финальным "
                 ".mkv/контейнером с pts, .obu/чанки не поддерживаются"
             )
         try:
-            vals.append(float(tok))
+            val = float(tok)
         except ValueError:
             raise AnalysisError(f"ffprobe вернул нечисловой pts: {tok!r}")
-    if not vals:
+        flags = fields[1] if len(fields) > 1 else ""
+        pairs.append((val, "K" in flags))
+    if not pairs:
         raise AnalysisError(f"у {path.name} нет пакетов видео (пустая таблица pts)")
-    table = sorted(vals)
+    # Пакеты идут в порядке декода: флаг переезжает вместе со своим pts, иначе
+    # индексы ключевых кадров относились бы к порядку декода, а не показа.
+    pairs.sort(key=lambda p: p[0])
+    table = [p[0] for p in pairs]
+    keyframes = tuple(i for i, p in enumerate(pairs) if p[1])
 
     if cache_file is not None and cache_dir is not None:
         tmp = cache_file.with_name(cache_file.name + f".tmp{os.getpid()}")
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
             tmp.write_text(
-                json.dumps({"v": _PTS_CACHE_VERSION, "key": key, "pts": table}),
+                json.dumps(
+                    {
+                        "v": _PTS_CACHE_VERSION,
+                        "key": key,
+                        "pts": table,
+                        "keyframes": list(keyframes),
+                    }
+                ),
                 encoding="utf-8",
             )
             os.replace(tmp, cache_file)
         except OSError:
             # кэш — оптимизация, не условие корректности
             pass
-    return table
+    return table, keyframes
+
+
+def pts_table(path: Path, cache_dir: Optional[Path] = None) -> List[float]:
+    """Отсортированная (порядок показа) таблица pts видеопотока.
+
+    Тонкая обёртка над ``packet_table`` (контракт прежний, флаги ключевых кадров
+    отбрасываются); кэш и ограничения ключа описаны там.
+    """
+    return packet_table(path, cache_dir)[0]
 
 
 def _decoded_pts(stderr: str, base: float) -> List[float]:

@@ -45,9 +45,12 @@ def _cfr(n: int, fps: float = 24.0, start: float = 0.0):
 
 
 def _pair(src=None, enc=None, n_src=96, n_enc=96, offset=None, scenes=None, **kw):
+    enc_pts = kw.get("enc_pts", _cfr(n_enc))
+    # WR-10: по умолчанию ключевой каждый кадр энкода; явный None передаётся как None.
+    keyframes = kw["enc_keyframes"] if "enc_keyframes" in kw else tuple(range(len(enc_pts)))
     return check_pair(
         src or _info(), enc or _info(), kw.get("src_pts", _cfr(n_src)),
-        kw.get("enc_pts", _cfr(n_enc)), offset, scenes, CFG,
+        enc_pts, offset, scenes, CFG, enc_keyframes=keyframes,
     )
 
 

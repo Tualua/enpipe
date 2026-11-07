@@ -2,7 +2,8 @@
 
 Зачем: метрики по невыровненной паре правдоподобны и ложны, поэтому сначала
 проверяется сама пара. Порядок: probe обеих сторон -> таблицы pts ->
-``precheck.check_pair`` -> (только если причин нет) вердикт выравнивания в
+``precheck.check_pair`` (в том числе сверка .scenes с источником и ключевыми
+кадрами энкода, WR-10) -> (только если причин нет) вердикт выравнивания в
 нескольких точках файла -> ``align.aggregate``. Любое сомнение — причина отказа
 в данных ``PairCheck``; процесс здесь не завершается, печать и код выхода
 остаются за CLI (D-13, D-20).
@@ -404,10 +405,12 @@ def check_pair_files(
     errors: List[str] = []
     infos: Dict[str, StreamInfo] = {}
     tables: Dict[str, List[float]] = {}
+    keyframes: Dict[str, Tuple[int, ...]] = {}
     for label, path in (("источник", src), ("энкод", enc)):
         try:
             infos[label] = frames.probe_stream(path)
-            tables[label] = frames.pts_table(path, cache_dir)
+            # pts и флаги ключевых кадров — одним ffprobe (WR-10)
+            tables[label], keyframes[label] = frames.packet_table(path, cache_dir)
         except AnalysisError as e:
             errors.append(f"{label}: {e}")
     src_info, enc_info = infos.get("источник"), infos.get("энкод")
@@ -417,7 +420,8 @@ def check_pair_files(
     assert src_info is not None and enc_info is not None
 
     verdict = precheck.check_pair(
-        src_info, enc_info, src_pts, enc_pts, offset, scenes, cfg
+        src_info, enc_info, src_pts, enc_pts, offset, scenes, cfg,
+        enc_keyframes=keyframes.get("энкод"),
     )
     if verdict.reasons:
         return _refused(verdict.reasons, src_info, enc_info, src_pts, enc_pts, verdict)

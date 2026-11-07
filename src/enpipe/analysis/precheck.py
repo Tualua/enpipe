@@ -18,6 +18,22 @@ VFR. Сверка всегда по индексу кадра, не по абс�
 .scenes — пометка; всегда K + кадры_энкода <= кадры_источника. Пометки: VFR
 (D-16) и ненулевой start_time источника (D-19).
 
+Сверка .scenes с источником и энкодом (WR-10, решение оператора 2026-11-07,
+вариант B, несовпадение — отказ D-20): при непустых .scenes они обязаны быть
+отсортированы, непрерывны (конец сцены = начало следующей), начинаться с 0 и
+кончаться на числе кадров источника; а каждое начало сцены в окне энкода
+[K, K + кадры_энкода) обязано быть ключевым кадром энкода (чанки enpipe
+начинаются с ключевого кадра). Проверка действует и при полном энкоде (K = 0):
+раньше ``check_offset`` возвращался до сцен, и чужой .scenes принимался молча.
+Без флагов ключевых кадров энкода (None) при непустых .scenes — отказ
+(fail-closed). Сверка ключевых кадров пропускается, если уже есть причины по
+структуре .scenes, по --offset или по таблицам pts: окно энкода или карта сцен
+тогда не определены, и её причины были бы следствием, а не корнем. Условие
+необходимое, не достаточное: лишние ключевые кадры внутри чанка (GOP_LEN)
+допустимы, а устаревший .scenes, чьи начала случайно стоят на ключевых кадрах,
+не ловится. Выход для оператора при отказе: дать .scenes, по которому шёл
+энкод, либо запустить без .scenes (склейки не проверяются).
+
 Модуль чистый: без I/O, subprocess и numpy.
 """
 
@@ -37,6 +53,8 @@ from enpipe.analysis.model import (
 
 _PIX_FMT = "yuv420p10le"
 _PQ_TRANSFER = "smpte2084"
+# Сколько кадров энкода показывать в причине о ключевых кадрах (остальные — «… и ещё N»).
+_KEYFRAME_LIST_MAX = 10
 _TAGS = ("color_range", "color_space", "color_transfer", "color_primaries")
 
 # --------------------------------------------------------------------------- #
@@ -151,6 +169,69 @@ def check_offset(
 
 
 # --------------------------------------------------------------------------- #
+# Сверка .scenes (WR-10)
+# --------------------------------------------------------------------------- #
+
+
+def scenes_reasons(scenes: Sequence[Tuple[int, int]], n_src: int) -> List[str]:
+    """Структура .scenes против источника: порядок, непрерывность, 0, n_src.
+
+    Сцены нулевой длины (s = e) допустимы. Причины идут в порядке: сортировка,
+    первый разрыв, начало, конец.
+    """
+    if not scenes:
+        return []
+    out: List[str] = []
+    unsorted = any(e < s for s, e in scenes) or any(
+        b[0] < a[0] for a, b in zip(scenes, scenes[1:])
+    )
+    if unsorted:
+        out.append(".scenes: сцены не отсортированы")
+    for i, (a, b) in enumerate(zip(scenes, scenes[1:])):
+        if a[1] != b[0]:
+            out.append(
+                f".scenes: сцены не идут подряд: сцена {i} кончается на кадре "
+                f"{a[1]}, следующая начинается с кадра {b[0]}"
+            )
+            break
+    if scenes[0][0] != 0:
+        out.append(f".scenes: первая сцена начинается с кадра {scenes[0][0]}, а не с 0")
+    if scenes[-1][1] != n_src:
+        out.append(
+            f".scenes: последняя сцена кончается на кадре {scenes[-1][1]}, "
+            f"в источнике {n_src} кадров"
+        )
+    return out
+
+
+def keyframe_reasons(
+    scenes: Sequence[Tuple[int, int]],
+    offset: int,
+    n_enc: int,
+    enc_keyframes: Sequence[int],
+) -> List[str]:
+    """Начала сцен в окне энкода, не стоящие на ключевых кадрах энкода (WR-10).
+
+    Кадр энкода — ``s − offset`` для различных начал s в [offset, offset + n_enc).
+    Одна причина со списком (не длиннее ``_KEYFRAME_LIST_MAX``) и выходом для
+    оператора.
+    """
+    keys = set(enc_keyframes)
+    starts = sorted({s for s, _ in scenes if offset <= s < offset + n_enc})
+    bad = [s - offset for s in starts if (s - offset) not in keys]
+    if not bad:
+        return []
+    shown = ", ".join(str(f) for f in bad[:_KEYFRAME_LIST_MAX])
+    if len(bad) > _KEYFRAME_LIST_MAX:
+        shown += f", … и ещё {len(bad) - _KEYFRAME_LIST_MAX}"
+    return [
+        ".scenes не совпадают с энкодом: начала сцен не на ключевых кадрах энкода "
+        f"(кадры энкода): {shown}; нужен .scenes, по которому шёл энкод, либо запуск "
+        "без .scenes (склейки не проверяются)"
+    ]
+
+
+# --------------------------------------------------------------------------- #
 # Пара
 # --------------------------------------------------------------------------- #
 
@@ -183,8 +264,15 @@ def check_pair(
     offset: Optional[int],
     scenes: Optional[Sequence[Tuple[int, int]]],
     cfg: AnalyzeConfig,
+    *,
+    enc_keyframes: Optional[Sequence[int]] = None,
 ) -> PairVerdict:
-    """Собирает ВСЕ причины отказа разом; без исключений и выхода из процесса."""
+    """Собирает ВСЕ причины отказа разом; без исключений и выхода из процесса.
+
+    ``enc_keyframes`` — индексы ключевых кадров энкода (порядок показа). При
+    непустых .scenes и None — отказ (fail-closed, WR-10): сверить начала сцен с
+    энкодом нечем. Без .scenes параметр не используется.
+    """
     reasons: List[str] = []
     notes: List[str] = []
     sides = (("источник", src), ("энкод", enc))
@@ -242,12 +330,26 @@ def check_pair(
 
     k = offset if offset is not None else 0
     source: Optional[str] = None
-    if not src_pts_r and not enc_pts_r:
+    off_reasons: List[str] = []
+    sc_reasons: List[str] = []
+    pts_ok = not src_pts_r and not enc_pts_r
+    if pts_ok:
         k, source, off_reasons, off_notes = check_offset(
             len(src_pts), len(enc_pts), offset, scenes
         )
         reasons += off_reasons
         notes += off_notes
+    # WR-10: .scenes сверяются и при полном энкоде (check_offset до сцен не доходит).
+    if scenes and not src_pts_r:
+        sc_reasons = scenes_reasons(scenes, len(src_pts))
+        reasons += sc_reasons
+    if scenes and pts_ok and not sc_reasons and not off_reasons:
+        if enc_keyframes is None:
+            reasons.append(
+                "сверка .scenes с энкодом невозможна: нет флагов ключевых кадров энкода"
+            )
+        else:
+            reasons += keyframe_reasons(scenes, k, len(enc_pts), enc_keyframes)
 
     vfr = detect_vfr(src_pts, cfg)
     if vfr:
