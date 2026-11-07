@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10 (frame-extraction-alignment) — EXECUTING
-Plan: 2 of 15
-Status: Executing Phase 10
-Last activity: 2026-11-06 -- Phase 10 execution started
+Plan: 15 of 15 (gaps_found; следующий — гэп-план 10-16)
+Status: Phase 10 — gaps_found, решения по CR-02 и WR-10 приняты
+Last activity: 2026-11-07 -- решения оператора по CR-02 и WR-10
 
 Progress: [████████░░] 83%
 
@@ -58,6 +58,8 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: [10-13] (в): «выровнено» только без «неопределённо» точек; повторы сдвигаются и идут назад; замены склеек 1б/2б/3а
 - [Phase 10]: 10-14: WR-08 — замены склейки первыми, остаток общего лимита align_retry_max — повторы retry_frames (срез префикса)
 - [Phase 10]: 10-15: повтор склейки только в её сцене; замена выровнено — голос, цель не закрывает (оператор 2026-11-06)
+- [Phase 10]: CR-02: каждую сторону склейки закрывает своя сцена (start−1 — повтором назад в предыдущей сцене); цель закрыта при обеих сторонах (оператор 2026-11-07)
+- [Phase 10]: WR-10: вариант B — структурная проверка .scenes + начала сцен = ключевые кадры энкода; несовпадение → отказ D-20 (оператор 2026-11-07)
 
 ### Pending Todos
 
@@ -142,9 +144,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-06T11:51:49.587Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-frame-extraction-alignment/10-CONTEXT.md
+Last session: 2026-11-07
+Stopped at: Session resumed; решения CR-02/WR-10 записаны в 10-CONTEXT.md, далее /gsd:plan-phase 10 --gaps (10-16)
+Resume file: .planning/phases/10-frame-extraction-alignment/.continue-here.md
 
 ## Operator Next Steps
 
