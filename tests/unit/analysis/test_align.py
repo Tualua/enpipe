@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 import math
+import random
 from dataclasses import replace
 
 from enpipe.analysis.align import (
@@ -12,6 +13,7 @@ from enpipe.analysis.align import (
     aggregate,
     combine_junction,
     frame_verdict,
+    junction_prev_retry_frames,
     junction_replacements,
     junction_retry_frames,
     junction_targets,
@@ -447,3 +449,75 @@ def test_junction_retry_frames():
     assert junction_retry_frames(
         AlignTarget(500, 0, True), jn(500, 560), 1000, CFG, frozenset(range(540, 560))
     ) == []
+
+
+# Повторы стороны start−1 склейки — только внутри предыдущей сцены [предыдущая склейка,
+# start−1) (CR-02): шаг назад align_retry_step, сдвиг вниз за taken, не ниже границы.
+def test_junction_prev_retry_frames():
+    def jn(*starts):
+        return [AlignTarget(f, i, True) for i, f in enumerate(starts)]
+
+    # предыдущая сцена [480, 500) короче шага: повторов нет
+    assert junction_prev_retry_frames(
+        AlignTarget(500, 3, True), jn(0, 250, 480, 500, 750, 900), 1000, CFG
+    ) == []
+    assert junction_prev_retry_frames(
+        AlignTarget(500, 3, True), jn(0, 250, 400, 500, 750, 900), 1000, CFG
+    ) == [451, 403]
+    # склейка на кадре 0 имеет одну сторону
+    assert junction_prev_retry_frames(
+        AlignTarget(0, 0, True), jn(0, 152), 192, CFG
+    ) == []
+    assert junction_prev_retry_frames(
+        AlignTarget(152, 1, True), jn(0, 152), 192, CFG
+    ) == [103, 55, 7]
+    # кадр в taken сдвигается вниз: 451 -> 439
+    assert junction_prev_retry_frames(
+        AlignTarget(500, 1, True), jn(400, 500), 1000, CFG, frozenset(range(440, 460))
+    ) == [439]
+    # сдвиг вниз ушёл бы ниже границы 440 (451 -> 429): повторов нет
+    assert junction_prev_retry_frames(
+        AlignTarget(500, 1, True), jn(440, 500), 1000, CFG, frozenset(range(430, 460))
+    ) == []
+
+
+# IN-21: инвариант pick_points — начало сцены каждой обычной цели (последнее начало
+# сцены внутри окна энкода, не правее цели) есть цель-склейка. Доказательство (10-REVIEW.md,
+# IN-21): окно энкода начинается с начала сцены (кадр 0 — склейка, см. оговорку про
+# .scenes в pick_points), а цель тянется к ближайшей склейке; обычная цель получается,
+# только если ближайшая склейка уже занята другой целью, и начало её сцены — склейка,
+# уже ставшая целью. Следствие: повторы обычной точки сценой не ограничены, потому что её
+# чанк проверяет своя склейка (обе стороны после CR-02).
+def test_pick_points_ordinary_scene_start_is_junction():
+    rng = random.Random(20261107)
+    checked = 0
+    for _ in range(20000):
+        n_src = rng.randint(30, 3000)
+        cuts = sorted(rng.sample(range(1, n_src), rng.randint(0, 8)))
+        if cuts and rng.random() < 0.1:
+            cuts.append(rng.choice(cuts))  # сцена нулевой длины
+            cuts.sort()
+        bounds = [0] + cuts + [n_src]
+        scenes = list(zip(bounds, bounds[1:]))
+        if rng.random() < 0.5:
+            offset, n_enc = 0, n_src
+        else:
+            a = rng.randrange(len(scenes))
+            b = rng.randrange(a, len(scenes))
+            offset = scenes[a][0]
+            n_enc = scenes[b][1] - offset
+        if n_enc < 1:
+            continue
+        checked += 1
+        targets = pick_points(n_enc, scenes, offset, CFG)
+        jframes = {t.enc_frame for t in targets if t.junction}
+        for t in targets:
+            if t.junction:
+                continue
+            starts = [
+                st - offset
+                for st, _ in scenes
+                if offset <= st < offset + n_enc and st - offset <= t.enc_frame
+            ]
+            assert max(starts) in jframes, (n_src, scenes, offset, n_enc, t)
+    assert checked > 15000
