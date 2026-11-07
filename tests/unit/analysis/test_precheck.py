@@ -299,3 +299,54 @@ def test_check_pair_offset_error_skips_keyframes():
     v = _pair(n_enc=48, offset=30, scenes=S4, enc_keyframes=(0,))
     assert _has(v, "не совпадает с началом ни одной сцены")
     assert not _has(v, "не на ключевых кадрах")
+
+
+# --------------------------------------------------------------------------- #
+# WR-11: конец окна --offset (решение оператора 2026-11-07)
+# --------------------------------------------------------------------------- #
+# Частичный энкод enpipe — целые сцены scenes[lo:hi], поэтому окно [K, K + n_enc)
+# кончается на границе сцены. Это зеркальная сторона D-07 (начало окна); без
+# --offset тот же признак уже ловит offset_hints.
+
+
+def test_offset_window_end_not_scene_end():
+    for n_enc, offset, end in ((40, 24, 64), (30, 24, 54), (90, 0, 90)):
+        k, source, reasons, notes = check_offset(96, n_enc, offset, S4)
+        assert (k, source, notes) == (offset, None, [])
+        assert len(reasons) == 1
+        assert f"кончается на кадре источника {end}" in reasons[0]
+        assert "не конец ни одной сцены" in reasons[0]
+
+
+def test_offset_window_end_on_scene_end():
+    assert check_offset(96, 48, 24, S4) == (24, "scenes", [], [])
+    assert check_offset(96, 72, 24, S4) == (24, "scenes", [], [])
+    assert check_offset(96, 96, 0, S4) == (0, "scenes", [], [])
+    # конец сцены нулевой длины — тоже конец сцены
+    assert check_offset(96, 24, 0, [(0, 24), (24, 24), (24, 96)]) == (0, "scenes", [], [])
+
+
+def test_offset_start_and_end_both_reported():
+    # D-20: собрать все несовпадения, причина начала первой
+    _, source, reasons, _ = check_offset(96, 40, 30, S4)
+    assert source is None and len(reasons) == 2
+    assert "не совпадает с началом ни одной сцены" in reasons[0]
+    assert "кончается на кадре источника 70" in reasons[1]
+
+
+def test_offset_window_end_other_paths_unchanged():
+    _, _, reasons, _ = check_offset(96, 40, None, S4)
+    assert "ни один непрерывный диапазон сцен" in reasons[0]
+    _, _, reasons, _ = check_offset(96, 48, None, S4)
+    assert "--offset 24 (сцены 1..2)" in reasons[0]
+    assert check_offset(96, 96, None, S4) == (0, None, [], [])
+    assert check_offset(96, 40, 24, None) == (
+        24, "manual", [], ["сдвиг задан вручную, по .scenes не проверен"]
+    )
+
+
+def test_check_pair_window_end_skips_keyframes():
+    v = _pair(n_enc=40, offset=24, scenes=S4, enc_keyframes=(0,))
+    assert not v.ok
+    assert _has(v, "не конец ни одной сцены")
+    assert not _has(v, "не на ключевых кадрах")

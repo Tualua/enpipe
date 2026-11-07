@@ -1253,3 +1253,21 @@ def test_scenes_partial_keyframes_refused(fake):
     f.keyframes[ENC] = (0, 75, 149)
     chk = pair.check_pair_files(SRC, ENC, CFG, offset=POFF, scenes=PSCENES)
     assert chk.ok is True
+
+
+# --------------------------------------------------------------------------- #
+# WR-11: конец окна --offset
+# --------------------------------------------------------------------------- #
+
+
+# Окно энкода кончается на кадре 64 внутри сцены [48, 72): отказ до извлечения кадров.
+def test_partial_window_end_refused(fake):
+    src = noisy_film()
+    f = fake({SRC: src, ENC: src[24:64]})
+    chk = pair.check_pair_files(SRC, ENC, CFG, offset=24, scenes=SCENES4)
+    assert chk.ok is False and chk.alignment is None
+    assert f.calls == []
+    assert any("не конец ни одной сцены" in r for r in chk.reasons)
+    # контроль: окно до конца сцены принимается
+    fake({SRC: src, ENC: src[24:72]})
+    assert pair.check_pair_files(SRC, ENC, CFG, offset=24, scenes=SCENES4).ok

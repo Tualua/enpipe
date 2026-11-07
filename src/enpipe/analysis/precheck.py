@@ -161,10 +161,18 @@ def check_offset(
         ], []
     if sc is None:
         return offset, OFFSET_MANUAL, [], ["сдвиг задан вручную, по .scenes не проверен"]
+    reasons: List[str] = []
     if offset not in {s for s, _ in sc}:
-        return offset, None, [
-            f"--offset {offset} не совпадает с началом ни одной сцены из .scenes"
-        ], []
+        reasons.append(f"--offset {offset} не совпадает с началом ни одной сцены из .scenes")
+    # Частичный энкод enpipe — целые сцены scenes[lo:hi]: окно кончается на конце
+    # сцены. Зеркальная сторона D-07 (WR-11); обе причины собираются вместе (D-20).
+    if offset + n_enc not in {e for _, e in sc}:
+        reasons.append(
+            f"--offset {offset}: энкод кончается на кадре источника {offset + n_enc}, "
+            "это не конец ни одной сцены из .scenes (частичный энкод enpipe — целые сцены)"
+        )
+    if reasons:
+        return offset, None, reasons, []
     return offset, OFFSET_SCENES, [], []
 
 
