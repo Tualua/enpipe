@@ -321,31 +321,41 @@ def test_pts_cache_invalidated_by_mtime(fp, tmp_path):
     assert frames.pts_table(p, cache) == [0.0, 0.25, 0.5]
 
 
-def test_pts_cache_corrupt_recomputed(fp, tmp_path):
+# WR-12 (защита T-10-44, D-21). Прежняя проверка шла через pts_table, которая флаги
+# отбрасывает, а пересчёт даёт те же pts, поэтому «кэш принят» и «пересчитан» были
+# неразличимы и тест не видел отсутствия валидации keyframes. Здесь кэш пишется с
+# ключевыми (0,), а пересчёт отдаёт (0, 1): принятый битый кэш сразу виден.
+def _bad_cache(good):
+    import json
+    no_kf = {k: v for k, v in good.items() if k != "keyframes"}
+    return {
+        "broken-json": "{broken",
+        "old-version": json.dumps({**good, "v": 1}),
+        "other-path": json.dumps({**good, "key": {**good["key"], "path": "/elsewhere"}}),
+        "pts-nonnumeric": json.dumps({**good, "pts": ["a", "b"]}),
+        "pts-empty": json.dumps({**good, "pts": []}),
+        # WR-10: поле keyframes обязательно и проверяется
+        "keyframes-missing": json.dumps(no_kf),
+        "keyframes-str": json.dumps({**good, "keyframes": ["a"]}),
+        "keyframes-out-of-range": json.dumps({**good, "keyframes": [5]}),
+        "keyframes-unsorted": json.dumps({**good, "keyframes": [1, 0]}),
+        "keyframes-bool": json.dumps({**good, "keyframes": [True]}),
+    }
+
+
+@pytest.mark.parametrize("variant", list(_bad_cache({"key": {"path": ""}})))
+def test_pts_cache_corrupt_recomputed(fp, tmp_path, variant):
     import json
     p = _video(tmp_path)
     cache = tmp_path / "rep"
-    fp.register(_pts_argv(p), stdout="0.0\n0.5\n")
-    frames.pts_table(p, cache)
+    fp.register(_pts_argv(p), stdout="0.0,K__\n0.5,___\n")
+    assert frames.packet_table(p, cache) == ([0.0, 0.5], (0,))
     f = next(cache.glob("*.pts.json"))
     good = json.loads(f.read_text())
-    variants = [
-        "{broken",
-        json.dumps({**good, "v": 1}),
-        json.dumps({**good, "key": {**good["key"], "path": "/elsewhere"}}),
-        json.dumps({**good, "pts": ["a", "b"]}),
-        json.dumps({**good, "pts": []}),
-        # WR-10: поле keyframes обязательно и проверяется
-        json.dumps({k: v for k, v in good.items() if k != "keyframes"}),
-        json.dumps({**good, "keyframes": ["a"]}),
-        json.dumps({**good, "keyframes": [5]}),
-        json.dumps({**good, "keyframes": [1, 0]}),
-        json.dumps({**good, "keyframes": [True]}),
-    ]
-    for v in variants:
-        f.write_text(v)
-        fp.register(_pts_argv(p), stdout="0.0\n0.5\n")
-        assert frames.pts_table(p, cache) == [0.0, 0.5]
+    f.write_text(_bad_cache(good)[variant])
+    fp.register(_pts_argv(p), stdout="0.0,K__\n0.5,K__\n")
+    # пересчитано (0, 1), а не принято из кэша
+    assert frames.packet_table(p, cache) == ([0.0, 0.5], (0, 1))
 
 
 # Кэш старого формата (версия 1, без keyframes) пересчитывается, а не принимается.
