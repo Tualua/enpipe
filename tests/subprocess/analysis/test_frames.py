@@ -370,6 +370,15 @@ def test_packet_table_keyframes(fp, tmp_path):
     assert frames.packet_table(p) == ([0.0, 0.041667, 0.125, 0.208], (0, 2))
 
 
+# В данных предыдущего теста индексы ключевых кадров в порядке декода и показа совпадают
+# (0 и 2), поэтому мутация «флаги не переставляются» его не ловит (М23). Здесь ключевой
+# пакет стоит 4-м в порядке декода, но 2-м в порядке показа.
+def test_packet_table_keyframes_decode_order_differs(fp, tmp_path):
+    p = _video(tmp_path)
+    fp.register(_pts_argv(p), stdout="0.000000,K__\n0.208000,___\n0.125000,___\n0.041667,K__\n")
+    assert frames.packet_table(p) == ([0.0, 0.041667, 0.125, 0.208], (0, 1))
+
+
 def test_packet_table_no_flags_column(fp, tmp_path):
     p = _video(tmp_path)
     fp.register(_pts_argv(p), stdout="0.0\n0.5\n")

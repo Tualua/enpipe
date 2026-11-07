@@ -1,14 +1,14 @@
 ---
-status: diagnosed
+status: testing
 phase: 10-frame-extraction-alignment
 source: [10-VERIFICATION.md]
 started: 2026-10-08T21:59:42Z
-updated: 2026-10-24T07:30:00Z
+updated: 2026-11-07T17:48:18Z
 ---
 
 ## Current Test
 
-[решение принято: гэп-план 10-14]
+[ожидает прогона на B50: тесты 10, 11]
 
 ## Tests
 
@@ -43,6 +43,7 @@ result: issue — оператор (2026-10-24): (в) ужесточить D-13 
 ### 8. Решить по WR-08: склейка на кадре 0 без свободных замен
 expected: Решение оператора (10-REVIEW.md, WR-08; 10-VERIFICATION.md). С .scenes склейка на кадре 0 меряется одним кадром и повторов D-11 не получает; при «неопределённо» и отсутствии свободной замены правило (в) даёт отказ («неопределённые точки (кадры энкода): 0»), хотя без .scenes та же пара выровнена (повтор 48). Ложного «выровнено» нет. Варианты: (1) после неудачных замен проверять склейку обычными повторами align.retry_frames, тот же общий лимит; (2) оставить отказ, записать в docstring _point_worker и SUMMARY, добавить тест-якорь; (3) backlog.
 result: issue — оператор (2026-11-05): вариант 1 — склейке без замен (или после неудачных замен) давать обычные повторы align.retry_frames; лимит align_retry_max ОБЩИЙ на замены и повторы склейки (≤ 3); правило (в) не меняется; гэп-план 10-14
+  закрыто кодом: 10-14 (WR-08), 10-15 (CR-01, WR-09), 10-16 (CR-02); регрессии test_partial_junctions_retried_aligned, test_junction_zero_retry ×3, test_junction_prev_side_refused; подтверждение на реальной паре — тест 10
 
 ### 9. Повторный прогон теста 7 на реальной паре (B50)
 expected: Пара без сдвига с .scenes — «выровнено» либо отказ с причиной «неопределённые точки (кадры энкода): …», но никогда «выровнено» при оставшейся неопределённой точке. Частичный энкод без --offset — отказ «сдвиг …». Время извлечения приемлемо (до 20 декодов кадров энкода на файл у обычных точек).
@@ -58,12 +59,37 @@ result: pass (корректность) — прогон Claude по прось�
   - --offset 4738 с .scenes отвергается предпроверкой («не совпадает с началом ни одной сцены»), до выравнивания не доходит
   Ложного «выровнено» нет; сдвиг ±1 ловится. Наблюдение для теста 8: WR-08 шире кадра 0 — частичный энкод из 1–3 сцен с .scenes даёт ложный отказ на любой склейке «неопределённо» (замен нет).
 
+### 10. Повторный прогон теста 9 на B50 после CR-02 (10-16) и WR-10 (10-17)
+expected: Полная пара с .scenes — «выровнено» либо отказ со списком неопределённых точек, никогда «выровнено» при незакрытой точке. Частичный энкод сцен 40..42 без --offset — отказ с подсказкой «--offset 4737 (сцены 40..42)». С --offset 4737 и .scenes — «выровнено» (ожидание после CR-02: склейки 75 и 149 закрыты повторами обеих сторон) либо отказ со списком точек. Ни на одной паре enpipe нет причины «.scenes не совпадают с энкодом».
+commands: |
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --jobs 1,2
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --offset 4737
+result: [pending]
+
+### 11. WR-10: флаги ключевых кадров энкода enpipe после mkvmerge на началах сцен
+expected: Число пакетов с флагом K в энкоде не меньше числа сцен в окне; scenes_reasons и keyframe_reasons пусты для полной пары (offset 0) и для частичной (offset 4737). Если keyframe_reasons не пуст на настоящем энкоде enpipe — допущение о флагах mkvmerge (ключевой флаг на первом кадре каждого чанка) ложно: остановиться и вынести оператору, кода не менять (иначе все пары enpipe получают ложный отказ).
+commands: |
+  # число ключевых пакетов энкода и число сцен
+  ffprobe -v error -select_streams V:0 -show_entries packet=pts_time,flags -of csv=p=0 ENC.mkv | awk -F, '$2 ~ /K/ {n++} END {print n}'
+  wc -l < SRC.mkv.scenes
+  # сверка кодом enpipe, аргументы: SRC ENC SCENES OFFSET (проверено на синтетике: оба списка причин пусты)
+  # полная пара (offset 0):
+  uv run python -c 'import sys; from pathlib import Path; from enpipe.analysis import frames, precheck; from enpipe.analysis.sources import read_scenes_file; src, enc, sc, off = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]); sp, _ = frames.packet_table(src); ep, ek = frames.packet_table(enc); s = read_scenes_file(sc); print("кадров источника", len(sp), "энкода", len(ep), "ключевых кадров энкода", len(ek), "сцен", len(s)); print("scenes_reasons:", precheck.scenes_reasons(s, len(sp))); print("keyframe_reasons:", precheck.keyframe_reasons(s, off, len(ep), ek))' SRC.mkv ENC.mkv SRC.mkv.scenes 0
+  # частичный энкод (offset 4737):
+  uv run python -c 'import sys; from pathlib import Path; from enpipe.analysis import frames, precheck; from enpipe.analysis.sources import read_scenes_file; src, enc, sc, off = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]); sp, _ = frames.packet_table(src); ep, ek = frames.packet_table(enc); s = read_scenes_file(sc); print("кадров источника", len(sp), "энкода", len(ep), "ключевых кадров энкода", len(ek), "сцен", len(s)); print("scenes_reasons:", precheck.scenes_reasons(s, len(sp))); print("keyframe_reasons:", precheck.keyframe_reasons(s, off, len(ep), ek))' SRC.mkv ENC_PART.mkv SRC.mkv.scenes 4737
+  # готовая реальная пара enpipe (Gravity Falls S01E01, 233 сцены, 30325 кадров, offset 0):
+  #   SRC="/data/media/series/Gravity Falls/S01/Gravity.Falls.S01E01.Tourist.Trapped.1080p.BDRemux.AVC.DTS-HD.MA.5.1-tim1ch.mkv"
+  #   ENC="/data/downloads/enpipe-test/gf-s01e01/Gravity.Falls.S01E01.Tourist.Trapped.1080p.BDRemux.AVC.DTS-HD.MA.5.1-tim1ch.Encoded.mkv"
+  #   SCENES=/data/downloads/enpipe-test/gf-s01e01/S01E01.scenes   (третьим аргументом вместо SRC.mkv.scenes)
+result: [pending]
+
 ## Summary
 
-total: 9
+total: 11
 passed: 1
 issues: 8
-pending: 0
+pending: 2
 skipped: 0
 blocked: 0
 
@@ -119,9 +145,9 @@ blocked: 0
   fix: "(в) aggregate: любая оставшаяся точка «неопределённо» → «неопределённо»; (а) _point_worker: повтор в окрестности taken сдвигается на первый свободный кадр; переписать docstring _taken_frames/тесты под новое поведение (включая IN-14/IN-15) — 10-13; закрыто планом 10-13 (d75f7b6), подтверждено повторным ревью и верификацией 2026-10-24"
 
 - truth: "Верная пара без сдвига с .scenes не получает отказ только из-за склейки «неопределённо», которой нечем заменить: склейка получает обычные повторы в пределах общего лимита align_retry_max"
-  status: failed
+  status: resolved
   reason: "WR-08 (10-REVIEW.md после 10-13) и UAT тест 9: частичный энкод Young Sherlock S01E01 сцен 40..42, --offset 4737, с .scenes — отказ «неопределённые точки (кадры энкода): 75, 149» (запас 2.4/2.6 дБ < 3.0, замен нет); без .scenes — aligned 5/5"
   severity: major
   test: 8
-  fix: "_point_worker: для склейки после замен (или без них) — повторы align.retry_frames(start, n, cfg, taken) остатком общего лимита align_retry_max (замены+повторы ≤ 3); регрессия на Fake: 3 сцены, склейки «неопределённо», повтор «выровнено» → aligned; повтор «сдвиг» → shift; лимит; склейка 0; docstring _point_worker и junction_replacements под новое поведение — 10-14
+  fix: "_point_worker: для склейки после замен (или без них) — повторы align.retry_frames(start, n, cfg, taken) остатком общего лимита align_retry_max (замены+повторы ≤ 3); регрессия на Fake: 3 сцены, склейки «неопределённо», повтор «выровнено» → aligned; повтор «сдвиг» → shift; лимит; склейка 0; docstring _point_worker и junction_replacements под новое поведение — 10-14; закрыто планами 10-14, 10-15, 10-16"
 
