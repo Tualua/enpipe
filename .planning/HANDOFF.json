@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-11-07T07:48:27.268Z",
+  "phase": "10",
+  "phase_name": "frame-extraction-alignment",
+  "phase_dir": ".planning/phases/10-frame-extraction-alignment",
+  "plan": 15,
+  "task": null,
+  "total_tasks": 3,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": "10-15", "name": "Гэп-план CR-01/WR-09: склейку закрывает только повтор в её сцене, замена — голос", "status": "done", "commit": "f5d7573"},
+    {"id": "review", "name": "Повторное ревью кода фазы 10 (status issues_found: CR-02 blocker, WR-10 warning, IN-19..IN-21)", "status": "done", "commit": "38f244f"},
+    {"id": "verify", "name": "Повторная верификация фазы 10: gaps_found, has_blocking_gaps true, ALN-03 BLOCKED", "status": "done", "commit": "38fdb29"}
+  ],
+  "remaining_tasks": [
+    {"id": "decide-wr10", "name": "Получить решение оператора по WR-10 (варианты A/B/C/D), затем — отдельным вопросом — отказ или пометка при несовпадении", "status": "not_started"},
+    {"id": "record-decisions", "name": "Записать решения по CR-02 и WR-10 в 10-CONTEXT.md (подпункты под D-13, как для CR-01/WR-09) и закоммитить", "status": "not_started"},
+    {"id": "plan-gaps", "name": "/gsd:plan-phase 10 --gaps (гэп-план 10-16)", "status": "not_started"},
+    {"id": "execute-gaps", "name": "/gsd:execute-phase 10 --gaps-only, ревью, верификация", "status": "not_started"},
+    {"id": "uat9", "name": "Повторный UAT тест 9 на реальной паре (B50) после исправления CR-02", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "CR-02: повтор в сцене склейки [start, end) закрывает склейку, у которой «неопределённо» дал кадр start−1 предыдущего чанка → ложное «выровнено» при сдвиге предыдущего чанка (регрессия с 10-14). Зонд: scratchpad probe_prev.py — сцены [0,250,480,500,750,900], статика 488..499, сдвиг −1 в 480..499 → HEAD ok True", "type": "technical", "workaround": ""},
+    {"description": "WR-10: .scenes не сверяются (порядок, непрерывность, старт 0, конец n_src; при полном энкоде check_offset на них не смотрит, precheck.py:123-124) — защита CR-01/CR-02 держится на честности .scenes", "type": "human_action", "workaround": "ждёт решения оператора"}
+  ],
+  "human_actions_pending": [
+    {"action": "Выбрать вариант по WR-10: A — структурная проверка .scenes; B — A + сверка начал сцен с ключевыми кадрами энкода (рекомендовано); C — только документировать; D — бэклог", "context": "Варианты изложены оператору 2026-11-07; после A/B — отдельный вопрос: отказ (D-20) или пометка", "blocking": true},
+    {"action": "UAT тест 9 на B50 после исправления CR-02 (команды в 10-VERIFICATION.md, human_verification)", "context": "После 10-15 проверена только синтетика", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "CR-02: вариант 1 — каждую сторону склейки закрывает своя сцена: start−1 — повтором назад внутри предыдущей сцены, start — повтором внутри своей сцены (как сейчас); цель закрыта, только когда закрыты обе стороны", "rationale": "Оператор 2026-11-07; сохраняет UAT 9 (WR-08) без ложного отказа, не допускает ложного «выровнено»", "phase": "10"},
+    {"decision": "Повторы обычных (не склеечных) точек без ограничения сценой — не дефект класса CR-01 (инвариант pick_points: сцену обычной точки открывает цель-склейка); закрепить тестом (IN-21)", "rationale": "Ревью: доказательство + перебор 200 000 раскладок; верно при исправленном CR-02 и корректных .scenes", "phase": "10"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Спросить оператора о выборе по WR-10 (варианты A/B/C/D уже изложены, рекомендован B); затем записать решения CR-02 и WR-10 в 10-CONTEXT.md и запустить /gsd:plan-phase 10 --gaps",
+  "context_notes": "Все 15 планов фазы 10 выполнены; фаза в gaps_found. STATE.md показывает «Plan: 2 of 15» — сбой state.advance-plan, поправить при закрытии фазы. 10-HUMAN-UAT.md тест 8 всё ещё failed, хотя код 10-14/10-15 его закрыл. Зонды: /tmp/claude-0/-workspaces-enpipe/1c33a4c9-a52c-43b7-a66e-8aa471763b4c/scratchpad/probe_prev.py (CR-02), probe_ord.py (обычные точки) — scratchpad эфемерен."
+}
