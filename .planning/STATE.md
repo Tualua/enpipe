@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: 10
 current_phase_name: frame-extraction-alignment
 status: executing
-stopped_at: Phase 10 context gathered
-last_updated: "2026-11-07T17:25:54.411Z"
+stopped_at: Completed 10-16-PLAN.md
+last_updated: "2026-11-07T17:34:24.262Z"
 last_activity: 2026-11-07
-last_activity_desc: решения оператора по CR-02 и WR-10
-state_head: 71e62382a940113facca7d31274478f1ce339f8b
+last_activity_desc: Phase 10 execution started
+state_head: e183bd5ffd664105b67541b06f63aea1b9db6f76
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 22
-  completed_plans: 20
+  completed_plans: 21
   percent: 40
 ---
 
@@ -29,16 +29,21 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 
 ## Current Position
 
-Phase: 10 (frame-extraction-alignment) — READY TO EXECUTE
-Plan: 15 of 17 (гэп-планы 10-16, 10-17 составлены и проверены)
-Status: Phase 10 — готово к исполнению гэп-планов (/gsd:execute-phase 10 --gaps-only)
-Last activity: 2026-11-07 -- решения оператора по CR-02 и WR-10
+Phase: 10 (frame-extraction-alignment) — EXECUTING
+Plan: 17 of 17
+Status: Ready to execute
+Last activity: 2026-11-07 — Phase 10 execution started
 
 Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
 Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-STATE.md` (snapshot at v1.2 close). Reset for the next milestone.
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 10 P16 | 35 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -64,6 +69,8 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: 10-15: повтор склейки только в её сцене; замена выровнено — голос, цель не закрывает (оператор 2026-11-06)
 - [Phase 10]: CR-02: каждую сторону склейки закрывает своя сцена (start−1 — повтором назад в предыдущей сцене); цель закрыта при обеих сторонах (оператор 2026-11-07)
 - [Phase 10]: WR-10: вариант B — структурная проверка .scenes + начала сцен = ключевые кадры энкода; несовпадение → отказ D-20 (оператор 2026-11-07)
+- [Phase 10]: CR-02: каждую сторону склейки закрывает своя сцена (start−1 — повтор назад в предыдущей сцене, start — в своей); цель закрыта только при обеих закрытых
+- [Phase 10]: Выбор планировщика 10-16: повторы сторон поочерёдно start/start−1; повтор, закрывший одну сторону незакрытой цели, — голос «выровнено» (reversible)
 
 ### Pending Todos
 
@@ -148,9 +155,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-07
-Stopped at: гэп-планы 10-16 (CR-02) и 10-17 (WR-10) прошли проверку; далее /gsd:execute-phase 10 --gaps-only
-Resume file: .planning/phases/10-frame-extraction-alignment/.continue-here.md
+Last session: 2026-11-07T17:34:24.062Z
+Stopped at: Completed 10-16-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
