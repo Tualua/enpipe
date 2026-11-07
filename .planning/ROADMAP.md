@@ -99,25 +99,24 @@ Plans:
   4. Для энкода частичного диапазона (`--from/--to`) без `--offset` сдвиг обнаруживается и приводит к отказу, а с `--offset` пара сравнивается корректно
   5. Извлечение работает без GPU и `/dev/dri` (программный декод по умолчанию) и не мешает идущему кодированию
 
-**Plans**: 15 plans (5 + 10 gap closure)
+**Plans**: 17 plans (5 + 12 gap closure)
 
 Plans:
 **Wave 1**
-
 - [x] 10-01-PLAN.md — контракты: provisional-пороги выравнивания, производительные константы, типы пары/вердикта в модели, рендер отказа, seek_time_for_frame, allow-list сторожа (волна 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-
 - [x] 10-02-PLAN.md — чистое ядро: вердикт точки/склейки/кадра/файла, выбор точек, предпроверка пары и правила --offset (волна 2)
 - [x] 10-03-PLAN.md — I/O-слой frames.py: probe, таблица pts с кэшем, точный grab 10-бит, nice/threads (волна 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-
 - [x] 10-04-PLAN.md — оркестратор pair.py и медиа-тест без GPU: framemd5, VFR, start_time, сдвиг, статика, частичный энкод (волна 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-
 - [x] 10-05-PLAN.md — UAT на реальной паре с ZFS-HDD: замер jobs, теги энкода (A8), DV P5, помеха кодированию (волна 4, чекпоинт)
+
+**Cross-cutting constraints:** <!-- gsd:generated -->
+- uv run pytest -q и uv run ruff check src tests зелёные
 
 **Gap closure — Wave 1**
 
@@ -152,6 +151,14 @@ Plans:
 **Gap closure — Wave 8**
 
 - [x] 10-15-PLAN.md — CR-01 (blocker, регрессия 10-14) и WR-09: склейку закрывает только «выровнено» повтора внутри её сцены [start, следующая склейка) (align.junction_retry_frames); замена «выровнено» — голос без закрытия цели; зонды ревью как регрессии; мутации М9–М14
+
+**Gap closure — Wave 9**
+
+- [ ] 10-16-PLAN.md — CR-02 (blocker, вариант 1): каждую сторону склейки закрывает своя сцена — start−1 повтором назад в предыдущей сцене (align.junction_prev_retry_frames), start — в своей; цель закрыта только при обеих закрытых сторонах, общий лимит; якоря «только start−1» / «только start», сверка с кодом до 10-14, IN-21 (инвариант pick_points); мутации М15–М19
+
+**Gap closure — Wave 10** *(blocked on 10-16)*
+
+- [ ] 10-17-PLAN.md — WR-10 (вариант B, отказ D-20): сверка .scenes в check_pair (порядок, непрерывность, 0, n_src; начала сцен в окне энкода — ключевые кадры, в том числе при полном энкоде), флаги ключевых кадров тем же ffprobe (frames.packet_table, кэш v2); 10-HUMAN-UAT.md: тест 8 resolved, pending 10–11 (UAT 9 и флаги mkvmerge на B50); мутации М20–М23
 
 ### Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI
 
