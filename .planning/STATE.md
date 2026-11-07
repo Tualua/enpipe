@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 current_phase: 10
 current_phase_name: frame-extraction-alignment
-status: executing
-stopped_at: Completed 10-16-PLAN.md
-last_updated: "2026-11-07T17:34:24.262Z"
+status: verifying
+stopped_at: Completed 10-17-PLAN.md
+last_updated: "2026-11-07T17:50:06.118Z"
 last_activity: 2026-11-07
 last_activity_desc: Phase 10 execution started
-state_head: e183bd5ffd664105b67541b06f63aea1b9db6f76
+state_head: b5920f455f0801a66509a1ab31bc95c7e9547113
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 22
-  completed_plans: 21
+  completed_plans: 22
   percent: 40
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 
 Phase: 10 (frame-extraction-alignment) — EXECUTING
 Plan: 17 of 17
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-07 — Phase 10 execution started
 
 Progress: [████░░░░░░] 40%
@@ -44,6 +44,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 10 P16 | 35 min | 3 tasks | 4 files |
+| Phase 10 P17 | 45min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: WR-10: вариант B — структурная проверка .scenes + начала сцен = ключевые кадры энкода; несовпадение → отказ D-20 (оператор 2026-11-07)
 - [Phase 10]: CR-02: каждую сторону склейки закрывает своя сцена (start−1 — повтор назад в предыдущей сцене, start — в своей); цель закрыта только при обеих закрытых
 - [Phase 10]: Выбор планировщика 10-16: повторы сторон поочерёдно start/start−1; повтор, закрывший одну сторону незакрытой цели, — голос «выровнено» (reversible)
+- [Phase 10]: WR-10 (10-17): .scenes сверяются с источником и ключевыми кадрами энкода, в том числе при полном энкоде; None-флаги при непустых .scenes — отказ (fail-closed)
 
 ### Pending Todos
 
@@ -155,8 +157,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-07T17:34:24.062Z
-Stopped at: Completed 10-16-PLAN.md
+Last session: 2026-11-07T17:50:05.971Z
+Stopped at: Completed 10-17-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
