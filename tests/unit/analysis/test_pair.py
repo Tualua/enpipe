@@ -1209,3 +1209,47 @@ def test_scenes_keyframe_mismatch_refused(fake):
     assert chk.ok is False and chk.alignment is None
     assert f.calls == []
     assert any("не на ключевых кадрах энкода" in r and "600" in r for r in chk.reasons)
+
+
+# Лишние ключевые кадры внутри чанков (GOP_LEN) допустимы: условие необходимое, не достаточное.
+def test_scenes_gop_keyframes_ok(fake):
+    film = noisy_film(1000)
+    f = fake({SRC: film, ENC: film})
+    f.keyframes[ENC] = (0, 100, 250, 300, 500, 600, 750, 900)
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(JSTARTS))
+    assert chk.ok is True
+
+
+# Устаревший .scenes (на 10 кадров короче источника) на полном энкоде: раньше сцены не
+# смотрелись и пара принималась.
+def test_scenes_stale_full_encode_refused(fake):
+    film = noisy_film(1000)
+    f = fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=_sc(JSTARTS, n=990))
+    assert chk.ok is False and chk.alignment is None
+    assert f.calls == []
+    assert any(
+        ".scenes: последняя сцена кончается на кадре 990, в источнике 1000 кадров" in r
+        for r in chk.reasons
+    )
+
+
+def test_scenes_gap_full_encode_refused(fake):
+    film = noisy_film(1000)
+    f = fake({SRC: film, ENC: film})
+    chk = pair.check_pair_files(SRC, ENC, CFG, scenes=[(0, 250), (260, 1000)])
+    assert chk.ok is False and chk.alignment is None and f.calls == []
+    assert any("не идут подряд" in r for r in chk.reasons)
+
+
+# Частичный энкод: окно [100, 502), начало 175 -> кадр энкода 75 обязан быть ключевым.
+def test_scenes_partial_keyframes_refused(fake):
+    src, enc = _partial()
+    f = fake({SRC: src, ENC: enc})
+    f.keyframes[ENC] = (0, 149)
+    chk = pair.check_pair_files(SRC, ENC, CFG, offset=POFF, scenes=PSCENES)
+    assert chk.ok is False and chk.alignment is None
+    assert any("не на ключевых кадрах энкода" in r and "75" in r for r in chk.reasons)
+    f.keyframes[ENC] = (0, 75, 149)
+    chk = pair.check_pair_files(SRC, ENC, CFG, offset=POFF, scenes=PSCENES)
+    assert chk.ok is True

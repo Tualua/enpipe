@@ -335,11 +335,55 @@ def test_pts_cache_corrupt_recomputed(fp, tmp_path):
         json.dumps({**good, "key": {**good["key"], "path": "/elsewhere"}}),
         json.dumps({**good, "pts": ["a", "b"]}),
         json.dumps({**good, "pts": []}),
+        # WR-10: поле keyframes обязательно и проверяется
+        json.dumps({k: v for k, v in good.items() if k != "keyframes"}),
+        json.dumps({**good, "keyframes": ["a"]}),
+        json.dumps({**good, "keyframes": [5]}),
+        json.dumps({**good, "keyframes": [1, 0]}),
+        json.dumps({**good, "keyframes": [True]}),
     ]
     for v in variants:
         f.write_text(v)
         fp.register(_pts_argv(p), stdout="0.0\n0.5\n")
         assert frames.pts_table(p, cache) == [0.0, 0.5]
+
+
+# Кэш старого формата (версия 1, без keyframes) пересчитывается, а не принимается.
+def test_pts_cache_v1_file_recomputed(fp, tmp_path):
+    import json
+    p = _video(tmp_path)
+    cache = tmp_path / "rep"
+    fp.register(_pts_argv(p), stdout="0.0\n0.5\n")
+    frames.pts_table(p, cache)
+    f = next(cache.glob("*.pts.json"))
+    good = json.loads(f.read_text())
+    f.write_text(json.dumps({"v": 1, "key": good["key"], "pts": [0.0, 0.25]}))
+    fp.register(_pts_argv(p), stdout="0.0\n0.5\n")
+    assert frames.pts_table(p, cache) == [0.0, 0.5]
+
+
+# Флаги переезжают вместе с pts при сортировке (пакеты идут в порядке декода): индексы
+# ключевых кадров относятся к порядку показа.
+def test_packet_table_keyframes(fp, tmp_path):
+    p = _video(tmp_path)
+    fp.register(_pts_argv(p), stdout="0.000000,K__\n0.208000,___\n0.125000,K__\n0.041667,___\n")
+    assert frames.packet_table(p) == ([0.0, 0.041667, 0.125, 0.208], (0, 2))
+
+
+def test_packet_table_no_flags_column(fp, tmp_path):
+    p = _video(tmp_path)
+    fp.register(_pts_argv(p), stdout="0.0\n0.5\n")
+    assert frames.packet_table(p) == ([0.0, 0.5], ())
+
+
+def test_packet_table_cache_keyframes(fp, tmp_path):
+    p = _video(tmp_path)
+    cache = tmp_path / "rep"
+    fp.register(_pts_argv(p), stdout="0.0,K__\n0.5,___\n1.0,K__\n")
+    first = frames.packet_table(p, cache)
+    assert first == ([0.0, 0.5, 1.0], (0, 2))
+    # argv не зарегистрирован повторно: второй вызов обязан прийти из кэша
+    assert frames.packet_table(p, cache) == first
 
 
 def test_pts_no_cache_dir_no_files(fp, tmp_path):

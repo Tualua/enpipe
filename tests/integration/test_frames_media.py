@@ -68,7 +68,8 @@ def _x265(src_args: List[str], dst: Path, what: str, vf: Optional[str] = None,
     _gen(cmd, what)
 
 
-def _av1(src: Path, dst: Path, vf: Optional[str] = None, crf: int = 35) -> None:
+def _av1(src: Path, dst: Path, vf: Optional[str] = None, crf: int = 35, *,
+         gop: Optional[int] = None) -> None:
     cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(src)]
     if vf:
         cmd += ["-vf", vf]
@@ -76,8 +77,11 @@ def _av1(src: Path, dst: Path, vf: Optional[str] = None, crf: int = 35) -> None:
         "-pix_fmt", "yuv420p10le", "-c:v", "libsvtav1", "-preset", "12", "-crf", str(crf),
         "-svtav1-params", _SVT_TAGS,
         "-color_primaries", "bt2020", "-color_trc", "smpte2084",
-        "-colorspace", "bt2020nc", "-color_range", "tv", str(dst),
+        "-colorspace", "bt2020nc", "-color_range", "tv",
     ]
+    if gop is not None:
+        cmd += ["-g", str(gop)]
+    cmd += [str(dst)]
     _gen(cmd, f"AV1 {dst.name}")
 
 
@@ -101,9 +105,14 @@ def media(tmp_path_factory) -> Dict[str, Path]:
     _gen(["ffmpeg", "-v", "error", "-y", "-itsoffset", "2.5", "-i", str(m["src_cfr"]),
           "-f", "lavfi", "-i", "sine=duration=6", "-map", "0:v", "-map", "1:a",
           "-c:v", "copy", "-c:a", "flac", str(m["src_av"])], "src_av")
-    _av1(m["src_cfr"], m["enc_ok"])
+    # gop=24 только у пар, которым передаются .scenes (enc_ok, enc_part): как чанки
+    # enpipe, каждая сцена из media["scenes"] (по 24 кадра) начинается ключевым кадром;
+    # без этого WR-10 отвергнет такие пары. Остальные фикстуры не трогаем: запасы
+    # сдвига и статики откалиброваны на прежнем GOP.
+    _av1(m["src_cfr"], m["enc_ok"], gop=24)
     _av1(m["src_cfr"], m["enc_shift"], _SHIFT_VF)
-    _av1(m["src_cfr"], m["enc_part"], "trim=start_frame=24:end_frame=72,setpts=PTS-STARTPTS")
+    _av1(m["src_cfr"], m["enc_part"], "trim=start_frame=24:end_frame=72,setpts=PTS-STARTPTS",
+         gop=24)
     _x265(["-f", "lavfi", "-i", "color=c=gray:size=640x360:rate=24:duration=4"],
           m["gray_src"], "gray_src")
     _av1(m["gray_src"], m["gray_enc"])
@@ -294,6 +303,24 @@ def test_partial_with_offset_aligned(media):
     assert not pair.check_pair_files(src, enc, cfg, offset=48, scenes=scenes).ok
     bad = pair.check_pair_files(src, enc, cfg, offset=30, scenes=scenes)
     assert any("не совпадает с началом" in r for r in bad.reasons)
+
+
+# Флаги ключевых кадров берутся тем же ffprobe, что pts; чанки enpipe начинаются с
+# ключевого кадра, фикстуры enc_ok/enc_part кодируются с gop=24 (WR-10).
+def test_packet_table_keyframes_real(media):
+    pts, keys = frames.packet_table(media["enc_ok"])
+    assert {0, 24, 48, 72} <= set(keys)
+    assert pts == frames.pts_table(media["enc_ok"])
+    _, part_keys = frames.packet_table(media["enc_part"])
+    assert {0, 24} <= set(part_keys)
+
+
+def test_scenes_not_on_keyframes_real(media):
+    chk = pair.check_pair_files(media["src_cfr"], media["enc_ok"], AnalyzeConfig(),
+                                scenes=[(0, 12), (12, 96)])
+    assert not chk.ok
+    assert chk.alignment is None
+    assert any("не на ключевых кадрах энкода" in r and "12" in r for r in chk.reasons)
 
 
 # --------------------------------------------------------------------------- #

@@ -14,8 +14,10 @@ from enpipe.analysis.precheck import (
     check_pair,
     detect_vfr,
     fps_equal,
+    keyframe_reasons,
     offset_hints,
     pts_reasons,
+    scenes_reasons,
 )
 
 CFG = AnalyzeConfig()
@@ -218,3 +220,82 @@ def test_check_pair_applies_offset():
     v = _pair(n_enc=48, offset=24, scenes=S4)
     assert v.ok and v.offset == 24 and v.offset_source == "scenes"
     assert not _pair(n_enc=48).ok
+
+
+# --------------------------------------------------------------------------- #
+# WR-10: сверка .scenes (решение оператора 2026-11-07)
+# --------------------------------------------------------------------------- #
+
+
+def test_scenes_reasons_valid():
+    assert scenes_reasons(S4, 96) == []
+    # сцены нулевой длины допустимы
+    assert scenes_reasons([(0, 24), (24, 24), (24, 96)], 96) == []
+
+
+def test_scenes_reasons_unsorted():
+    r = scenes_reasons([(24, 48), (0, 24), (48, 96)], 96)
+    assert any("не отсортированы" in x for x in r)
+
+
+def test_scenes_reasons_gap():
+    r = scenes_reasons([(0, 24), (30, 96)], 96)
+    assert any("не идут подряд" in x and "24" in x and "30" in x for x in r)
+
+
+def test_scenes_reasons_first_not_zero():
+    r = scenes_reasons([(10, 96)], 96)
+    assert any("первая сцена начинается с кадра 10" in x for x in r)
+
+
+def test_scenes_reasons_last_end():
+    r = scenes_reasons([(0, 24), (24, 90)], 96)
+    assert any("кончается на кадре 90, в источнике 96 кадров" in x for x in r)
+
+
+def test_keyframe_reasons_full():
+    r = keyframe_reasons(S4, 0, 96, (0, 24, 48))
+    assert len(r) == 1 and "72" in r[0]
+    assert keyframe_reasons(S4, 0, 96, (0, 24, 48, 72)) == []
+
+
+def test_keyframe_reasons_partial():
+    # окно энкода [24, 72): начала 24 и 48 -> кадры энкода 0 и 24; начало 72 вне окна
+    assert keyframe_reasons(S4, 24, 48, (0, 24)) == []
+    r = keyframe_reasons(S4, 24, 48, (0,))
+    assert len(r) == 1 and "24" in r[0]
+
+
+def test_keyframe_reasons_cap():
+    scenes = [(i * 10, i * 10 + 10) for i in range(15)]
+    r = keyframe_reasons(scenes, 0, 150, (0,))
+    assert len(r) == 1
+    assert "… и ещё 4" in r[0]
+    # 14 начал не ключевые, показано 10: 10, 20, …, 100
+    assert "100" in r[0] and "110" not in r[0]
+    assert "без .scenes" in r[0]
+
+
+# На HEAD (до 10-17) check_offset при полном энкоде возвращался до сцен, поэтому
+# разрывный .scenes принимался молча.
+def test_check_pair_full_encode_scenes_checked():
+    v = _pair(scenes=[(0, 24), (30, 96)])
+    assert not v.ok and _has(v, "не идут подряд")
+
+
+def test_check_pair_keyframes_missing():
+    v = _pair(scenes=S4, enc_keyframes=None)
+    assert not v.ok and _has(v, "нет флагов ключевых кадров энкода")
+    # без .scenes флаги не нужны
+    assert _pair(enc_keyframes=None).ok
+
+
+def test_check_pair_scenes_collects_all():
+    v = _pair(enc=_info(width=1920), scenes=[(0, 24), (30, 96)])
+    assert _has(v, "размер различается") and _has(v, "не идут подряд")
+
+
+def test_check_pair_offset_error_skips_keyframes():
+    v = _pair(n_enc=48, offset=30, scenes=S4, enc_keyframes=(0,))
+    assert _has(v, "не совпадает с началом ни одной сцены")
+    assert not _has(v, "не на ключевых кадрах")
