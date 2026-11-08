@@ -3,14 +3,34 @@ phase: 10
 review: 10-REVIEW.md
 titles: json
 findings:
+  - id: WR-01
+    severity: warning
+    disposition: open
+    title: "`DEFAULT_JOBS` and its comment describe an API that no longer exists (necessity)"
+  - id: WR-02
+    severity: warning
+    disposition: open
+    title: "K-flag hardware test has an upper bound that can fail on a correct pipeline"
+  - id: IN-01
+    severity: info
+    disposition: open
+    title: "Over-long, stale module docstring paragraph"
+  - id: IN-02
+    severity: info
+    disposition: open
+    title: "`OFFSET_*` comments name a family that has a single member"
+  - id: IN-03
+    severity: info
+    disposition: open
+    title: "Scratch script gaps"
+  - id: IN-04
+    severity: info
+    disposition: open
+    title: "Unneeded `noqa` on the broad catch"
   - id: IN-26
     severity: info
     disposition: open
     title: "тест битого кэша не ловит «починить вместо отвергнуть»: вариант `[1, 0]` после сортировки равен ответу пересчёта (новое)"
-  - id: IN-03
-    severity: info
-    disposition: open
-    title: "`offset_hints` теряет окно после любой сцены нулевой длины; после WR-11 подсказки расходятся с явным `--offset` (открыт, шире)"
   - id: IN-23
     severity: info
     disposition: open
@@ -43,14 +63,6 @@ findings:
     severity: info
     disposition: open
     title: "устаревший пример в docstring `AlignTarget` (без изменений)"
-  - id: IN-02
-    severity: info
-    disposition: open
-    title: "«сдвиг не менее W» теряется в итоге файла и строках кадров (без изменений)"
-  - id: IN-04
-    severity: info
-    disposition: open
-    title: "`UnicodeDecodeError` выходит из `check_pair_files` (без изменений)"
   - id: IN-05
     severity: info
     disposition: open
@@ -75,30 +87,33 @@ findings:
     severity: info
     disposition: open
     title: "UAT 11 не отличит «флаги mkvmerge верны» от «флаг K на каждом кадре», при котором WR-10 молча пуст (новое)"
-open: 18
-total: 18
-recorded: 2026-11-07T18:33:20.100Z
+open: 21
+total: 21
+recorded: 2026-11-08T06:02:43.653Z
 ---
 
 # Phase 10: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| IN-26 | info | open | - |
-| IN-03 | info | open | - |
-| IN-23 | info | open | - |
-| IN-18 | info | open | - |
-| IN-06 | info | open | - |
-| IN-24 | info | open | - |
-| IN-25 | info | open | - |
-| IN-19 | info | open | - |
-| IN-16 | info | open | - |
-| IN-17 | info | open | - |
+| WR-01 | warning | open | - |
+| WR-02 | warning | open | - |
+| IN-01 | info | open | - |
 | IN-02 | info | open | - |
+| IN-03 | info | open | - |
 | IN-04 | info | open | - |
-| IN-05 | info | open | - |
-| IN-07 | info | open | - |
-| IN-09 | info | open | - |
+| IN-26 | info | open | - (not in the current review) |
+| IN-23 | info | open | - (not in the current review) |
+| IN-18 | info | open | - (not in the current review) |
+| IN-06 | info | open | - (not in the current review) |
+| IN-24 | info | open | - (not in the current review) |
+| IN-25 | info | open | - (not in the current review) |
+| IN-19 | info | open | - (not in the current review) |
+| IN-16 | info | open | - (not in the current review) |
+| IN-17 | info | open | - (not in the current review) |
+| IN-05 | info | open | - (not in the current review) |
+| IN-07 | info | open | - (not in the current review) |
+| IN-09 | info | open | - (not in the current review) |
 | WR-11 | warning | open | - (not in the current review) |
 | WR-12 | warning | open | - (not in the current review) |
 | IN-22 | info | open | - (not in the current review) |
