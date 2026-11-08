@@ -59,12 +59,13 @@ result: pass (корректность) — прогон Claude по прось�
   - --offset 4738 с .scenes отвергается предпроверкой («не совпадает с началом ни одной сцены»), до выравнивания не доходит
   Ложного «выровнено» нет; сдвиг ±1 ловится. Наблюдение для теста 8: WR-08 шире кадра 0 — частичный энкод из 1–3 сцен с .scenes даёт ложный отказ на любой склейке «неопределённо» (замен нет).
 
-### 10. Повторный прогон теста 9 на B50 после CR-02 (10-16) и WR-10 (10-17)
-expected: Полная пара с .scenes — «выровнено» либо отказ со списком неопределённых точек, никогда «выровнено» при незакрытой точке. Частичный энкод сцен 40..42 без --offset — отказ с подсказкой «--offset 4737 (сцены 40..42)». С --offset 4737 и .scenes — «выровнено» (ожидание после CR-02: склейки 75 и 149 закрыты повторами обеих сторон) либо отказ со списком точек. Ни на одной паре enpipe нет причины «.scenes не совпадают с энкодом».
+### 10. Предпроверка пары без PSNR-выравнивания на B50 (пересмотр D-24, 2026-11-08; G-10-1)
+expected: Полная пара Young Sherlock S01E01 со .scenes: «ok: True», «причин нет» (склейки 0 и 73498 больше не дают ложного отказа). Частичный энкод сцен 40..42 без --offset: отказ с подсказкой «--offset 4737 (сцены 40..42)». С --offset 4737 и .scenes: «ok: True», «источник offset=scenes». С --offset 4737 и --no-scenes: «ok: False» с причиной «--offset 4737 задан без .scenes …» (D-26). Ни на одной паре нет причины «.scenes не совпадают с энкодом».
 commands: |
-  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --jobs 1,2
-  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv
-  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --offset 4737
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --check-only
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737 --no-scenes
 result: [pending]
 
 ### 11. WR-10 / IN-22: флаги ключевых кадров энкода enpipe после mkvmerge на началах сцен

@@ -6,7 +6,11 @@
     предпроверка пары отвергнет все реальные энкоды (таблица расхождения тегов
     здесь только диагностика, правила предпроверки не меняются);
   - отказ DV profile 5 первой причиной (--probe-only по одному файлу);
-  - выбор DEFAULT_JOBS на ZFS-HDD: время извлечения точек при jobs 1/2/4;
+  - G-10-1 (D-24..D-26): верная пара enpipe проходит предпроверку без ложного
+    отказа (полная пара со .scenes; частичный энкод с --offset и .scenes);
+    --offset без .scenes отвергается (D-26, флаг --no-scenes);
+  - замер времени извлечения кадров при jobs 1/2/4 на ZFS-HDD (шаг 5, не нужен при
+    --check-only);
   - время таблицы pts (холодно / из кэша) и пиковая память (ru_maxrss себя и
     дочерних процессов) на реальном разрешении.
 
@@ -15,7 +19,10 @@
 пишется только каталог кэша pts. Внешние программы вызываются только через
 функции enpipe.analysis.
 
-Пример:
+Примеры:
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --check-only
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737
+  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737 --no-scenes
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --jobs 1,2,4
   uv run python scratch/analysis_pair_probe.py SRC.mp4 --probe-only
 """
@@ -140,29 +147,19 @@ def _step_precheck_one(infos: Dict[str, Any], pts: Optional[Dict[str, List[float
         print("  причин нет")
 
 
-def _step_check(src, enc, cfg, offset, scenes, cache, jobs) -> Any:
+def _step_check(src, enc, cfg, offset, scenes, cache) -> Any:
     chk = pair.check_pair_files(
-        src, enc, cfg, offset=offset, scenes=scenes, cache_dir=cache, jobs=jobs
+        src, enc, cfg, offset=offset, scenes=scenes, cache_dir=cache
     )
     print(f"  ok: {chk.ok}")
     for r in chk.reasons:
         print(f"  причина: {r}")
+    if not chk.reasons:
+        print("  причин нет")
     v = chk.verdict
     print(f"  offset={v.offset} источник offset={v.offset_source} vfr={v.vfr}")
     for n in v.notes:
         print(f"  пометка: {n}")
-    a = chk.alignment
-    if a is None:
-        print("  выравнивание: не выполнялось (отказ предпроверки)")
-        return chk
-    print(f"  итог выравнивания: {a.verdict} (выровнено {a.n_aligned} из {len(a.points)}, "
-          f"сдвиг {a.shift}, offset {a.offset})")
-    print("  кадр энкода | вердикт | сдвиг | запас, дБ | сцена")
-    for p in a.points:
-        sh = f"{'≥' if p.shift_at_least else ''}{p.shift}" if p.shift is not None else "-"
-        mg = f"{p.margin_db:.1f}" if p.margin_db is not None else "-"
-        print(f"  {p.enc_frame} | {p.verdict} | {sh} | {mg} | {p.scene}"
-              + (f" | {p.error}" if p.error else ""))
     return chk
 
 
@@ -204,6 +201,10 @@ def main() -> int:
     ap.add_argument("--jobs", default="1,2,4", help="значения jobs через запятую")
     ap.add_argument("--points", type=int, default=10, help="точек на прогон замера jobs")
     ap.add_argument("--probe-only", action="store_true", help="только probe и предпроверка по src")
+    ap.add_argument("--check-only", action="store_true",
+                    help="только шаги 1-4 (предпроверка пары), без замера jobs")
+    ap.add_argument("--no-scenes", action="store_true",
+                    help="не подхватывать <src>.scenes автоматически (проверка отказа D-26)")
     args = ap.parse_args()
     if not args.probe_only and args.enc is None:
         ap.error("нужен enc (или --probe-only)")
@@ -223,7 +224,7 @@ def main() -> int:
         return 1 if _FAILED else 0
 
     scenes_path = args.scenes
-    if scenes_path is None and args.src.with_name(args.src.name + ".scenes").exists():
+    if scenes_path is None and not args.no_scenes and args.src.with_name(args.src.name + ".scenes").exists():
         scenes_path = args.src.with_name(args.src.name + ".scenes")
     scenes = None
     if scenes_path is not None:
@@ -232,9 +233,12 @@ def main() -> int:
     else:
         print("\n=== сцены не заданы (нет <src>.scenes и --scenes)")
 
-    chk = _step(4, "check_pair_files: предпроверка и выравнивание",
+    chk = _step(4, "check_pair_files: предпроверка пары",
                 lambda: _step_check(args.src, args.enc, cfg, args.offset, scenes,
-                                    args.cache, jobs_list[0]))
+                                    args.cache))
+    if args.check_only:
+        print(f"\nитог: упавших шагов {len(_FAILED)}" + (f" ({_FAILED})" if _FAILED else ""))
+        return 1 if _FAILED else 0
     if infos is None or pts is None or len(pts) < 2:
         _skip(5, 1 if infos is None else 2)
     else:
