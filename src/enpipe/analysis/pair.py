@@ -1,58 +1,41 @@
 """Оркестрация проверки пары источник/энкод до метрик (ALN-02..04).
 
-Зачем: метрики по невыровненной паре правдоподобны и ложны, поэтому сначала
-проверяется сама пара. Порядок: probe обеих сторон -> таблицы pts ->
-``precheck.check_pair`` (в том числе сверка .scenes с источником и ключевыми
-кадрами энкода, WR-10) -> (только если причин нет) вердикт выравнивания в
-нескольких точках файла -> ``align.aggregate``. Любое сомнение — причина отказа
-в данных ``PairCheck``; процесс здесь не завершается, печать и код выхода
-остаются за CLI (D-13, D-20).
+Зачем: метрики по несинхронной паре правдоподобны и ложны, поэтому сначала
+проверяется сама пара. Порядок: probe обеих сторон -> таблицы pts и флаги
+ключевых кадров -> ``precheck.check_pair`` (число кадров D-16, сверка .scenes с
+источником и ключевыми кадрами энкода WR-10, правила --offset D-07/WR-11/D-26).
+Любое сомнение — причина отказа в данных ``PairCheck``; процесс здесь не
+завершается, печать и код выхода остаются за CLI (D-20).
+
+Проверки выравнивания по PSNR здесь нет (D-24, решение оператора 2026-11-08):
+пара — источник и энкод enpipe, а на статичных/чёрных склейках PSNR давал ложный
+отказ на заведомо верной паре. Рассинхрон ловят число кадров, сверка .scenes с
+ключевыми кадрами энкода и правила --offset по границам сцен; точность
+извлечения кадра подтверждают тесты framemd5. Поэтому ``check_pair_files`` кадров
+не извлекает, а ``grab_frame_pair`` достаёт ровно два кадра — энкод N и источник
+N+K, без соседей (D-27).
 
 Процессы запускает только ``frames.py``; этот модуль работает с ним как с
 библиотекой (поэтому подмена ``frames.*`` в тестах обходится без ffmpeg).
-Параллелизм по точкам — ``ThreadPoolExecutor``: работа идёт в подпроцессах
-ffmpeg, GIL не мешает. Точки идут в порядке времени (меньше перескоков по
-HDD, D-22). Воркеры лежат на уровне модуля и, как ``encode_audio``,
-не бросают и не завершают процесс: ошибка возвращается данными.
-
-Окно источника для точки достаётся одним seek и одним ffmpeg (D-12); склейки
-сравниваются по кадрам энкода start−1 и start (D-10). Обычная «неопределённая»
-точка получает повторы (D-11). «Неопределённая» склейка проверяется заменами
-соседними склейками из .scenes, но замена «выровнено» лишь голос: склейку
-закрывает только повтор внутри её сцены (CR-01, WR-09, решения оператора
-2026-11-06). Склейка меряется двумя сторонами: start−1 (последний кадр предыдущего
-чанка) и start (первый кадр своего); сторону start закрывает повтор в
-[start, следующая склейка), сторону start−1 — повтор назад в
-[предыдущая склейка, start−1), а цель закрыта, только когда закрыты обе (CR-02,
-решение оператора 2026-11-07). Замена «выровнено» — лишь голос. Повторы идут
-остатком общего лимита (WR-08). Решение принимается в одном месте — ``_point_worker`` по
-``target.junction``.
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
-from enpipe.analysis import align, frames, metrics, precheck
+from enpipe.analysis import frames, precheck
 from enpipe.analysis.config import (
-    DEFAULT_JOBS,
     AnalysisError,
     AnalyzeConfig,
     build_thresholds,
 )
 from enpipe.analysis.frames import Planes
 from enpipe.analysis.model import (
-    ALIGN_ALIGNED,
-    ALIGN_SHIFT,
-    ALIGN_UNDETERMINED,
     REPORT_REFUSED,
     AnalysisReport,
-    FileAlignment,
     PairVerdict,
-    PointAlignment,
     RunMeta,
     StreamInfo,
 )
@@ -64,27 +47,21 @@ from enpipe.analysis.model import (
 
 @dataclass(frozen=True)
 class PairCheck:
-    """Итог проверки пары: предпроверка + выравнивание + все причины отказа.
+    """Итог предпроверки пары и все причины отказа.
 
-    Единственный признак годности — ``PairCheck.ok``; ``verdict.ok`` равен False
-    и при отказе выравнивания.
+    Единственный признак годности — ``PairCheck.ok``.
     """
 
     verdict: PairVerdict
-    alignment: Optional[FileAlignment] = None
     src_info: Optional[StreamInfo] = None
     enc_info: Optional[StreamInfo] = None
     src_pts: Tuple[float, ...] = ()
     enc_pts: Tuple[float, ...] = ()
-    reasons: Tuple[str, ...] = ()  # ВСЕ причины: предпроверка + выравнивание + ошибки точек
+    reasons: Tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
-        return (
-            not self.reasons
-            and self.alignment is not None
-            and self.alignment.verdict == ALIGN_ALIGNED
-        )
+        return not self.reasons and self.verdict.ok  # fail-closed
 
 
 @dataclass(frozen=True, eq=False)
@@ -95,275 +72,11 @@ class FramePair:
     src_frame: int
     src_planes: Planes
     enc_planes: Planes
-    alignment: PointAlignment
 
 
 # --------------------------------------------------------------------------- #
-# Измерение
+# Проверка пары
 # --------------------------------------------------------------------------- #
-
-
-def _psnr_map(
-    enc_y, src_planes: Sequence[Planes], first: int, center: int, window: int
-) -> Dict[int, float]:
-    """{d: PSNR Y} для кадров источника first.. вокруг center в пределах ±window."""
-    out: Dict[int, float] = {}
-    for i, planes in enumerate(src_planes):
-        d = first + i - center
-        if abs(d) <= window:
-            out[d] = metrics.psnr(enc_y, planes[0])
-    return out
-
-
-def _measure(
-    src: Path,
-    enc: Path,
-    src_pts: Sequence[float],
-    enc_pts: Sequence[float],
-    enc_frames: Sequence[int],
-    offset: int,
-    width: int,
-    height: int,
-    cfg: AnalyzeConfig,
-    scene: Optional[int],
-) -> List[PointAlignment]:
-    """Вердикты для подряд идущих кадров энкода: один grab энкода, один — источника.
-
-    Бросает AnalysisError (ловит воркер).
-    """
-    window = cfg.align_window
-    n_src = len(src_pts)
-    lo = max(0, enc_frames[0] + offset - window)
-    hi = min(n_src - 1, enc_frames[-1] + offset + window)
-    enc_planes = frames.grab_frames(
-        enc, enc_pts, enc_frames[0], len(enc_frames), width, height
-    )
-    src_planes = frames.grab_frames(src, src_pts, lo, hi - lo + 1, width, height)
-    out: List[PointAlignment] = []
-    for f, planes in zip(enc_frames, enc_planes):
-        center = f + offset
-        by_shift = _psnr_map(planes[0], src_planes, lo, center, window)
-        out.append(align.point_verdict(f, by_shift, cfg, window, scene))
-    return out
-
-
-_PointTask = Tuple[
-    Path,
-    Path,
-    Sequence[float],
-    Sequence[float],
-    "align.AlignTarget",
-    int,
-    int,
-    int,
-    AnalyzeConfig,
-    FrozenSet[int],
-    Tuple["align.AlignTarget", ...],
-]
-
-
-def _taken_frames(targets: Sequence[align.AlignTarget], cfg: AnalyzeConfig) -> FrozenSet[int]:
-    """Кадры, занятые целями: окрестность ±vote_separation(cfg) занятых кадров.
-
-    Занятые — enc_frame каждой цели и, для склеек, кадр start−1. Окрестность
-    ≈ 1 с (24 кадра при дефолтах), та же величина, что в ``align.aggregate``:
-    повтор ближе — то же место файла (WR-04: 189 кадров, движение 44..52;
-    WR-05: 165 кадров, движение 41..49, цель 41 и повтор цели 0 на 48). Повтор в
-    окрестности не пропускается, а сдвигается за неё (WR-06, вариант 1, решение
-    оператора 2026-10-24; прежний вариант (б) с пропуском отменён); склейка-
-    кандидат на замену с start−1/start в окрестности пропускается (1б). Повтор
-    собственной цели в окрестность не попадает, потому что align_retry_step >
-    vote_separation(cfg).
-
-    Без .scenes при n ≤ 197 окрестности покрывают весь файл, и повторов нет ни
-    вперёд, ни назад. Без .scenes на 198..225 свободные кадры есть при каждой
-    длине (на 225 их 28); также на 241 их 44, на 289 — 92. Без .scenes при каждой
-    n в 198..600 хотя бы одна цель получает повтор. Пример со .scenes: например,
-    n=192, scenes=[(0,152),(152,192)] — повтор 96 у цели 48, повторы назад 95 и
-    118 у целей 143 и 191; у склейки 0 — повтор 73; у склейки 152 сторона start−1
-    (кадр 151) получает повтор назад 103 в предыдущей сцене [0, 152) (CR-02), а
-    повтор 104 стороны start отбрасывается (CR-01). Числа закреплены тестами: test_taken_coverage_numbers
-    (свободные кадры 1..197, 198..225, 225/241/289), test_retries_absent_up_to_197
-    и test_retries_present_from_198 (повторы по диапазонам), test_retries_via_worker
-    (кадры, запрошенные через _point_worker на 48, 197, 198, 225, 226, 241, 289),
-    test_retries_with_scenes_example (пример n=192).
-    """
-    guard = align.vote_separation(cfg)
-    busy: Set[int] = set()
-    for t in targets:
-        busy.add(t.enc_frame)
-        if t.junction and t.enc_frame > 0:
-            busy.add(t.enc_frame - 1)
-    return frozenset(
-        f + d for f in busy for d in range(-guard, guard + 1) if f + d >= 0
-    )
-
-
-def _measure_target(
-    src: Path,
-    enc: Path,
-    src_pts: Sequence[float],
-    enc_pts: Sequence[float],
-    target: "align.AlignTarget",
-    offset: int,
-    width: int,
-    height: int,
-    cfg: AnalyzeConfig,
-) -> Tuple[PointAlignment, Tuple[PointAlignment, ...]]:
-    """(сводный вердикт цели, половины): склейка меряется кадрами start−1 и start.
-
-    Для склейки с start > 0 половины — (start−1, start) из одного вызова ``_measure``
-    (один grab, число декодов не растёт); иначе — одна точка. Половины нужны воркеру:
-    сводное «неопределённо» не говорит, какая сторона неоднозначна, а каждую сторону
-    закрывает только повтор своей сцены (CR-02, решение оператора 2026-11-07).
-    """
-    if target.junction and target.enc_frame > 0:
-        frames_ = [target.enc_frame - 1, target.enc_frame]
-        pts_ = _measure(
-            src, enc, src_pts, enc_pts, frames_, offset, width, height, cfg, target.scene
-        )
-        return align.combine_junction(pts_), tuple(pts_)
-    one = _measure(
-        src, enc, src_pts, enc_pts, [target.enc_frame], offset, width, height, cfg,
-        target.scene,
-    )[0]
-    return one, (one,)
-
-
-def _point_worker(
-    task: _PointTask,
-) -> Tuple[Tuple[PointAlignment, ...], Optional[str]]:
-    """Вердикт одной точки: (точки, None) или ((), текст ошибки).
-
-    task — (src, enc, src_pts, enc_pts, AlignTarget, offset, W, H, cfg, taken,
-    junctions). В кортеже точек [0] — итог цели, [1:] — голоса замен «выровнено»,
-    не закрывших цель (``check_pair_files`` кладёт все в points).
-
-    Обычная точка: повторы ``align.retry_frames(..., taken)`` (вперёд со сдвигом
-    за taken, затем назад, лимит align_retry_max). Склейка «неопределённо»:
-    1) замены ``align.junction_replacements`` по порядку, каждая меряется как
-    склейка и тратит 1 из общего лимита; «сдвиг» замены — сразу итог цели;
-    «выровнено» замены — голос, перебор замен прекращается, цель не закрыта
-    (замена — начало другого чанка, WR-09); «неопределённо» — следующая замена;
-    2) стороны (CR-02): start — повторы ``align.junction_retry_frames`` внутри
-    своей сцены, start−1 (кадр предыдущего чанка) — ``align.junction_prev_retry_frames``
-    внутри предыдущей сцены; открыта сторона, чья половина не «выровнено». Повторы
-    идут поочерёдно «start, затем start−1» остатком ОБЩЕГО лимита (align_retry_max −
-    замены − повторы обеих сторон; WR-08), каждый меряется одиночным кадром;
-    «сдвиг» повтора — сразу итог цели, «выровнено» закрывает сторону. Цель закрыта,
-    только когда закрыты все открытые стороны. Иначе итог — исходная
-    «неопределённо» (правило (в) ``align.aggregate`` даёт отказ), а закрывший одну
-    сторону повтор лишь голос, как замена (WR-09). При дефолтах склейка декодирует
-    не больше 8 кадров энкода (2 + 3·2), обычная точка — не больше 1 + 3.
-    Обычная точка: начало её сцены — цель-склейка (IN-21), её обе стороны проверяют
-    чанк, поэтому повторы обычной точки сценой не ограничены; закреплено
-    test_pick_points_ordinary_scene_start_is_junction. Якоря:
-    test_junction_prev_side_refused, test_junction_prev_side_shift,
-    test_junction_start_side_only_refused, test_junction_both_sides_start_closed_refused,
-    test_junction_retry_in_scene_refused, test_junction_replacement_not_closing,
-    test_junction_in_scene_shift, test_junction_replacement_vote_budget,
-    test_partial_junctions_retried_aligned, test_junction_budget_shared,
-    test_junction_zero_retry. Совпадающие повторы и замены у разных точек
-    декодируются повторно (общего состояния у воркеров нет, например n=225 без
-    .scenes: кадр 193 трижды); голоса считает ``align.aggregate`` по уникальным
-    кадрам (test_retries_via_worker, test_junction_shared_replacement). Не бросает
-    и не завершает процесс (контракт фонового воркера).
-    """
-    src, enc, src_pts, enc_pts, target, offset, width, height, cfg, taken, junctions = task
-    try:
-        point, halves = _measure_target(
-            src, enc, src_pts, enc_pts, target, offset, width, height, cfg
-        )
-        if point.verdict != ALIGN_UNDETERMINED:
-            return (point,), None
-        budget = cfg.align_retry_max
-        votes: List[PointAlignment] = []
-        if target.junction:
-            # Замены первыми (решения 2026-10-24: 1б, 2б, 3а), остаток общего
-            # лимита — на повторы сторон (WR-08, 2026-11-05).
-            for rep in align.junction_replacements(target, junctions, taken, cfg):
-                again, _ = _measure_target(
-                    src, enc, src_pts, enc_pts, rep, offset, width, height, cfg
-                )
-                budget -= 1
-                if again.verdict == ALIGN_SHIFT:
-                    return (again,), None
-                if again.verdict == ALIGN_ALIGNED:
-                    # Другой чанк: голос, но цель не закрыта (WR-09). Следующие
-                    # замены цель закрыть не могут и съели бы остаток лимита,
-                    # нужный повторам в сцене, поэтому перебор прекращается.
-                    votes.append(again)
-                    break
-            # Две стороны (CR-02): start−1 — кадр предыдущего чанка, start — своего.
-            # Сторона открыта, пока её половина не «выровнено» без ошибки; закрывает
-            # её только повтор «выровнено» в её сцене. Сторона start−1 есть только
-            # при двух половинах (start > 0).
-            def _open(h: PointAlignment) -> bool:
-                return h.verdict != ALIGN_ALIGNED or h.error is not None
-
-            queues: Dict[str, List[int]] = {}
-            if _open(halves[-1]):
-                queues["start"] = align.junction_retry_frames(
-                    target, junctions, len(enc_pts), cfg, taken
-                )
-            if len(halves) == 2 and _open(halves[0]):
-                queues["prev"] = align.junction_prev_retry_frames(
-                    target, junctions, len(enc_pts), cfg, taken
-                )
-            closers: List[PointAlignment] = []
-            open_sides = set(queues)
-            # Поочерёдно «start, затем start−1» (каждой открытой стороне попытка при
-            # общем лимите); закрытая или исчерпанная сторона пропускается.
-            while budget > 0:
-                progressed = False
-                for side in ("start", "prev"):
-                    if budget <= 0:
-                        break
-                    if side not in open_sides or not queues[side]:
-                        continue
-                    f = queues[side].pop(0)
-                    again = _measure(
-                        src, enc, src_pts, enc_pts, [f], offset, width, height, cfg,
-                        None,
-                    )[0]
-                    budget -= 1
-                    progressed = True
-                    if again.verdict == ALIGN_SHIFT:
-                        return (again, *closers, *votes), None
-                    if again.verdict == ALIGN_ALIGNED and again.error is None:
-                        # Сторона закрыта своей сценой; повтор — точка «выровнено».
-                        closers.append(again)
-                        open_sides.discard(side)
-                if not progressed:
-                    break
-            if closers and not open_sides:
-                return (*closers, *votes), None
-            # Цель открыта: итог — исходная «неопределённо» (правило (в) даёт отказ);
-            # закрывший одну сторону повтор лишь голос, как замена (WR-09).
-            return (point, *closers, *votes), None
-        # Обычная точка: повтор через шаг (D-11), срез равен retries при лимите
-        # budget (test_retry_frames_prefix); повтор меряется одиночным кадром.
-        retries = align.retry_frames(target.enc_frame, len(enc_pts), cfg, taken)
-        for f in retries[: max(budget, 0)]:
-            again = _measure(
-                src, enc, src_pts, enc_pts, [f], offset, width, height, cfg, None
-            )[0]
-            if again.verdict != ALIGN_UNDETERMINED:
-                return (again, *votes), None
-        return (point, *votes), None
-    except (AnalysisError, OSError, ValueError) as e:
-        return (), str(e)
-    except Exception as e:  # noqa: BLE001
-        # drain-then-report: одна точка не должна обрывать остальные и прятать
-        # их ошибки; MemoryError возможен на окне 4K. KeyboardInterrupt и
-        # SystemExit не Exception и проходят наружу.
-        return (), f"{type(e).__name__}: {e}"
-
-
-# --------------------------------------------------------------------------- #
-# Файловый вердикт
-# --------------------------------------------------------------------------- #
-
 
 def _refused(
     reasons: Sequence[str],
@@ -384,6 +97,7 @@ def _refused(
     )
 
 
+
 def check_pair_files(
     src: Path,
     enc: Path,
@@ -392,16 +106,11 @@ def check_pair_files(
     offset: Optional[int] = None,
     scenes: Optional[Sequence[Tuple[int, int]]] = None,
     cache_dir: Optional[Path] = None,
-    jobs: int = DEFAULT_JOBS,
 ) -> PairCheck:
-    """Проверка пары: probe, pts, предпроверка и вердикт выравнивания по точкам.
+    """Проверка пары: probe, таблица pts и ключевые кадры, предпроверка.
 
-    Процесс не завершает: отказ — в ``PairCheck.reasons``. При причинах
-    предпроверки кадры не извлекаются (метрики и выравнивание не строятся).
+    Процесс не завершает: отказ — в ``PairCheck.reasons``. Кадры не извлекаются.
     """
-    if jobs < 1:
-        raise AnalysisError(f"jobs должен быть >= 1, получено {jobs}")
-
     errors: List[str] = []
     infos: Dict[str, StreamInfo] = {}
     tables: Dict[str, List[float]] = {}
@@ -423,67 +132,13 @@ def check_pair_files(
         src_info, enc_info, src_pts, enc_pts, offset, scenes, cfg,
         enc_keyframes=keyframes.get("энкод"),
     )
-    if verdict.reasons:
-        return _refused(verdict.reasons, src_info, enc_info, src_pts, enc_pts, verdict)
-
-    targets = align.pick_points(len(enc_pts), scenes, verdict.offset, cfg)
-    taken = _taken_frames(targets, cfg)
-    junctions = tuple(align.junction_targets(len(enc_pts), scenes, verdict.offset))
-    tasks = [
-        (
-            src, enc, src_pts, enc_pts, t, verdict.offset,
-            src_info.width, src_info.height, cfg, taken, junctions,
-        )
-        for t in targets
-    ]
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        results = list(pool.map(_point_worker, tasks))
-
-    reasons: List[str] = []
-    points: List[PointAlignment] = []
-    for target, (pts, err) in zip(targets, results):
-        if not pts:
-            reasons.append(f"точка {target.enc_frame}: {err}")
-            pts = (
-                PointAlignment(
-                    target.enc_frame, ALIGN_UNDETERMINED, scene=target.scene, error=err
-                ),
-            )
-        points.extend(pts)
-
-    alignment = align.aggregate(points, cfg, verdict.offset)
-    if alignment.verdict == ALIGN_SHIFT:
-        first = next(p for p in alignment.points if p.verdict == ALIGN_SHIFT)
-        assert first.shift is not None
-        bound = "≥ " if first.shift_at_least else ""
-        reasons.append(
-            f"выравнивание: сдвиг {bound}{first.shift:+d} кадр(а) в точке энкода "
-            f"{first.enc_frame} — метрики не строятся"
-        )
-    elif alignment.verdict == ALIGN_UNDETERMINED:
-        text = (
-            f"выравнивание не подтверждено: выровнено {alignment.n_aligned} из "
-            f"{len(alignment.points)} точек, нужно ≥ {cfg.align_min_aligned} "
-            "и ни одной неопределённой"
-        )
-        undetermined = sorted(
-            {p.enc_frame for p in alignment.points if p.verdict == ALIGN_UNDETERMINED}
-        )
-        if undetermined:
-            text += "; неопределённые точки (кадры энкода): " + ", ".join(
-                str(f) for f in undetermined
-            )
-        reasons.append(text)
-    if reasons:
-        verdict = replace(verdict, ok=False)
     return PairCheck(
         verdict=verdict,
-        alignment=alignment,
         src_info=src_info,
         enc_info=enc_info,
         src_pts=tuple(src_pts),
         enc_pts=tuple(enc_pts),
-        reasons=tuple(reasons),
+        reasons=tuple(verdict.reasons),
     )
 
 
@@ -493,38 +148,31 @@ def check_pair_files(
 
 
 def grab_frame_pair(
-    src: Path, enc: Path, check: PairCheck, enc_frame: int, cfg: AnalyzeConfig
+    src: Path, enc: Path, check: PairCheck, enc_frame: int
 ) -> Tuple[Optional[FramePair], Optional[str]]:
-    """Пара кадров для анализа и локальный вердикт по K−1/K/K+1 (D-14).
+    """Пара кадров для анализа: энкод N и источник N+K, без соседей (D-27).
 
     Возвращает (FramePair, None) или (None, текст ошибки); не бросает и не
-    завершает процесс. Локальный сдвиг превращает в строку ошибки без метрик
-    вызывающий через ``align.row_alignment``. Кадры отдаются только паре,
-    прошедшей проверку целиком (``PairCheck.ok``); иначе 8-битный bt709 энкод
-    был бы молча сконвертирован в yuv420p10le.
+    завершает процесс. Кадры отдаются только паре, прошедшей проверку целиком
+    (``PairCheck.ok``); иначе 8-битный bt709 энкод был бы молча сконвертирован
+    в yuv420p10le.
     """
     info = check.src_info
     if not check.ok or info is None or check.enc_info is None or not check.src_pts or not check.enc_pts:
         return None, "пара не прошла проверку"
     try:
-        k = check.verdict.offset
-        n_src = len(check.src_pts)
+        src_frame = enc_frame + check.verdict.offset
         if not 0 <= enc_frame < len(check.enc_pts):
             raise AnalysisError(f"кадр энкода {enc_frame} вне файла")
-        center = enc_frame + k
-        lo, hi = align.window_range(center, 1, n_src)
+        if not 0 <= src_frame < len(check.src_pts):
+            raise AnalysisError(f"кадр источника {src_frame} вне файла")
         enc_planes = frames.grab_frames(
             enc, check.enc_pts, enc_frame, 1, info.width, info.height
         )[0]
         src_planes = frames.grab_frames(
-            src, check.src_pts, lo, hi - lo + 1, info.width, info.height
-        )
-        by_shift = _psnr_map(enc_planes[0], src_planes, lo, center, 1)
-        alignment = align.frame_verdict(enc_frame, by_shift, cfg)
-        return (
-            FramePair(enc_frame, center, src_planes[center - lo], enc_planes, alignment),
-            None,
-        )
+            src, check.src_pts, src_frame, 1, info.width, info.height
+        )[0]
+        return FramePair(enc_frame, src_frame, src_planes, enc_planes), None
     except (AnalysisError, OSError, ValueError) as e:
         return None, str(e)
     except Exception as e:  # noqa: BLE001
@@ -553,7 +201,7 @@ def meta_with_check(meta: RunMeta, check: PairCheck) -> RunMeta:
 
 
 def refused_report(meta: RunMeta, cfg: AnalyzeConfig, check: PairCheck) -> AnalysisReport:
-    """Отчёт-отказ: причины и вердикт выравнивания, без кадров и метрик (D-20)."""
+    """Отчёт-отказ: причины предпроверки, без кадров и метрик (D-20)."""
     return AnalysisReport(
         meta=meta_with_check(meta, check),
         thresholds=build_thresholds(cfg),
@@ -563,5 +211,4 @@ def refused_report(meta: RunMeta, cfg: AnalyzeConfig, check: PairCheck) -> Analy
         summary=(),
         status=REPORT_REFUSED,
         refusal_reasons=check.reasons,
-        alignment=check.alignment,
     )

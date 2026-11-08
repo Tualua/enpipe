@@ -195,7 +195,7 @@ def test_offset_missing_count_mismatch():
     _, _, reasons, _ = check_offset(96, 48, None, S4)
     assert "--offset 24 (сцены 1..2)" in reasons[0]
     _, _, reasons, _ = check_offset(96, 48, None, None)
-    assert "start_frame" in reasons[0] and "--offset 0" not in reasons[0]
+    assert "только вместе с .scenes" in reasons[0] and "--offset 0" not in reasons[0]
     assert check_offset(96, 96, None, S4) == (0, None, [], [])
 
 
@@ -205,15 +205,26 @@ def test_offset_not_on_scene_start():
     assert check_offset(96, 48, 24, S4) == (24, "scenes", [], [])
 
 
-def test_offset_manual_note():
-    k, src, reasons, notes = check_offset(96, 48, 24, None)
-    assert (k, src, reasons) == (24, "manual", [])
-    assert notes == ["сдвиг задан вручную, по .scenes не проверен"]
+def test_offset_without_scenes_refused():
+    # D-26: --offset без .scenes (None или []) — отказ, источника и пометок нет
+    for sc in (None, []):
+        k, src, reasons, notes = check_offset(96, 48, 24, sc)
+        assert (k, src, notes) == (24, None, [])
+        assert len(reasons) == 1 and "без .scenes" in reasons[0]
 
 
 def test_offset_exceeds_source():
-    assert "60 + 48 > 96" in check_offset(96, 48, 60, None)[2][0]
-    assert check_offset(96, 48, -1, None)[2]
+    reasons = check_offset(96, 48, 60, None)[2]
+    assert "60 + 48 > 96" in reasons[0]
+    assert "без .scenes" in reasons[-1]
+    reasons = check_offset(96, 48, -1, None)[2]
+    assert "отрицателен" in reasons[0] and "без .scenes" in reasons[-1]
+    assert "отрицателен" in check_offset(96, 48, -1, S4)[2][0]
+
+
+def test_check_pair_offset_without_scenes_refused():
+    v = _pair(n_enc=48, offset=24, scenes=None)
+    assert not v.ok and any("без .scenes" in r for r in v.reasons)
 
 
 def test_check_pair_applies_offset():
@@ -340,9 +351,9 @@ def test_offset_window_end_other_paths_unchanged():
     _, _, reasons, _ = check_offset(96, 48, None, S4)
     assert "--offset 24 (сцены 1..2)" in reasons[0]
     assert check_offset(96, 96, None, S4) == (0, None, [], [])
-    assert check_offset(96, 40, 24, None) == (
-        24, "manual", [], ["сдвиг задан вручную, по .scenes не проверен"]
-    )
+    # D-26: путь offset без .scenes теперь — отказ
+    k, source, reasons, notes = check_offset(96, 40, 24, None)
+    assert (k, source, notes) == (24, None, []) and "без .scenes" in reasons[0]
 
 
 def test_check_pair_window_end_skips_keyframes():

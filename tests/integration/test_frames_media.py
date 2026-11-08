@@ -5,8 +5,7 @@
 декод AV1 — libdav1d). Все фикстуры module-scope: один раз на модуль.
 Нарезка open-GOP для RASL-фикстуры — реальный mkvmerge --split.
 Сбой генерации (сборка ffmpeg без нужного кодера/фильтра) — skip с причиной;
-любая проверка свойств фикстуры (теги, запас сдвига) — assert/fail: пороги
-D-03 в тестах не ослабляются.
+любая проверка свойств фикстуры (теги) — assert/fail.
 """
 
 from __future__ import annotations
@@ -19,9 +18,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import pytest
 
-from enpipe.analysis import align, frames, metrics, pair, precheck
+from enpipe.analysis import frames, metrics, pair
 from enpipe.analysis.config import AnalysisError, AnalyzeConfig
-from enpipe.analysis.model import FileAlignment, ALIGN_ALIGNED, ALIGN_SHIFT, ALIGN_UNDETERMINED, OFFSET_SCENES
+from enpipe.analysis.model import OFFSET_SCENES
 from enpipe.encoding.scenes_io import read_scenes
 
 W, H = 640, 360
@@ -86,15 +85,13 @@ def _av1(src: Path, dst: Path, vf: Optional[str] = None, crf: int = 35, *,
 
 
 _LAVFI = ["-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=4"]
-_SHIFT_VF = "trim=start_frame=1,setpts=PTS-STARTPTS,tpad=stop=1:stop_mode=clone"
 
 
 @pytest.fixture(scope="module")
 def media(tmp_path_factory) -> Dict[str, Path]:
     d = tmp_path_factory.mktemp("frames_media")
     m: Dict[str, Path] = {k: d / f"{k}.mkv" for k in (
-        "src_cfr", "src_st", "src_vfr", "src_av", "enc_ok", "enc_shift", "enc_part",
-        "gray_src", "gray_enc",
+        "src_cfr", "src_st", "src_vfr", "src_av", "enc_ok", "enc_part",
     )}
     m["dir"] = d
     _x265(_LAVFI, m["src_cfr"], "src_cfr")
@@ -107,15 +104,10 @@ def media(tmp_path_factory) -> Dict[str, Path]:
           "-c:v", "copy", "-c:a", "flac", str(m["src_av"])], "src_av")
     # gop=24 только у пар, которым передаются .scenes (enc_ok, enc_part): как чанки
     # enpipe, каждая сцена из media["scenes"] (по 24 кадра) начинается ключевым кадром;
-    # без этого WR-10 отвергнет такие пары. Остальные фикстуры не трогаем: запасы
-    # сдвига и статики откалиброваны на прежнем GOP.
+    # без этого WR-10 отвергнет такие пары.
     _av1(m["src_cfr"], m["enc_ok"], gop=24)
-    _av1(m["src_cfr"], m["enc_shift"], _SHIFT_VF)
     _av1(m["src_cfr"], m["enc_part"], "trim=start_frame=24:end_frame=72,setpts=PTS-STARTPTS",
          gop=24)
-    _x265(["-f", "lavfi", "-i", "color=c=gray:size=640x360:rate=24:duration=4"],
-          m["gray_src"], "gray_src")
-    _av1(m["gray_src"], m["gray_enc"])
     scenes = m["src_cfr"].with_name("src_cfr.mkv.scenes")
     scenes.write_text("".join(
         f"scene {i:4d} frames [{i * 24:8d}, {i * 24 + 24:8d}) {i:.3f} .. {i + 1:.3f}\n"
@@ -128,21 +120,6 @@ def media(tmp_path_factory) -> Dict[str, Path]:
 # --------------------------------------------------------------------------- #
 # Хелперы
 # --------------------------------------------------------------------------- #
-
-
-def _real_check(src: Path, enc: Path, offset: int = 0,
-                scenes: Optional[Sequence[Tuple[int, int]]] = None,
-                cfg: Optional[AnalyzeConfig] = None) -> pair.PairCheck:
-    """PairCheck по реальным файлам: probe, pts_table и precheck без подмен."""
-    cfg = cfg or AnalyzeConfig()
-    si, ei = frames.probe_stream(src), frames.probe_stream(enc)
-    sp, ep = frames.pts_table(src), frames.pts_table(enc)
-    verdict = precheck.check_pair(si, ei, sp, ep, offset, scenes, cfg)
-    return pair.PairCheck(verdict=verdict, src_info=si, enc_info=ei,
-                          src_pts=tuple(sp), enc_pts=tuple(ep), reasons=verdict.reasons,
-                          # файловый вердикт принят выровненным: тест проверяет
-                          # локальный вердикт кадра (D-14), а не агрегат
-                          alignment=FileAlignment(verdict=ALIGN_ALIGNED, offset=offset))
 
 
 def _framemd5(path: Path) -> List[str]:
@@ -159,48 +136,6 @@ def _md5(planes) -> str:
     for p in planes:
         h.update(p.tobytes())
     return h.hexdigest()
-
-
-def _shift_margins(src: Path, enc: Path, cfg: AnalyzeConfig) -> List[Tuple[int, float]]:
-    """Запас точек: PSNR(d=+1) − max PSNR остальных d; (кадр, запас).
-
-    Точки без d=+1 в окне (клон последнего кадра у конца файла) не
-    измеряются: там сдвига по построению нет.
-    """
-    sp, ep = frames.pts_table(src), frames.pts_table(enc)
-    out: List[Tuple[int, float]] = []
-    for t in align.pick_points(len(ep), None, 0, cfg):
-        f = t.enc_frame
-        lo, hi = align.window_range(f, cfg.align_window, len(sp))
-        ey = frames.grab_frames(enc, ep, f, 1, W, H)[0][0]
-        sy = frames.grab_frames(src, sp, lo, hi - lo + 1, W, H)
-        by = {lo + i - f: metrics.psnr(ey, p[0]) for i, p in enumerate(sy)}
-        if 1 not in by:
-            continue
-        others = [v for d, v in by.items() if d != 1]
-        out.append((f, by[1] - max(others)))
-    return out
-
-
-@pytest.fixture(scope="module")
-def shift_pair(media):
-    """(src, enc, вариант, запасы): основной crf 35, при нехватке запаса — шумный crf 20."""
-    cfg = AnalyzeConfig()
-    need = cfg.align_margin_db + 1.0
-    tried: Dict[str, List[Tuple[int, float]]] = {}
-    m = _shift_margins(media["src_cfr"], media["enc_shift"], cfg)
-    tried["основной"] = m
-    if len(m) >= 3 and min(v for _, v in m) >= need:
-        return media["src_cfr"], media["enc_shift"], "основной", m
-    d = media["dir"]
-    src_n, enc_n = d / "src_noisy.mkv", d / "enc_shift_noisy.mkv"
-    _x265(_LAVFI, src_n, "src_noisy", vf="noise=alls=12:allf=t+u")
-    _av1(src_n, enc_n, _SHIFT_VF, crf=20)
-    m = _shift_margins(src_n, enc_n, cfg)
-    tried["запасной"] = m
-    if len(m) >= 3 and min(v for _, v in m) >= need:
-        return src_n, enc_n, "запасной", m
-    pytest.fail(f"запаса фикстуры сдвига нет (нужно >= {need} дБ): {tried}")
 
 
 # --------------------------------------------------------------------------- #
@@ -246,39 +181,17 @@ def test_window_matches_framemd5(media):
 # --------------------------------------------------------------------------- #
 
 
-def test_aligned_pair_ok(media, tmp_path):
+def test_pair_ok_with_scenes(media, tmp_path):
     cfg = AnalyzeConfig()
     scenes = read_scenes(media["scenes"])
     chk = pair.check_pair_files(media["src_cfr"], media["enc_ok"], cfg,
                                 scenes=scenes, cache_dir=tmp_path)
     assert chk.ok, chk.reasons
-    assert chk.alignment.verdict == ALIGN_ALIGNED
+    assert chk.reasons == ()
     assert list(tmp_path.glob("*.pts.json"))
     again = pair.check_pair_files(media["src_cfr"], media["enc_ok"], cfg,
                                   scenes=scenes, cache_dir=tmp_path)
     assert again.ok
-
-
-def test_shift_fixture_margin(shift_pair):
-    _src, _enc, variant, margins = shift_pair
-    print(f"вариант фикстуры сдвига: {variant}; запасы по точкам: {margins}")
-    need = AnalyzeConfig().align_margin_db + 1.0
-    assert min(v for _, v in margins) >= need, (variant, margins)
-
-
-def test_shift_one_refused(shift_pair):
-    src, enc, _variant, _m = shift_pair
-    chk = pair.check_pair_files(src, enc, AnalyzeConfig())
-    assert not chk.ok
-    assert chk.alignment.verdict == ALIGN_SHIFT
-    assert chk.alignment.shift == 1
-    assert any("сдвиг +1" in r for r in chk.reasons)
-
-
-def test_static_undetermined(media):
-    chk = pair.check_pair_files(media["gray_src"], media["gray_enc"], AnalyzeConfig())
-    assert not chk.ok
-    assert chk.alignment.verdict == ALIGN_UNDETERMINED
 
 
 def test_partial_without_offset_hint(media):
@@ -286,21 +199,24 @@ def test_partial_without_offset_hint(media):
     chk = pair.check_pair_files(media["src_cfr"], media["enc_part"], AnalyzeConfig(),
                                 scenes=scenes)
     assert not chk.ok
-    assert chk.alignment is None
     assert any("--offset 24 (сцены 1..2)" in r for r in chk.reasons)
 
 
-def test_partial_with_offset_aligned(media):
+def test_partial_with_offset_ok(media):
     cfg = AnalyzeConfig()
     scenes = read_scenes(media["scenes"])
     src, enc = media["src_cfr"], media["enc_part"]
     chk = pair.check_pair_files(src, enc, cfg, offset=24, scenes=scenes)
     assert chk.ok, chk.reasons
     assert chk.verdict.offset_source == OFFSET_SCENES
+    # D-26: --offset без .scenes — отказ
     manual = pair.check_pair_files(src, enc, cfg, offset=24)
-    assert manual.ok, manual.reasons
-    assert any("сдвиг задан вручную" in n for n in manual.verdict.notes)
-    assert not pair.check_pair_files(src, enc, cfg, offset=48, scenes=scenes).ok
+    assert not manual.ok
+    assert any("без .scenes" in r for r in manual.reasons)
+    # offset 48 — границы сцен (окно [48, 96)): без PSNR-проверки (D-24) содержимое
+    # не сверяется, поэтому это правило не отвергает; отвергает то, что не на границах
+    # или не помещается в источник
+    assert not pair.check_pair_files(src, enc, cfg, offset=60, scenes=scenes).ok
     bad = pair.check_pair_files(src, enc, cfg, offset=30, scenes=scenes)
     assert any("не совпадает с началом" in r for r in bad.reasons)
 
@@ -319,7 +235,6 @@ def test_scenes_not_on_keyframes_real(media):
     chk = pair.check_pair_files(media["src_cfr"], media["enc_ok"], AnalyzeConfig(),
                                 scenes=[(0, 12), (12, 96)])
     assert not chk.ok
-    assert chk.alignment is None
     assert any("не на ключевых кадрах энкода" in r and "12" in r for r in chk.reasons)
 
 
@@ -333,22 +248,11 @@ def test_frame_pair_and_metrics_readonly(media):
     src, enc = media["src_cfr"], media["enc_ok"]
     chk = pair.check_pair_files(src, enc, cfg)
     assert chk.ok, chk.reasons
-    fp, err = pair.grab_frame_pair(src, enc, chk, 10, cfg)
+    fp, err = pair.grab_frame_pair(src, enc, chk, 10)
     assert err is None
-    assert fp.alignment.verdict == ALIGN_ALIGNED
     assert not fp.src_planes[0].flags.writeable
     fm = metrics.analyze_frame(*fp.src_planes, *fp.enc_planes, cfg)
     assert fm.psnr_y > 0 and fm.psnr_y != float("inf")
-
-
-def test_frame_pair_local_shift(shift_pair):
-    src, enc, _variant, _m = shift_pair
-    cfg = AnalyzeConfig()
-    chk = _real_check(src, enc, offset=0, cfg=cfg)
-    fp, err = pair.grab_frame_pair(src, enc, chk, 10, cfg)
-    assert err is None
-    assert fp.alignment.verdict == ALIGN_SHIFT and fp.alignment.shift == 1
-    assert align.row_alignment(fp.alignment)[2]
 
 
 def test_no_gpu_needed(media, monkeypatch, tmp_path):
@@ -435,8 +339,10 @@ def test_rasl_window_crossing_refused(rasl_cut):
         frames.grab_frames(cut, pts, 0, lead + 2, W, H)
 
 
-def test_rasl_pair_refused(rasl_cut):
+def test_rasl_frame_pair_error(rasl_cut):
+    """Недекодируемый RASL-кадр — ошибка данных (pts), а не тихая подмена."""
     cut, _ = rasl_cut
     chk = pair.check_pair_files(cut, cut, AnalyzeConfig())
-    assert not chk.ok
-    assert any(r.startswith("точка 0:") and "pts" in r for r in chk.reasons), chk.reasons
+    assert chk.ok, chk.reasons
+    fp, err = pair.grab_frame_pair(cut, cut, chk, 0)
+    assert fp is None and err and "pts" in err

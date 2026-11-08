@@ -17,7 +17,7 @@ VFR. Сверка всегда по индексу кадра, не по абс�
 диапазонам сцен; при наличии .scenes K и K + кадры_энкода обязаны быть началом и
 концом сцен (частичный энкод enpipe — целые сцены, WR-11, решение оператора
 2026-11-07), иначе отказ; обе причины собираются вместе (D-20), без --offset тот
-же признак проверяют подсказки; K без .scenes — пометка; всегда
+же признак проверяют подсказки; K без .scenes — отказ (D-26, частичный энкод проверяется только по .scenes); всегда
 K + кадры_энкода <= кадры_источника. Пометки: VFR
 (D-16) и ненулевой start_time источника (D-19).
 
@@ -48,7 +48,6 @@ from typing import List, Optional, Sequence, Tuple
 
 from enpipe.analysis.config import OFFSET_HINTS_MAX, AnalyzeConfig
 from enpipe.analysis.model import (
-    OFFSET_MANUAL,
     OFFSET_SCENES,
     PairVerdict,
     StreamInfo,
@@ -141,8 +140,9 @@ def check_offset(
     """Правила --offset: (K, источник значения, причины, пометки).
 
     Без offset: равное число кадров — ок, иначе отказ с подсказками (диапазоны
-    сцен). С offset: K >= 0, K + n_enc <= n_src; без .scenes — пометка; с .scenes
-    K — начало сцены и K + n_enc — конец сцены (WR-11), причины собираются все.
+    сцен). С offset: K >= 0, K + n_enc <= n_src; без .scenes — отказ (D-26); с
+    .scenes K — начало сцены и K + n_enc — конец сцены (WR-11), причины собираются
+    все.
     """
     sc = scenes or None
     if offset is None:
@@ -151,7 +151,7 @@ def check_offset(
         head = f"число кадров различается: источник {n_src}, энкод {n_enc}, --offset не задан"
         if sc is None:
             return 0, None, [
-                head + "; задайте --offset K = start_frame первой сцены диапазона из .scenes"
+                head + "; --offset задаётся только вместе с .scenes"
             ], []
         hints, more = offset_hints(sc, n_enc)
         if not hints:
@@ -161,14 +161,23 @@ def check_offset(
         parts = [f"--offset {k} (сцены {a}..{b})" for k, a, b in hints]
         tail = f", … и ещё {more}" if more else ""
         return 0, None, [head + "; возможно, частичный энкод: " + ", ".join(parts) + tail], []
+    pre: List[str] = []
     if offset < 0:
-        return 0, None, [f"--offset {offset} отрицателен"], []
-    if offset + n_enc > n_src:
-        return offset, None, [
+        pre.append(f"--offset {offset} отрицателен")
+    elif offset + n_enc > n_src:
+        pre.append(
             f"--offset {offset}: {offset} + {n_enc} > {n_src} (энкод не помещается в источник)"
-        ], []
+        )
     if sc is None:
-        return offset, OFFSET_MANUAL, [], ["сдвиг задан вручную, по .scenes не проверен"]
+        # D-26: частичный энкод enpipe проверяется только по .scenes.
+        pre.append(
+            f"--offset {offset} задан без .scenes: частичный энкод enpipe проверяется "
+            "только по .scenes (начало и конец окна — границы сцен, D-07, WR-11); "
+            "дайте .scenes, по которому шёл энкод"
+        )
+        return (0 if offset < 0 else offset), None, pre, []
+    if pre:
+        return (0 if offset < 0 else offset), None, pre, []
     reasons: List[str] = []
     if offset not in {s for s, _ in sc}:
         reasons.append(f"--offset {offset} не совпадает с началом ни одной сцены из .scenes")
