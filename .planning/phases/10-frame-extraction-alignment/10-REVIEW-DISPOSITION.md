@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`DEFAULT_JOBS` and its comment describe an API that no longer exists (necessity)"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "K-flag hardware test has an upper bound that can fail on a correct pipeline"
   - id: IN-01
     severity: info
@@ -87,17 +87,17 @@ findings:
     severity: info
     disposition: open
     title: "UAT 11 не отличит «флаги mkvmerge верны» от «флаг K на каждом кадре», при котором WR-10 молча пуст (новое)"
-open: 21
+open: 19
 total: 21
-recorded: 2026-11-08T06:02:43.653Z
+recorded: 2026-11-08T09:21:59.034Z
 ---
 
 # Phase 10: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
+| WR-01 | warning | fixed | 10-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 10-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
