@@ -66,7 +66,7 @@ commands: |
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737 --no-scenes
-result: [pending]
+result: pass — прогон Claude по просьбе оператора 2026-11-08, B50, Young Sherlock S01E01; оператор подтвердил (10-UAT.md, тест 3)
 
 ### 11. WR-10 / IN-22: флаги ключевых кадров энкода enpipe после mkvmerge на началах сцен (перенесён в автотест, D-28, 2026-11-08)
 expected: Тест `test_keyframe_flags_after_mkvmerge` на B50 PASSED (не SKIPPED). Он проверяет на синтетическом HDR10-источнике (реальные detect + encode: qsvencc на Arc + mkvmerge), полном и частичном (`--from 1 --to len-1`) энкоде: число K-пакетов в границах [число непустых сцен окна; Σ ceil(длина сцены / GOP_LEN)], K меньше числа кадров, keyframe_reasons пуст, предпроверка пары (check_pair_files) ok для полной пары и для частичной с offset, а без offset частичная отвергается с подсказкой «--offset K». При провале (ВНЕ ГРАНИЦ, непустой keyframe_reasons) — находка для оператора, код enpipe не менять.
@@ -77,9 +77,9 @@ result: pass (автотест, прогон исполнителя 10-21, 2026-
 ## Summary
 
 total: 11
-passed: 2
+passed: 3
 issues: 8
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
