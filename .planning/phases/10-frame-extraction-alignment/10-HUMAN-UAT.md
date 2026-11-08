@@ -68,29 +68,18 @@ commands: |
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737 --no-scenes
 result: [pending]
 
-### 11. WR-10 / IN-22: флаги ключевых кадров энкода enpipe после mkvmerge на началах сцен
-expected: Число пакетов с флагом K в энкоде лежит в границах [нижняя; верхняя]. Нижняя — число различных начал непустых сцен в окне [offset, offset + кадры_энкода) (чанк начинается с ключевого кадра). Верхняя — Σ ceil((min(e, offset + кадры_энкода) − s) / GOP_LEN) по непустым сценам окна, где GOP_LEN — значение при энкоде (по умолчанию 300, encoding/chunk.py): qsvencc ставит ключевой кадр в начале чанка и каждые GOP_LEN кадров внутри него. Верхняя граница много меньше числа кадров, поэтому энкод «ключевой каждый кадр» (сверка WR-10 тогда молча пуста) отличается от верных флагов. Для готовой пары Gravity Falls S01E01 (233 сцены, 30325 кадров, offset 0) K-пакетов от 233 до верхней границы не больше 333 (ceil(l/300) ≤ (l + 299)/300, сумма ≤ (30325 + 233·299)/300 ≈ 333,3). Граница предполагает флаг K только в начале чанка и каждые GOP_LEN кадров: округление GOP у qsvencc (--gop-ref-dist) или адаптивные I-кадры могут дать больше на верном энкоде, поэтому «ВНЕ ГРАНИЦ» — сигнал оператору разобраться, а не доказательство дефекта; остановиться и вынести оператору, кода не менять (при K = числу кадров сверка WR-10 бессмысленна). scenes_reasons, check_offset и keyframe_reasons пусты для полной пары (offset 0) и для частичной (offset 4737: конец окна — конец сцены 42, WR-11). Если keyframe_reasons не пуст на настоящем энкоде enpipe при K в границах — допущение о флагах mkvmerge (ключевой флаг на первом кадре каждого чанка) ложно: остановиться и вынести оператору (иначе все пары enpipe получают ложный отказ). Если команда печатает «сцен 0» — путь к .scenes неверен (read_scenes_file молча даёт пустой список).
+### 11. WR-10 / IN-22: флаги ключевых кадров энкода enpipe после mkvmerge на началах сцен (перенесён в автотест, D-28, 2026-11-08)
+expected: Тест `test_keyframe_flags_after_mkvmerge` на B50 PASSED (не SKIPPED). Он проверяет на синтетическом HDR10-источнике (реальные detect + encode: qsvencc на Arc + mkvmerge), полном и частичном (`--from 1 --to len-1`) энкоде: число K-пакетов в границах [число непустых сцен окна; Σ ceil(длина сцены / GOP_LEN)], K меньше числа кадров, keyframe_reasons пуст, предпроверка пары (check_pair_files) ok для полной пары и для частичной с offset, а без offset частичная отвергается с подсказкой «--offset K». При провале (ВНЕ ГРАНИЦ, непустой keyframe_reasons) — находка для оператора, код enpipe не менять.
 commands: |
-  # число ключевых пакетов энкода и число сцен
-  ffprobe -v error -select_streams V:0 -show_entries packet=pts_time,flags -of csv=p=0 ENC.mkv | awk -F, '$2 ~ /K/ {n++} END {print n}'
-  wc -l < SRC.mkv.scenes
-  # границы K-пакетов, вердикт и причины кодом enpipe, аргументы: SRC ENC SCENES OFFSET GOP_LEN
-  # (проверено на синтетике: «в границах» и пустые причины; all-intra энкод — «ВНЕ ГРАНИЦ»)
-  # полная пара (offset 0):
-  uv run python -c 'import sys, math; from pathlib import Path; from enpipe.analysis import frames, precheck; from enpipe.analysis.sources import read_scenes_file; src, enc, sc, off, gop = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]); sp, _ = frames.packet_table(src); ep, ek = frames.packet_table(enc); s = read_scenes_file(sc); hi = off + len(ep); w = [(a, min(b, hi)) for a, b in s if b > a and off <= a < hi]; lo = len({a for a, _ in w}); up = sum(math.ceil((e - a) / gop) for a, e in w); print("кадров источника", len(sp), "энкода", len(ep), "сцен", len(s), "сцен в окне", len(w)); print("K-пакетов", len(ek), "границы [", lo, ";", up, "]", "в границах" if lo <= len(ek) <= up else "ВНЕ ГРАНИЦ"); print("scenes_reasons:", precheck.scenes_reasons(s, len(sp))); print("check_offset:", precheck.check_offset(len(sp), len(ep), off, s)[2]); print("keyframe_reasons:", precheck.keyframe_reasons(s, off, len(ep), ek))' SRC.mkv ENC.mkv SRC.mkv.scenes 0 300
-  # частичный энкод (offset 4737):
-  uv run python -c 'import sys, math; from pathlib import Path; from enpipe.analysis import frames, precheck; from enpipe.analysis.sources import read_scenes_file; src, enc, sc, off, gop = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]); sp, _ = frames.packet_table(src); ep, ek = frames.packet_table(enc); s = read_scenes_file(sc); hi = off + len(ep); w = [(a, min(b, hi)) for a, b in s if b > a and off <= a < hi]; lo = len({a for a, _ in w}); up = sum(math.ceil((e - a) / gop) for a, e in w); print("кадров источника", len(sp), "энкода", len(ep), "сцен", len(s), "сцен в окне", len(w)); print("K-пакетов", len(ek), "границы [", lo, ";", up, "]", "в границах" if lo <= len(ek) <= up else "ВНЕ ГРАНИЦ"); print("scenes_reasons:", precheck.scenes_reasons(s, len(sp))); print("check_offset:", precheck.check_offset(len(sp), len(ep), off, s)[2]); print("keyframe_reasons:", precheck.keyframe_reasons(s, off, len(ep), ek))' SRC.mkv ENC_PART.mkv SRC.mkv.scenes 4737 300
-  # готовая реальная пара enpipe (Gravity Falls S01E01, 233 сцены, 30325 кадров, offset 0, границы [233; не больше 333]):
-  uv run python -c 'import sys, math; from pathlib import Path; from enpipe.analysis import frames, precheck; from enpipe.analysis.sources import read_scenes_file; src, enc, sc, off, gop = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]); sp, _ = frames.packet_table(src); ep, ek = frames.packet_table(enc); s = read_scenes_file(sc); hi = off + len(ep); w = [(a, min(b, hi)) for a, b in s if b > a and off <= a < hi]; lo = len({a for a, _ in w}); up = sum(math.ceil((e - a) / gop) for a, e in w); print("кадров источника", len(sp), "энкода", len(ep), "сцен", len(s), "сцен в окне", len(w)); print("K-пакетов", len(ek), "границы [", lo, ";", up, "]", "в границах" if lo <= len(ek) <= up else "ВНЕ ГРАНИЦ"); print("scenes_reasons:", precheck.scenes_reasons(s, len(sp))); print("check_offset:", precheck.check_offset(len(sp), len(ep), off, s)[2]); print("keyframe_reasons:", precheck.keyframe_reasons(s, off, len(ep), ek))' "/data/media/series/Gravity Falls/S01/Gravity.Falls.S01E01.Tourist.Trapped.1080p.BDRemux.AVC.DTS-HD.MA.5.1-tim1ch.mkv" "/data/downloads/enpipe-test/gf-s01e01/Gravity.Falls.S01E01.Tourist.Trapped.1080p.BDRemux.AVC.DTS-HD.MA.5.1-tim1ch.Encoded.mkv" "/data/downloads/enpipe-test/gf-s01e01/S01E01.scenes" 0 300
-  ffprobe -v error -select_streams V:0 -show_entries packet=pts_time,flags -of csv=p=0 "/data/downloads/enpipe-test/gf-s01e01/Gravity.Falls.S01E01.Tourist.Trapped.1080p.BDRemux.AVC.DTS-HD.MA.5.1-tim1ch.Encoded.mkv" | awk -F, '$2 ~ /K/ {n++} END {print n}'
-result: [pending]
+  uv run pytest -q -rs -m hardware tests/integration/test_hardware_real_media.py -k keyframe_flags
+result: pass (автотест, прогон исполнителя 10-21, 2026-11-08)
 
 ## Summary
 
 total: 11
-passed: 1
+passed: 2
 issues: 8
-pending: 2
+pending: 1
 skipped: 0
 blocked: 0
 
