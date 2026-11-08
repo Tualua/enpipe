@@ -13,19 +13,19 @@ findings:
     title: "K-flag hardware test has an upper bound that can fail on a correct pipeline"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "Over-long, stale module docstring paragraph"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`OFFSET_*` comments name a family that has a single member"
   - id: IN-03
     severity: info
-    disposition: open
+    disposition: fixed
     title: "Scratch script gaps"
   - id: IN-04
     severity: info
-    disposition: open
+    disposition: fixed
     title: "Unneeded `noqa` on the broad catch"
   - id: IN-26
     severity: info
@@ -87,9 +87,9 @@ findings:
     severity: info
     disposition: open
     title: "UAT 11 не отличит «флаги mkvmerge верны» от «флаг K на каждом кадре», при котором WR-10 молча пуст (новое)"
-open: 19
+open: 15
 total: 21
-recorded: 2026-11-08T09:21:59.034Z
+recorded: 2026-11-08T09:31:21.810Z
 ---
 
 # Phase 10: Code Review Disposition
@@ -98,10 +98,10 @@ recorded: 2026-11-08T09:21:59.034Z
 |---------|----------|-------------|--------|
 | WR-01 | warning | fixed | 10-REVIEW-FIX.md |
 | WR-02 | warning | fixed | 10-REVIEW-FIX.md |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
+| IN-01 | info | fixed | 10-REVIEW-FIX.md |
+| IN-02 | info | fixed | 10-REVIEW-FIX.md |
+| IN-03 | info | fixed | 10-REVIEW-FIX.md |
+| IN-04 | info | fixed | 10-REVIEW-FIX.md |
 | IN-26 | info | open | - (not in the current review) |
 | IN-23 | info | open | - (not in the current review) |
 | IN-18 | info | open | - (not in the current review) |
