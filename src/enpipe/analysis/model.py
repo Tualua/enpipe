@@ -210,7 +210,7 @@ class PairVerdict:
     reasons: Tuple[str, ...] = ()  # русские причины отказа
     notes: Tuple[str, ...] = ()  # пометки (VFR, start_time) — не отказ
     offset: int = 0
-    offset_source: Optional[str] = None  # OFFSET_*
+    offset_source: Optional[str] = None  # OFFSET_SCENES | None
     vfr: bool = False
 
 
@@ -262,7 +262,7 @@ class RunMeta:
     fps: Optional[float] = None
     frame_count: Optional[int] = None
     offset: Optional[int] = None
-    offset_source: Optional[str] = None  # OFFSET_*
+    offset_source: Optional[str] = None  # OFFSET_SCENES | None
     notes: Tuple[str, ...] = ()  # пометки: VFR, start_time
 
 
