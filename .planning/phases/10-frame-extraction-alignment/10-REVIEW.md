@@ -1,282 +1,115 @@
 ---
 phase: 10-frame-extraction-alignment
-reviewed: 2026-11-07T18:31:40Z
+reviewed: 2026-11-08T00:00:00Z
 depth: standard
-files_reviewed: 4
+files_reviewed: 16
 files_reviewed_list:
+  - scratch/analysis_pair_probe.py
+  - src/enpipe/analysis/config.py
+  - src/enpipe/analysis/frames.py
+  - src/enpipe/analysis/model.py
+  - src/enpipe/analysis/pair.py
   - src/enpipe/analysis/precheck.py
-  - tests/subprocess/analysis/test_frames.py
+  - src/enpipe/analysis/report.py
+  - src/enpipe/analysis/seek.py
+  - tests/integration/test_frames_media.py
+  - tests/integration/test_hardware_real_media.py
+  - tests/unit/analysis/golden/report_v1.json
+  - tests/unit/analysis/test_config_model.py
   - tests/unit/analysis/test_pair.py
   - tests/unit/analysis/test_precheck.py
+  - tests/unit/analysis/test_report.py
+  - tests/unit/analysis/test_seek.py
 findings:
   critical: 0
-  warning: 0
-  info: 15
-  total: 15
+  warning: 2
+  info: 4
+  total: 6
   necessity: 1
 status: issues_found
 ---
 
-# Phase 10: отчёт ревью кода (повторный, после гэп-плана 10-18)
+# Phase 10: Code Review Report
 
-**Проверено:** 2026-11-07T18:31:40Z
-**Глубина:** standard
-**Файлов:** 4
-**Статус:** issues_found (только Info)
+**Reviewed:** 2026-11-08
+**Depth:** standard
+**Files Reviewed:** 16
+**Status:** issues_found
 
-## Сводка
+## Summary
 
-Повторное ревью после 10-18: WR-11 (конец окна `--offset`), WR-12 (тест
-битого кэша), IN-22 (верхняя граница K-пакетов в UAT 11). База диффа
-`acc9dc8`. Менялись `precheck.py` (+28/−4) и три тестовых файла.
-`align.py`, `pair.py`, `frames.py`, `config.py`, `model.py`, `report.py` и
-`sources.py` не менялись (`git diff acc9dc8 -- src` трогает только
-`precheck.py`). Их находки перенесены по статусу, номера строк прежние.
+Review of the plans 10-19, 10-20 and 10-21 changes: removal of PSNR alignment (D-24..D-28), `--offset` allowed only with `.scenes` (D-26), `seek.py` extraction, and the hardware K-flag test.
 
-Что запускалось (исходники и тесты не правились, рабочее дерево `src/` и
-`tests/` чистое, `/data` не трогался):
-- `uv run pytest -q tests/unit/analysis tests/subprocess/analysis`: 551 passed.
-  `ruff check src tests`: чисто.
-- Зонд граничных случаев `check_offset` (scratchpad `r18/probe_edges.py`):
-  offset на n_src, n_enc = 0, сцены нулевой длины в начале, середине и конце,
-  перекрытые и выходящие за n_src `.scenes`.
-- Зонд согласованности «подсказки без `--offset`» и «принятые явные
-  `--offset`» на 20 000 случайных непрерывных `.scenes` (30 % со сценой
-  нулевой длины): 328 расхождений, все из-за сцен нулевой длины (IN-03).
-- Мутации через плагин pytest (scratchpad `r18/mutplug.py`, `r18/mutsort.py`):
-  - «проверки keyframes убраны из `_read_cache`»: 5 вариантов кэша красные;
-  - «принимать bool»: красный `[keyframes-bool]`;
-  - «конец окна не проверяется»: красные `test_partial_window_end_refused` и
-    `test_check_pair_window_end_skips_keyframes` (прямые тесты `check_offset`
-    импортируют функцию по имени, подмена атрибута модуля их не задевает, но
-    М24 плана проверяла их на рабочем дереве);
-  - «битые keyframes чинить (sort/set), а не отвергать»: **все 54 теста
-    `test_frames.py` зелёные**, см. IN-26.
+- **Dangling references:** none. `align.py` and `test_align.py` are gone. A grep of `src`, `tests` and `scratch` finds no remaining import or use of `analysis.align`, `OFFSET_MANUAL`, `ALIGN_*`, `FileAlignment`, `PointAlignment`, `align_*` config fields, `PairCheck.alignment` or the `jobs=` argument of `check_pair_files`. `ruff check` passes on `scratch`, `src` and `tests`.
+- **Rules D-05/D-06/D-07/D-09/D-16..D-20, WR-10 and WR-11:** I traced `check_offset`, `keyframe_reasons`, `scenes_reasons` and `check_pair` and found no logic defect.
+  - A partial window must start and end on scene boundaries, and both reasons are collected together.
+  - The `.scenes`/keyframe check is skipped when an earlier root cause exists, and it fails closed when keyframe flags are missing.
+  - `--offset` without `.scenes` (`None` or `[]`) is refused, and the offset-range reason comes first.
+- **`grab_frame_pair`:** it is gated on `check.ok`, bounds-checks both frame indices, and fetches exactly one frame per side, as D-27 requires. Its "does not raise" contract holds.
+- **Remaining defects:** only leftovers of the refactor, and one test-robustness risk. No correctness or security defects were found in the reviewed code.
 
-**WR-11 закрыт.** `check_offset` (`precheck.py:172-184`) при заданном
-`--offset` и непустых `.scenes` требует, чтобы K было началом сцены, а
-K + n_enc концом сцены. Обе причины собираются вместе (D-20): ранний
-возврат после причины начала убран. Проверены обе стороны и все пути:
-- **без `--offset`, кадров поровну**: окно `[0, n_src)`. Его конец сверяет
-  `scenes_reasons` (последняя сцена кончается на n_src);
-- **без `--offset`, кадров разное число**: отказ всегда (D-05), подсказки ищут
-  окна из целых сцен;
-- **`--offset` без `.scenes`**: пометка «по .scenes не проверен» (принятая
-  граница D-08), поведение прежнее (`test_offset_window_end_other_paths_unchanged`);
-- **`--offset` с `.scenes`**: начало и конец. Окно, кончающееся внутри сцены,
-  отвергается **до** извлечения кадров (`test_partial_window_end_refused`:
-  `f.calls == []`, контроль `n_enc = 48` даёт ok). Сверка ключевых кадров при
-  этом пропускается как следствие (`test_check_pair_window_end_skips_keyframes`,
-  тест чувствителен: без пропуска кадр энкода 24 попал бы в причину);
-- **offset = n_src**: при n_enc ≥ 1 отказ «не помещается»;
-- **сцены нулевой длины**: конец `(24, 24)` считается концом сцены. Для
-  непрерывных `.scenes` множество концов равно множеству начал без 0 и с n_src,
-  так что ложного отказа на верной паре нет;
-- **битые `.scenes`** (перекрытие, конец за n_src): `check_offset` может
-  принять окно, но `scenes_reasons` всё равно даёт отказ, а сверка ключевых
-  кадров пропускается. Ложного «выровнено» нет.
+## Warnings
 
-Ложного отказа на верной паре enpipe правило не даёт. Частичный энкод enpipe
-— срез `scenes_all[lo:hi]` целых сцен (`encoding/pipeline.py:176-180`), и
-`total_expect = sum(e - s)`. Значит, K + n_enc всегда конец сцены `hi − 1`.
+### WR-01: `DEFAULT_JOBS` and its comment describe an API that no longer exists (necessity)
 
-**WR-12 закрыт.** Тест параметризован по 10 вариантам и идёт через
-`packet_table`. Кэш пишется с `(0,)`, пересчёт отдаёт `(0, 1)`, поэтому
-«принят» и «пересчитан» различимы. Ни один битый вариант при приёме не даёт
-`(0, 1)`. Мутация «без проверок keyframes» роняет все 5 keyframes-вариантов,
-«bool принимается» роняет `[keyframes-bool]`. Остаток — IN-26: мутацию
-«починить вместо отвергнуть» тест не видит.
-
-**IN-22 закрыт (UAT).** Однострочник UAT 11 проверен построчно:
-- окно `hi = off + len(ep)`;
-- сцены окна `b > a and off <= a < hi`. Нулевые сцены исключены, их начала
-  совпадают с началом следующей сцены, поэтому нижняя граница равна множеству,
-  которое проверяет `keyframe_reasons`;
-- верхняя граница `Σ ceil((min(b, hi) − a) / gop)`, `min` срезает сцену,
-  выходящую за окно, хотя WR-11 такой случай теперь отвергает;
-- арифметика для Gravity Falls верна: (30325 + 233·299) / 300 = 99992 / 300 ≈ 333,3;
-- `awk '$2 ~ /K/'` совпадает с правилом кода (`"K" in flags`);
-- кавычки: Python-код в одинарных кавычках, внутри одинарных нет; пути с
-  пробелами (`Gravity Falls`) в двойных кавычках; три копии однострочника
-  побайтно совпадают до аргументов;
-- `wc -l` верно считает сцены: писатель `.scenes`
-  (`detection/pipeline.py:81-86`) заголовка не пишет;
-- для частичной пары с `--offset 4737`: окно `[4737, 5139)` — сцены 40..42
-  (UAT 10), конец 5139 — конец сцены 42, `check_offset` пуст.
-
-Кодовая проверка «все кадры ключевые» по-прежнему не добавлена. По IN-22
-это решение оператора, UAT закрывает обнаружение.
-
-Новых WARNING и BLOCKER нет. Остались только Info.
-
-## Статус находок прошлых ревью
-
-| ID | Было | Статус | Доказательство |
-|----|------|--------|----------------|
-| WR-11 | конец окна `--offset` не сверялся с концом сцены | **закрыт 10-18** | `precheck.py:172-184`; якоря `test_offset_window_end_not_scene_end`, `_on_scene_end` (вкл. нулевую сцену), `test_offset_start_and_end_both_reported`, `test_offset_window_end_other_paths_unchanged`, `test_check_pair_window_end_skips_keyframes`, `test_pair.py::test_partial_window_end_refused`; мутация «без проверки конца» поймана; зонд граничных случаев без ложных отказов |
-| WR-12 | битые `keyframes` в кэше не различались с пересчётом | **закрыт 10-18** | `test_frames.py:324-358`; мутация «без проверок keyframes» роняет 5 вариантов, «bool» — 1. Остаток — IN-26 |
-| IN-22 | UAT 11 не отличал «K на каждом кадре» | **закрыт 10-18 (UAT)** | `10-HUMAN-UAT.md` тест 11: границы `[начала сцен окна; Σ ceil(l/GOP_LEN)]`, команда проверена (см. сводку); кодовая проверка — решение оператора |
-| CR-02, WR-10 | — | закрыты 10-16/10-17, регрессий нет | 551 тест зелёный, `align.py`/`pair.py`/`frames.py` не менялись |
-| CR-01, WR-09 | — | закрыты 10-15 | — |
-| WR-01..WR-08, CR-01 (старый) | — | закрыты ранее | — |
-| IN-20, IN-21 | — | закрыты 10-16 | — |
-| IN-19 | вёрстка docstring | **открыт** (частично исправлен в 10-16) | `align.py`/`pair.py` не менялись |
-| IN-03 | `offset_hints` и сцены нулевой длины | **открыт, шире**: не только в начале файла; после WR-11 расходится с явным `--offset` | см. ниже |
-| IN-23 | нечитаемый `.scenes` молча становится «без .scenes» | **открыт** (вне объёма, для фазы 11) | `sources.py:113-118` |
-| IN-02, IN-04, IN-05, IN-06, IN-09, IN-16, IN-17, IN-18, IN-24, IN-25 | — | **открыты, без изменений** | файлы не менялись с прошлого ревью |
-| IN-07 | scratch-скрипт `pool.map` | **открыт**, вне объёма | `scratch/analysis_pair_probe.py:169-192` |
-
-## Замечания
-
-### IN-26: тест битого кэша не ловит «починить вместо отвергнуть»: вариант `[1, 0]` после сортировки равен ответу пересчёта (новое)
-
-**Файл:** `tests/subprocess/analysis/test_frames.py:340-358`, `src/enpipe/analysis/frames.py:217-221`
-
-**Проблема:** пересчёт отдаёт `(0, 1)`, а `sorted([1, 0]) == [0, 1]`. Если
-`_read_cache` будет «чинить» флаги (`sorted(set(kf))`) вместо отказа,
-вариант `keyframes-unsorted` даст тот же `(0, 1)`. Тест останется зелёным,
-хотя битый кэш принят. Проверено мутацией `r18/mutsort.py`: 54 из 54
-зелёные. Дубликаты (`[0, 0]`, проверка `a >= b` против `a > b`) вариантом
-не покрыты вовсе. Последствие ограничено: кэш пишет сам enpipe, ключ сверяется
-по пути, размеру и mtime. Но заявленная защита T-10-44 закреплена не
-полностью.
-
-**Исправление:** сделать ответ пересчёта недостижимым ни для одной «починки».
-Например, 3 пакета: кэш `"0.0,K__\n0.5,___\n1.0,___\n"` → `(0,)`, пересчёт
-`"0.0,K__\n0.5,___\n1.0,K__\n"` → `(0, 2)`; варианты `[2, 1]` (sort даёт
-`(1, 2)`), `[0, 0]` (дубликат), `[True]` (int даёт `(1,)`).
-
-### IN-03: `offset_hints` теряет окно после любой сцены нулевой длины; после WR-11 подсказки расходятся с явным `--offset` (открыт, шире)
-
-**Файл:** `src/enpipe/analysis/precheck.py:111-132`, docstring `precheck.py:17-20`
-
-**Проблема:** окно с `lens[lo] == 0` отбрасывается, и указатель `lo` к
-нему не возвращается. Это происходит не только в начале файла, как сказано в
-прошлом отчёте, но и в середине: `[…, (28, 28), (28, 34), …]` при
-`n_enc = 15` теряет окно с K = 28. Зонд дал 328 расхождений на 20 000
-раскладок. Если окон нет, сообщение гласит «ни один непрерывный диапазон сцен
-не даёт столько кадров», хотя `--offset 28` с теми же `.scenes` теперь
-принимается (`check_offset` → `"scenes"`). Отказ без `--offset` остаётся
-верным (D-05), ложного «выровнено» нет. Но новая фраза docstring «без
-`--offset` тот же признак проверяют подсказки» при нулевых сценах неверна, а
-текст отказа уводит оператора. Детектор с минимальной длиной сцены нулевых
-сцен, по-видимому, не выпускает, поэтому это Info.
-
-**Исправление:** перед проверкой равенства добавить
-`while lo < hi and lens[lo] == 0: lo += 1`. Добавить тест-якорь на
-согласованность: `{k for k, _, _ in offset_hints(sc, n)} == {k | check_offset(n_src, n, k, sc)[2] == []}`
-на раскладке со сценой нулевой длины в середине.
-
-### IN-23: `.scenes`, который не читается или целиком состоит из чужих строк, превращается в «без .scenes» без отказа (открыт, вне объёма, для фазы 11)
-
-**Файл:** `src/enpipe/analysis/sources.py:103-118`
-
-**Проблема:** без изменений. После WR-11 последствие шире: такой `.scenes`
-отключает и проверку конца окна. При `--offset` остаётся только пометка
-«сдвиг задан вручную».
-
-**Исправление:** CLI фазы 11 должен различать «не задан» и «задан, но пуст
-или нечитаем» (отказ D-20).
-
-### IN-18: по отчёту не видно, какую цель представляет итоговая точка (без изменений)
-
-**Файл:** `src/enpipe/analysis/pair.py:339-343`, `src/enpipe/analysis/model.py` (`PointAlignment`)
-
-**Проблема:** у закрытой склейки её собственный кадр исчезает из `points`.
-
-**Исправление:** поля `target_frame` и `role` последними в `PointAlignment`.
-
-### IN-06: итог «выровнено N из M» расходится с таблицей точек (без изменений)
-
-**Файл:** `src/enpipe/analysis/align.py:212-222`, `src/enpipe/analysis/pair.py:463-476`
-
-**Проблема:** в M входят закрывающие повторы незакрытой цели.
-
-**Исправление:** считать M по целям, список неопределённых целей ставить первым.
-
-### IN-24: `_point_worker` ~90 строк с вложенной функцией (без изменений)
-
-**Файл:** `src/enpipe/analysis/pair.py:272-360`
-
-**Проблема:** превышает обычные для проекта 10-50 строк, правку правила
-склейки трудно проверять на обе стороны.
-
-**Исправление:** вынести ветку склейки и `_open` на уровень модуля.
-
-### IN-25: необобщённость — параметр `n_enc` в `junction_prev_retry_frames` не используется (без изменений)
-
-**Файл:** `src/enpipe/analysis/align.py:371-377`, `align.py:389-390`
+**File:** `src/enpipe/analysis/config.py:51-60`
 **Category:** necessity
+**Issue:** The comment says "Функции принимают jobs параметром с дефолтом DEFAULT_JOBS, поэтому флаг --jobs подключается без правок конфига". After plan 10-19 removed `jobs=` from `check_pair_files`, no function in `src/enpipe/analysis/` takes `jobs` or reads `DEFAULT_JOBS`.
+- `grep -rn "DEFAULT_JOBS\|jobs" src/enpipe/analysis/*.py` finds only the definition, this comment and the `build_thresholds` docstring.
+- The scratch script uses its own `--jobs` list.
 
-**Проблема:** параметр не используется (docstring: «для симметрии»). Единственный
-вызов — `pair.py:310-312`.
+The constant is generality without an instantiation, and the comment is now false. It misleads a reader about a seam that does not exist, and the measurement (4 jobs) is already recorded in the comment.
 
-**Исправление:** убрать параметр или оставить с этой фразой в docstring.
+`MAX_GRAB_FRAMES = 18` (line 67) has the same shape. Its rationale is "18 кадров … W·H·3 байт на кадр", sized for a window of neighbouring frames. The production caller `grab_frame_pair` now always passes `count=1` (D-27), so the cap guards a state the pipeline cannot reach. It is still a harmless guard for direct callers of `grab_frames`, and `tests/subprocess` use counts of 2 and 3.
+**Fix:** Either delete `DEFAULT_JOBS`, or reword the comment to say it is "reserved for phase 11, not read by any function yet". Update the `MAX_GRAB_FRAMES` comment so it no longer describes a neighbour-frame window, and update the `build_thresholds` docstring list to match.
 
-### IN-19: вёрстка docstring (без изменений)
+### WR-02: K-flag hardware test has an upper bound that can fail on a correct pipeline
 
-**Файл:** `src/enpipe/analysis/align.py:195-196`, `align.py:351-352`, `align.py:384`, `src/enpipe/analysis/pair.py:185`
+**File:** `tests/integration/test_hardware_real_media.py:1189-1229`
+**Issue:** `_keyframe_bounds` assumes the encode has at most one keyframe per `GOP_LEN` frames inside a scene: `hi = Σ ceil(len/gop)`. The bound is checked against `ffprobe` `K` flags of a real qsvencc plus mkvmerge output. Nothing in the repo shows that the Arc encoder cannot also emit an extra I/IDR frame within `--gop-len`, for example for scene-change handling, a forced IDR on a B-pyramid boundary, or a different frame type for an open-GOP `K` packet.
+- The test is a hard fail with no skip (D-28), so a hardware or driver revision change (A380 to B50, backlog 999.7) could fail it even though WR-10 is fine.
+- The failure message does not distinguish "assumption wrong" from "encoder emits extra keyframes".
 
-**Проблема:** строки длиннее 100 символов и обрывки после вставок.
+The lower bound and the `keyframe_reasons == []` assertion are the real WR-10 invariant. The upper bound only guards against "every frame is a keyframe", which `len(keys) < n_enc` already catches.
+**Fix:** Keep the lower bound and `len(keys) < n_enc`. Loosen the upper bound, for example `hi = 2 * Σ ceil(len/gop)`, or assert `len(keys) <= n_enc // 2`. Alternatively print the K indices and the bounds on failure, which the message already partly does.
 
-**Исправление:** переверстать.
+## Info
 
-### IN-16: «ближе vote_separation» против `<= sep` (без изменений)
+### IN-01: Over-long, stale module docstring paragraph
 
-**Файл:** `src/enpipe/analysis/align.py:435`, `align.py:455`
+**File:** `src/enpipe/analysis/precheck.py:17-21`
+**Issue:** The `--offset` rules paragraph contains a single physical line of about 170 characters ("… K без .scenes — отказ (D-26, частичный энкод проверяется только по .scenes); всегда"). The wrapping is broken by an in-place edit, and "всегда K + кадры_энкода <= кадры_источника" now reads as a separate sentence.
+**Fix:** Re-wrap the paragraph to the module's ~90 columns.
 
-**Исправление:** «не дальше vote_separation».
+### IN-02: `OFFSET_*` comments name a family that has a single member
 
-### IN-17: устаревший пример в docstring `AlignTarget` (без изменений)
+**File:** `src/enpipe/analysis/model.py:213`, `src/enpipe/analysis/model.py:265`
+**Issue:** `offset_source: Optional[str]  # OFFSET_*` refers to a family, but only `OFFSET_SCENES` remains (`None` means no verified source). `report._meta_lines` keeps an `if/else` for a branch that has one non-trivial value.
+**Fix:** Change the comments to `# OFFSET_SCENES | None`.
 
-**Файл:** `src/enpipe/analysis/align.py:246-247`
+### IN-03: Scratch script gaps
 
-**Исправление:** убрать пример про «повтор для склеек».
+**File:** `scratch/analysis_pair_probe.py:226-228`, `scratch/analysis_pair_probe.py:201`
+**Issue:**
+- The line is longer than 100 characters.
+- `--no-scenes` is silently ignored when `--scenes PATH` is also given.
+- With `--check-only` absent, step 5 (the jobs timing) still runs after a refused pair. It uses `chk.verdict.offset`, which on refusal can be an unvalidated user value, so `grab_frames` can fail on an out-of-range frame.
+- The default `--cache /tmp/enpipe-pts-cache` is a predictable path in a world-writable directory. The file name, `<hash>.pts.json.tmp<pid>`, is also predictable, so another local user could pre-create a symlink there. This is low risk for a scratch tool.
 
-### IN-02: «сдвиг не менее W» теряется в итоге файла и строках кадров (без изменений)
+**Fix:**
+- Wrap the long line.
+- Make `--no-scenes` and `--scenes` mutually exclusive via `ap.error`.
+- Skip step 5 when `chk` is not ok.
+- Use `tempfile.mkdtemp` or a path under the repo for the default cache.
 
-**Файл:** `src/enpipe/analysis/model.py` (`FileAlignment`, `FrameRow`), `src/enpipe/analysis/report.py`
+### IN-04: Unneeded `noqa` on the broad catch
 
-**Исправление:** последним полем `shift_at_least: bool = False`.
-
-### IN-04: `UnicodeDecodeError` выходит из `check_pair_files` (без изменений)
-
-**Файл:** `src/enpipe/analysis/frames.py:105`, `src/enpipe/analysis/pair.py:410-415`
-
-**Исправление:** `errors="replace"` в `_proc.run`.
-
-### IN-05: нет таймаута у ffmpeg/ffprobe (без изменений)
-
-**Файл:** `src/enpipe/analysis/frames.py:105`
-
-**Исправление:** `timeout=`, `TimeoutExpired` превращать в `AnalysisError`.
-
-### IN-07: замер jobs в scratch-скрипте обрывается на первой ошибке точки (без изменений, вне объёма)
-
-**Файл:** `scratch/analysis_pair_probe.py:169-192`
-
-**Исправление:** ловить ошибку в `_grab_point`.
-
-### IN-09: критерий независимости голосов неявно зависит от шага повтора (без изменений)
-
-**Файл:** `src/enpipe/analysis/align.py:166-179`, `src/enpipe/analysis/config.py:127-133`
-
-**Исправление:** отдельное provisional-поле `align_vote_sep`.
-
-## Конвенции
-
-Изменения 10-18 сверены с CLAUDE.md вручную:
-- docstring, комментарии и причины на русском;
-- генерики из `typing` (`List`), `from __future__ import annotations` на месте;
-- `check_offset` чистая, возвращает данные, не завершает процесс (D-20);
-- тесты без процессов: subprocess только через `fp`;
-- ruff чист.
-
-Модульный docstring (`precheck.py:15-22`) и docstring `check_offset`
-описывают новое правило. Неточна только фраза про подсказки (IN-03).
+**File:** `src/enpipe/analysis/pair.py:178`
+**Issue:** `except Exception:  # noqa: BLE001`. Ruff here selects only `F` and `E9`, so BLE001 is never active and the `noqa` is noise. The broad catch itself is justified by the "does not raise" contract and is documented.
+**Fix:** Drop the `# noqa: BLE001` and keep the explanatory comment.
 
 ---
 
-_Проверено: 2026-11-07T18:31:40Z_
-_Ревьюер: Claude (gsd-code-reviewer)_
-_Глубина: standard_
+_Reviewed: 2026-11-08_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: standard_
