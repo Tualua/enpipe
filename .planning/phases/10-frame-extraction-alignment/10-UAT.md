@@ -1,36 +1,53 @@
 ---
-status: testing
+status: complete
 phase: 10-frame-extraction-alignment
 source: [10-VERIFICATION.md]
 started: 2026-11-07T18:36:03Z
-updated: 2026-11-07T18:36:03Z
+updated: 2026-11-08T02:06:43.278Z
 ---
 
 ## Current Test
 
-number: 1
-name: "UAT 10 на Arc B50: полная пара с .scenes, частичный энкод без --offset, с --offset 4737"
-expected: |
-  uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --jobs 1,2 -> выровнено либо отказ со списком неопределённых точек; SRC.mkv ENC_PART.mkv -> отказ с подсказкой --offset 4737 (сцены 40..42); с --offset 4737 и .scenes -> выровнено либо отказ со списком точек, но никогда выровнено при незакрытой стороне склейки. Готовые команды — 10-HUMAN-UAT.md, тест 10.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. UAT 10 на Arc B50: полная пара с .scenes, частичный энкод без --offset, с --offset 4737
-expected: см. Current Test; команды — 10-HUMAN-UAT.md, тест 10
-result: [pending]
+expected: полная пара с .scenes — выровнено либо отказ со списком неопределённых точек; частичный энкод без --offset — отказ с подсказкой --offset 4737 (сцены 40..42); с --offset 4737 и .scenes — выровнено (после CR-02 склейки 75 и 149 закрыты) либо отказ со списком точек; никогда выровнено при незакрытой точке; нет причины «.scenes не совпадают с энкодом». Команды — 10-HUMAN-UAT.md, тест 10
+result: issue
+reported: "Это проблема, записывай" — по прогону оператора 2026-11-08 на B50 (Young Sherlock S01E01): (1) полная верная пара — ложный отказ «выровнено 7 из 9 …; неопределённые точки (кадры энкода): 0, 73498» (кадр 0, сцена 0, запас 0.8 дБ; кадр 73498, сцена 591, запас 0.0 дБ), в UAT 9 было aligned 5/5 — добавились точки 0, 57234, 73498, 73546; (2) --offset 4737 с .scenes — отказ «выровнено 4 из 5; неопределённые точки: 75» (склейка сцены 41, запас 2.4 дБ < 3.0), повтор обеих сторон CR-02 её не закрыл, 149 закрыта; (3) подсказка --offset 4737 первой — ок; причины «.scenes не совпадают» нет — ок; ложного «выровнено» нет — ок
+severity: major
 
 ### 2. UAT 11 на Arc B50: флаги ключевых кадров энкода enpipe после mkvmerge (допущение WR-10)
 expected: для Gravity Falls S01E01 число K-пакетов в границах [233; 333], причины сверки .scenes пусты; «ВНЕ ГРАНИЦ» — сигнал оператору разобраться, а не доказательство дефекта. Команды — 10-HUMAN-UAT.md, тест 11
-result: [pending]
+result: skipped
+reason: "Оператор 2026-11-08: ручная проверка внутренней библиотеки через python-однострочник неприемлема — у фазы 10 нет пользовательской команды enpipe (enpipe analyze появляется в фазе 11). Решение: перенести проверку флагов K после mkvmerge (ключевой на каждом начале сцены, число K в границах) в автоматический интеграционный тест на B50 (tests/integration, синтетический энкод qsvencc + mkvmerge) в плане исправления вместе с G-10-1; ручная приёмка анализа — в фазе 11 через enpipe analyze"
 
 ## Summary
 
 total: 2
 passed: 0
-issues: 0
-pending: 2
-skipped: 0
+issues: 1
+pending: 0
+skipped: 1
 blocked: 0
 
 ## Gaps
+
+- gap_id: G-10-1
+  truth: "На заведомо верной паре энкода enpipe (полная пара и частичный энкод с --offset и .scenes) выравнивание подтверждается, а не даёт отказ из-за неразличимых точек"
+  status: failed
+  reason: "User reported: Это проблема, записывай — полная пара Young Sherlock S01E01: неопределённые 0 (запас 0.8 дБ) и 73498 (0.0 дБ), регресс относительно UAT 9 (5/5); --offset 4737: склейка 75 (2.4 дБ < 3.0) не закрыта повтором CR-02"
+  severity: major
+  test: 1
+  artifacts: []
+  missing: []
+
+- gap_id: G-10-2
+  truth: "Допущение WR-10 (mkvmerge ставит флаг K на первом кадре каждого чанка enpipe и не на каждом кадре) проверяется автоматическим интеграционным тестом на B50, а не ручным UAT"
+  status: failed
+  reason: "User decision (UAT test 2 skipped): перенести проверку из ручного UAT 11 в tests/integration — синтетический энкод qsvencc + mkvmerge, keyframe_reasons пуст, число K в границах [сцен; Σ ceil(len/GOP_LEN)]"
+  severity: minor
+  test: 2
+  artifacts: []
+  missing: []
