@@ -77,7 +77,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _chunk_content as content  # noqa: E402
 import _concurrency_harness as harness  # noqa: E402
 
+from enpipe.analysis import frames, pair, precheck
+from enpipe.analysis.config import AnalyzeConfig
 from enpipe.cli.main import main as _enpipe_main
+import enpipe.encoding.chunk as _chunk_mod
 from enpipe.encoding.chunk import count_frames
 from enpipe.encoding.hdr import detect_hdr
 from enpipe.encoding.keyframes import (
@@ -1175,3 +1178,107 @@ def test_dv_profile5(tmp_path: Path) -> None:
         f"{fixture} is not a DV profile 5 source: {src_cfg}"
     )
     _run_dv_case(tmp_path, fixture, "dv-p5", expected_out_compat=0)
+
+
+def _keyframe_bounds(
+    scenes: List[Tuple[int, int]], offset: int, n_enc: int, gop: int
+) -> Tuple[int, int]:
+    """Границы числа K-пакетов энкода окна [offset, offset + n_enc).
+
+    Нижняя: по ключевому кадру на начало каждой непустой сцены окна (чанк
+    qsvencc начинается с IDR, mkvmerge сохраняет флаг K). Верхняя: внутри
+    сцены ключевые кадры идут не чаще одного на GOP_LEN, поэтому
+    Σ ceil(длина сцены в окне / GOP_LEN). Выход за границы означает либо
+    «ключевой каждый кадр» (сверка WR-10 молча пуста), либо потерю K на
+    началах чанков (ложный отказ парам enpipe)."""
+    end = offset + n_enc
+    lo = 0
+    hi = 0
+    for s, e in scenes:
+        a, b = max(s, offset), min(e, end)
+        if b <= a:
+            continue
+        lo += 1
+        hi += -(-(b - a) // gop)
+    return lo, hi
+
+
+def _assert_keyframe_flags(
+    label: str,
+    scenes: List[Tuple[int, int]],
+    offset: int,
+    gop: int,
+    enc: Path,
+    cache_dir: Path,
+) -> int:
+    """Флаги K энкода в границах и без расхождений с началами сцен; возвращает n_enc."""
+    pts, keys = frames.packet_table(enc, cache_dir)
+    n_enc = len(pts)
+    lo, hi = _keyframe_bounds(scenes, offset, n_enc, gop)
+    assert lo <= len(keys) <= hi, (
+        f"{label}: K-пакетов {len(keys)} ВНЕ ГРАНИЦ [{lo}; {hi}] "
+        f"(кадров {n_enc}, GOP_LEN {gop}, ключевые кадры {list(keys)[:20]})"
+    )
+    assert len(keys) < n_enc, f"{label}: ключевой каждый кадр ({len(keys)} из {n_enc})"
+    reasons = precheck.keyframe_reasons(scenes, offset, n_enc, keys)
+    assert reasons == [], f"{label}: keyframe_reasons не пуст: {reasons}"
+    return n_enc
+
+
+def test_keyframe_flags_after_mkvmerge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-28 / G-10-2: допущение WR-10 о флагах K после mkvmerge на настоящем энкоде.
+
+    Верхняя граница — Σ ceil(длина сцены / GOP_LEN), а не число сцен: внутри
+    сцены ключевые кадры идут по GOP, и граница отличает «K на началах чанков и
+    каждые GOP_LEN» от «K на каждом кадре». Выход за границы или непустой
+    keyframe_reasons здесь — провал теста (решение оператора D-28), а не skip:
+    допущение, на котором держится сверка .scenes с энкодом, не подтвердилось."""
+    if not _encoder_available("libx265"):
+        pytest.skip("libx265 encoder not available in this ffmpeg build")
+    gop = 48
+    monkeypatch.setattr(_chunk_mod, "GOP_LEN", gop)
+
+    src = tmp_path / "flags.mkv"
+    _make_multiscene_clip(src, codec_args=_HDR10_CODEC_ARGS, seg_dur=4)
+    _run_cli(["detect", str(src), "--jobs", "2"])
+    scenes_path = src.with_name(src.name + ".scenes")
+    scenes = read_scenes(scenes_path)
+    if len(scenes) < 3:
+        pytest.fail(f"детектор нашёл {len(scenes)} сцен(ы), нужно не менее 3: {scenes}")
+
+    cfg = AnalyzeConfig()
+    cache = tmp_path / "pts"
+
+    # полный энкод
+    out = tmp_path / "full.av1.mkv"
+    _run_cli([
+        "encode", str(src), str(scenes_path), "-o", str(out),
+        "--workdir", str(tmp_path / "w"), "--no-audio", "--no-metrics", "--jobs", "2",
+    ])
+    n_enc = _assert_keyframe_flags("полный энкод", scenes, 0, gop, out, cache)
+    assert n_enc == scenes[-1][1], f"кадров {n_enc}, ожидалось {scenes[-1][1]}"
+    chk = pair.check_pair_files(src, out, cfg, scenes=scenes, cache_dir=cache)
+    assert chk.ok and chk.reasons == (), f"предпроверка полной пары: {list(chk.reasons)}"
+
+    # частичный энкод: сцены 1..hi-1
+    hi_scene = len(scenes) - 1
+    offset = scenes[1][0]
+    part = tmp_path / "part.av1.mkv"
+    _run_cli([
+        "encode", str(src), str(scenes_path), "-o", str(part),
+        "--workdir", str(tmp_path / "w2"), "--from", "1", "--to", str(hi_scene),
+        "--no-audio", "--no-metrics", "--jobs", "2",
+    ])
+    _assert_keyframe_flags("частичный энкод", scenes, offset, gop, part, cache)
+    chk = pair.check_pair_files(
+        src, part, cfg, offset=offset, scenes=scenes, cache_dir=cache
+    )
+    assert chk.ok, f"предпроверка частичной пары с offset: {list(chk.reasons)}"
+    chk = pair.check_pair_files(src, part, cfg, scenes=scenes, cache_dir=cache)
+    assert not chk.ok, "частичная пара без offset должна быть отвергнута"
+    hint = f"--offset {offset} (сцены 1..{hi_scene - 1})"
+    assert any(hint in r for r in chk.reasons), (
+        f"нет подсказки «{hint}» среди причин: {list(chk.reasons)}"
+    )
