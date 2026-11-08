@@ -1186,11 +1186,13 @@ def _keyframe_bounds(
     """Границы числа K-пакетов энкода окна [offset, offset + n_enc).
 
     Нижняя: по ключевому кадру на начало каждой непустой сцены окна (чанк
-    qsvencc начинается с IDR, mkvmerge сохраняет флаг K). Верхняя: внутри
-    сцены ключевые кадры идут не чаще одного на GOP_LEN, поэтому
-    Σ ceil(длина сцены в окне / GOP_LEN). Выход за границы означает либо
-    «ключевой каждый кадр» (сверка WR-10 молча пуста), либо потерю K на
-    началах чанков (ложный отказ парам enpipe)."""
+    qsvencc начинается с IDR, mkvmerge сохраняет флаг K); её нарушение — потеря
+    K на началах чанков (ложный отказ парам enpipe). Верхняя — с запасом
+    2·Σ ceil(длина сцены в окне / GOP_LEN): ничто в репозитории не гарантирует,
+    что энкодер Arc не вставит лишний I/IDR внутри --gop-len (смена сцены,
+    граница B-пирамиды, смена железа/драйвера A380 -> B50, backlog 999.7), а
+    инвариант WR-10 держат нижняя граница и пустой keyframe_reasons. Верхняя
+    граница ловит только грубое «ключевых почти каждый кадр»."""
     end = offset + n_enc
     lo = 0
     hi = 0
@@ -1200,7 +1202,7 @@ def _keyframe_bounds(
             continue
         lo += 1
         hi += -(-(b - a) // gop)
-    return lo, hi
+    return lo, 2 * hi
 
 
 def _assert_keyframe_flags(
@@ -1215,9 +1217,22 @@ def _assert_keyframe_flags(
     pts, keys = frames.packet_table(enc, cache_dir)
     n_enc = len(pts)
     lo, hi = _keyframe_bounds(scenes, offset, n_enc, gop)
-    assert lo <= len(keys) <= hi, (
-        f"{label}: K-пакетов {len(keys)} ВНЕ ГРАНИЦ [{lo}; {hi}] "
-        f"(кадров {n_enc}, GOP_LEN {gop}, ключевые кадры {list(keys)[:20]})"
+    # Полный список K и границы в сообщении: по нему видно, «потеряны K на
+    # началах сцен» это или «энкодер вставляет лишние ключевые внутри GOP».
+    key_list = sorted(keys)
+    starts = sorted({max(s, offset) - offset for s, e in scenes
+                     if min(e, offset + n_enc) > max(s, offset)})
+    detail = (
+        f"кадров {n_enc}, GOP_LEN {gop}, границы [{lo}; {hi}], "
+        f"начала сцен в окне {starts}, ключевые кадры {key_list}"
+    )
+    assert len(keys) >= lo, (
+        f"{label}: K-пакетов {len(keys)} МЕНЬШЕ нижней границы {lo} "
+        f"(потеря K на началах чанков; {detail})"
+    )
+    assert len(keys) <= hi, (
+        f"{label}: K-пакетов {len(keys)} БОЛЬШЕ верхней границы {hi} "
+        f"(энкодер вставляет ключевые чаще 2 на GOP_LEN; {detail})"
     )
     assert len(keys) < n_enc, f"{label}: ключевой каждый кадр ({len(keys)} из {n_enc})"
     reasons = precheck.keyframe_reasons(scenes, offset, n_enc, keys)
@@ -1230,9 +1245,10 @@ def test_keyframe_flags_after_mkvmerge(
 ) -> None:
     """D-28 / G-10-2: допущение WR-10 о флагах K после mkvmerge на настоящем энкоде.
 
-    Верхняя граница — Σ ceil(длина сцены / GOP_LEN), а не число сцен: внутри
-    сцены ключевые кадры идут по GOP, и граница отличает «K на началах чанков и
-    каждые GOP_LEN» от «K на каждом кадре». Выход за границы или непустой
+    Верхняя граница — 2·Σ ceil(длина сцены / GOP_LEN), а не число сцен: внутри
+    сцены ключевые кадры идут по GOP (запас x2 на лишние I/IDR энкодера, см.
+    _keyframe_bounds), и граница отличает «K на началах чанков и по GOP» от
+    «K почти на каждом кадре». Выход за границы или непустой
     keyframe_reasons здесь — провал теста (решение оператора D-28), а не skip:
     допущение, на котором держится сверка .scenes с энкодом, не подтвердилось."""
     if not _encoder_available("libx265"):
