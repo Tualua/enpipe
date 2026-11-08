@@ -3,6 +3,14 @@ phase: 10
 review: 10-REVIEW.md
 titles: json
 findings:
+  - id: IN-01
+    severity: info
+    disposition: open
+    title: "A dangling symlink at the default cache path crashes with a raw traceback instead of the intended refusal"
+  - id: IN-02
+    severity: info
+    disposition: open
+    title: "The step-5 skip message blames a refusal when step 4 actually crashed"
   - id: WR-01
     severity: warning
     disposition: fixed
@@ -11,14 +19,6 @@ findings:
     severity: warning
     disposition: fixed
     title: "K-flag hardware test has an upper bound that can fail on a correct pipeline"
-  - id: IN-01
-    severity: info
-    disposition: fixed
-    title: "Over-long, stale module docstring paragraph"
-  - id: IN-02
-    severity: info
-    disposition: fixed
-    title: "`OFFSET_*` comments name a family that has a single member"
   - id: IN-03
     severity: info
     disposition: fixed
@@ -87,21 +87,21 @@ findings:
     severity: info
     disposition: open
     title: "UAT 11 не отличит «флаги mkvmerge верны» от «флаг K на каждом кадре», при котором WR-10 молча пуст (новое)"
-open: 15
+open: 17
 total: 21
-recorded: 2026-11-08T09:31:21.810Z
+recorded: 2026-11-08T15:08:39.550Z
 ---
 
 # Phase 10: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | fixed | 10-REVIEW-FIX.md |
-| WR-02 | warning | fixed | 10-REVIEW-FIX.md |
-| IN-01 | info | fixed | 10-REVIEW-FIX.md |
-| IN-02 | info | fixed | 10-REVIEW-FIX.md |
-| IN-03 | info | fixed | 10-REVIEW-FIX.md |
-| IN-04 | info | fixed | 10-REVIEW-FIX.md |
+| IN-01 | info | open | - |
+| IN-02 | info | open | - |
+| WR-01 | warning | fixed | 10-REVIEW-FIX.md (not in the current review) |
+| WR-02 | warning | fixed | 10-REVIEW-FIX.md (not in the current review) |
+| IN-03 | info | fixed | 10-REVIEW-FIX.md (not in the current review) |
+| IN-04 | info | fixed | 10-REVIEW-FIX.md (not in the current review) |
 | IN-26 | info | open | - (not in the current review) |
 | IN-23 | info | open | - (not in the current review) |
 | IN-18 | info | open | - (not in the current review) |
