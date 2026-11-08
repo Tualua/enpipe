@@ -271,7 +271,7 @@ def test_render_json_schema_keys_literal():
             assert set(row["metrics"]) == metrics_keys
 
 
-# Число "provisional": true в golden = числу полей AnalyzeConfig (25);
+# Число "provisional": true в golden = числу полей AnalyzeConfig (19);
 # добавление/переименование порога — осознанное обновление golden через
 # ENPIPE_UPDATE_GOLDEN=1.
 def test_golden_report_v1():

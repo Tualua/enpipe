@@ -397,36 +397,6 @@
       "value": 10000
     },
     {
-      "name": "align_margin_db",
-      "provisional": true,
-      "value": 3.0
-    },
-    {
-      "name": "align_window",
-      "provisional": true,
-      "value": 3
-    },
-    {
-      "name": "align_points",
-      "provisional": true,
-      "value": 5
-    },
-    {
-      "name": "align_min_aligned",
-      "provisional": true,
-      "value": 2
-    },
-    {
-      "name": "align_retry_max",
-      "provisional": true,
-      "value": 3
-    },
-    {
-      "name": "align_retry_step",
-      "provisional": true,
-      "value": 48
-    },
-    {
       "name": "fps_rel_tol",
       "provisional": true,
       "value": 0.0005

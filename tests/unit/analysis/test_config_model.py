@@ -138,8 +138,6 @@ def test_config_defaults():
     assert (cfg.shadow_nits, cfg.detail_eps) == (5.0, 1e-9)
     assert (cfg.min_gap, cfg.top, cfg.per_scene_quota) == (48, 40, 2)
     assert (cfg.csv_worst_n, cfg.vmaf_worst_n, cfg.max_frames_range) == (10, 12, 10000)
-    assert (cfg.align_margin_db, cfg.align_window, cfg.align_points) == (3.0, 3, 5)
-    assert (cfg.align_min_aligned, cfg.align_retry_max, cfg.align_retry_step) == (2, 3, 48)
     assert cfg.fps_rel_tol == 5e-4
     assert (cfg.vfr_gap_lo, cfg.vfr_gap_hi, cfg.vfr_gap_fraction) == (0.8, 1.25, 0.01)
 
@@ -147,7 +145,7 @@ def test_config_defaults():
 def test_build_thresholds_defaults():
     cfg = c.AnalyzeConfig()
     th = c.build_thresholds(cfg)
-    assert len(th) == 25
+    assert len(th) == 19
     flds = dataclasses.fields(c.AnalyzeConfig)
     assert len(th) == len(flds)
     assert [t.name for t in th] == [f.name for f in flds]
@@ -165,9 +163,8 @@ def test_build_thresholds_distinct_values_and_types():
         chroma_block=8, chroma_sat_thr=31.5, chroma_min_pts=4, chroma_max_pts=19,
         min_chroma_blocks=6, tile_y=258, tile_c=130, shadow_nits=5.5,
         detail_eps=2e-9, min_gap=49, top=41, per_scene_quota=3, csv_worst_n=11,
-        vmaf_worst_n=13, max_frames_range=10001, align_margin_db=3.5,
-        align_window=4, align_points=6, align_min_aligned=3, align_retry_max=2,
-        align_retry_step=24, fps_rel_tol=1e-3, vfr_gap_lo=0.7, vfr_gap_hi=1.3,
+        vmaf_worst_n=13, max_frames_range=10001,
+        fps_rel_tol=1e-3, vfr_gap_lo=0.7, vfr_gap_hi=1.3,
         vfr_gap_fraction=0.02,
     )
     for t in c.build_thresholds(cfg):
@@ -191,18 +188,6 @@ def test_build_thresholds_distinct_values_and_types():
         {"csv_worst_n": 0},
         {"vmaf_worst_n": 0},
         {"max_frames_range": 0},
-        {"align_margin_db": 0.0},
-        {"align_margin_db": -1.0},
-        {"align_window": 0},
-        {"align_window": 9},
-        {"align_points": 0},
-        {"align_min_aligned": 0},
-        {"align_min_aligned": 6},
-        {"align_retry_max": -1},
-        {"align_retry_step": 0},
-        {"align_retry_step": 1},
-        {"align_retry_step": 6},
-        {"align_window": 8, "align_retry_step": 16},
         {"fps_rel_tol": 0.0},
         {"fps_rel_tol": 1.0},
         {"vfr_gap_lo": 0.0},
@@ -217,13 +202,6 @@ def test_invalid_config_raises(kwargs):
         c.AnalyzeConfig(**kwargs)
 
 
-def test_retry_step_vs_window_boundary():
-    c.AnalyzeConfig(align_retry_step=7)
-    c.AnalyzeConfig(align_window=8, align_retry_step=17)
-    with pytest.raises(c.AnalysisError, match="align_retry_step"):
-        c.AnalyzeConfig(align_retry_step=6)
-
-
 def test_itp_strip_rows_even_positive():
     assert isinstance(c.ITP_STRIP_ROWS, int)
     assert c.ITP_STRIP_ROWS > 0 and c.ITP_STRIP_ROWS % 2 == 0
@@ -231,11 +209,11 @@ def test_itp_strip_rows_even_positive():
 
 def test_perf_constants_not_thresholds():
     assert (c.DEFAULT_JOBS, c.DECODE_THREADS, c.NICE_LEVEL) == (4, 2, 10)
-    assert c.MAX_GRAB_FRAMES == 2 * c.ALIGN_WINDOW_MAX + 2 == 18
+    assert c.MAX_GRAB_FRAMES == 18
     assert c.OFFSET_HINTS_MAX == 5
     names = {f.name.lower() for f in dataclasses.fields(c.AnalyzeConfig)}
     for const in ("DEFAULT_JOBS", "DECODE_THREADS", "NICE_LEVEL",
-                  "ALIGN_WINDOW_MAX", "MAX_GRAB_FRAMES", "OFFSET_HINTS_MAX"):
+                  "MAX_GRAB_FRAMES", "OFFSET_HINTS_MAX"):
         assert const.lower() not in names
 
 

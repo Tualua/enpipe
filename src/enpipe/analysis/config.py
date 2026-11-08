@@ -48,11 +48,11 @@ ITP_SCALE = 720.0
 # r0//2..r1//2.
 ITP_STRIP_ROWS = 128
 
-# Производительные и защитные константы извлечения кадров и выравнивания: не
+# Производительные и защитные константы извлечения кадров: не
 # пороги вердикта и в report.json не попадают. Функции принимают jobs
 # параметром с дефолтом DEFAULT_JOBS, поэтому флаг --jobs подключается без
 # правок конфига.
-# Параллелизм по точкам. Замер 2026-10-07, ZFS-HDD, 3840×1600 HEVC Main10 +
+# Параллелизм извлечения кадров (потребитель — фаза 11). Замер 2026-10-07, ZFS-HDD, 3840×1600 HEVC Main10 +
 # AV1, --points 10, с/точку: jobs 1 -> 3.89..4.73 (первый прогон замедлен
 # холодным диском), 2 -> 2.20..2.21, 4 -> 1.50..1.55. Масштабирование 1->2
 # x1.77, 2->4 x1.42; наименьшее jobs не хуже лучшего более чем на 15 % — 4.
@@ -62,13 +62,9 @@ DEFAULT_JOBS = 4
 DECODE_THREADS = 2
 # nice 10 без ionice: на ZFS ionice бесполезен.
 NICE_LEVEL = 10
-# Потолок align_window (память: окно 2W+1 кадров 4K).
-ALIGN_WINDOW_MAX = 8
-# Потолок окна склейки: кадры start-1 и start ± W одним вызовом = 2W+2 при
-# W = ALIGN_WINDOW_MAX; обычная точка берёт 2W+1 (7 при W = 3), кадр отчёта — 3.
-# Память кадра yuv420p10 в uint16 = W·H·3 байт (3840x1600 ≈ 18,4 МБ,
-# 3840x2160 ≈ 24,9 МБ).
-MAX_GRAB_FRAMES = 2 * ALIGN_WINDOW_MAX + 2
+# Защита памяти grab_frames: 18 кадров yuv420p10 в uint16 — W·H·3 байт на кадр
+# (3840x1600 ≈ 18,4 МБ, 3840x2160 ≈ 24,9 МБ).
+MAX_GRAB_FRAMES = 18
 # Сколько кандидатов --offset перечислять в подсказке.
 OFFSET_HINTS_MAX = 5
 
@@ -115,22 +111,6 @@ class AnalyzeConfig:
     # Защита от --frames 0-999999999 (DoS).
     max_frames_range: int = 10000
 
-    # Выравнивание кадров источника и энкода (provisional до калибровки):
-    # запас лучшего совпадения над вторым, дБ (D-03).
-    align_margin_db: float = 3.0
-    # Окно сдвига ±W кадров (D-12).
-    align_window: int = 3
-    # Число точек проверки в файле (D-10, D-11).
-    align_points: int = 5
-    # Минимум точек «выровнено» для вердикта файла (D-13).
-    align_min_aligned: int = 2
-    # Число повторных попыток на обычную точку (D-11), оно же общий лимит замен и
-    # повторов склейки (сначала замены, WR-08), и шаг повтора, кадров.
-    align_retry_max: int = 3
-    # Должен быть > 2·align_window: окна ±W повторов одной точки не пересекаются.
-    # Разнос голосов align.vote_separation = max(2·align_window, align_retry_step // 2)
-    # меньше шага, поэтому повтор не попадает в окрестность своей цели.
-    align_retry_step: int = 48
     # Предпроверка пары: относительный допуск avg_frame_rate (D-16).
     fps_rel_tol: float = 5e-4
     # Полоса «нормального» зазора pts (доля медианы) и доля зазоров вне
@@ -158,29 +138,9 @@ class AnalyzeConfig:
             "csv_worst_n",
             "vmaf_worst_n",
             "max_frames_range",
-            "align_points",
-            "align_retry_step",
         ):
             if getattr(self, name) < 1:
                 raise AnalysisError(f"{name} должен быть >= 1")
-        if self.align_margin_db <= 0:
-            raise AnalysisError("align_margin_db должен быть > 0")
-        if not 1 <= self.align_window <= ALIGN_WINDOW_MAX:
-            raise AnalysisError(
-                f"align_window должен быть в 1..{ALIGN_WINDOW_MAX}, получено {self.align_window}"
-            )
-        # Окна ±W двух повторов одной точки не должны перекрываться, иначе два
-        # голоса измеряют одно и то же место файла (D-13).
-        if self.align_retry_step <= 2 * self.align_window:
-            raise AnalysisError(
-                "align_retry_step должен быть > 2·align_window (иначе окна повторов "
-                f"одной точки перекрываются), получено {self.align_retry_step} "
-                f"при align_window {self.align_window}"
-            )
-        if not 1 <= self.align_min_aligned <= self.align_points:
-            raise AnalysisError("требуется 1 <= align_min_aligned <= align_points")
-        if self.align_retry_max < 0:
-            raise AnalysisError("align_retry_max должен быть >= 0")
         if not 0 < self.fps_rel_tol < 1:
             raise AnalysisError("fps_rel_tol должен быть в (0, 1)")
         if not 0 < self.vfr_gap_lo < 1 < self.vfr_gap_hi:
@@ -195,7 +155,7 @@ def build_thresholds(cfg: AnalyzeConfig) -> Tuple[Threshold, ...]:
     Строится по dataclasses.fields, чтобы новый порог нельзя было забыть
     пометить provisional (MET-05). Производительные константы
     (ITP_STRIP_ROWS; DEFAULT_JOBS, DECODE_THREADS, NICE_LEVEL,
-    ALIGN_WINDOW_MAX, MAX_GRAB_FRAMES, OFFSET_HINTS_MAX) сознательно не
+    MAX_GRAB_FRAMES, OFFSET_HINTS_MAX) сознательно не
     пороги и сюда не попадают. Тип value
     сохраняется как у поля: int пишется в report.json как 16, float с целым
     значением — как 5.0 (golden это фиксирует). Число Threshold равно числу
