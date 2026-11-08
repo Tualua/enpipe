@@ -1,14 +1,18 @@
 ---
-status: diagnosed
+status: testing
 phase: 10-frame-extraction-alignment
-source: [10-VERIFICATION.md]
+source: [10-VERIFICATION.md, 10-19-SUMMARY.md, 10-20-SUMMARY.md, 10-21-SUMMARY.md]
 started: 2026-11-07T18:36:03Z
-updated: 2026-11-08T02:06:43.278Z
+updated: 2026-11-08T06:06:23Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 3
+name: "Повтор UAT 10 после 10-19..10-21: предпроверка пары Young Sherlock без PSNR-выравнивания"
+expected: |
+  Полная пара: ok True, причин нет. Частичный энкод без --offset: отказ с подсказкой «--offset 4737 (сцены 40..42)». С --offset 4737 и .scenes: ok True, источник offset=scenes. С --offset 4737 и --no-scenes: ok False, причина «задан без .scenes». Причины «.scenes не совпадают с энкодом» нет нигде. Команды — 10-HUMAN-UAT.md, тест 10.
+awaiting: user response
 
 ## Tests
 
@@ -23,12 +27,16 @@ expected: для Gravity Falls S01E01 число K-пакетов в грани�
 result: skipped
 reason: "Оператор 2026-11-08: ручная проверка внутренней библиотеки через python-однострочник неприемлема — у фазы 10 нет пользовательской команды enpipe (enpipe analyze появляется в фазе 11). Решение: перенести проверку флагов K после mkvmerge (ключевой на каждом начале сцены, число K в границах) в автоматический интеграционный тест на B50 (tests/integration, синтетический энкод qsvencc + mkvmerge) в плане исправления вместе с G-10-1; ручная приёмка анализа — в фазе 11 через enpipe analyze"
 
+### 3. Повтор UAT 10 после 10-19..10-21: предпроверка пары Young Sherlock без PSNR-выравнивания
+expected: полная пара — ok True, причин нет; частичный без --offset — отказ с подсказкой «--offset 4737 (сцены 40..42)»; --offset 4737 со .scenes — ok True (offset=scenes); --offset 4737 --no-scenes — ok False «задан без .scenes»; нигде нет «.scenes не совпадают с энкодом». Команды — 10-HUMAN-UAT.md, тест 10
+result: [pending]
+
 ## Summary
 
-total: 2
+total: 3
 passed: 0
 issues: 1
-pending: 0
+pending: 1
 skipped: 1
 blocked: 0
 
