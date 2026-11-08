@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 10-frame-extraction-alignment
 source: [10-VERIFICATION.md]
 started: 2026-11-07T18:36:03Z
@@ -40,8 +40,18 @@ blocked: 0
   reason: "User reported: Это проблема, записывай — полная пара Young Sherlock S01E01: неопределённые 0 (запас 0.8 дБ) и 73498 (0.0 дБ), регресс относительно UAT 9 (5/5); --offset 4737: склейка 75 (2.4 дБ < 3.0) не закрыта повтором CR-02"
   severity: major
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "Дизайн-пробел, не расхождение кода с CONTEXT: WR-09 (fd71364, замена — только голос) + CR-01/CR-02 (8bf68fc, склейку закрывает только повтор в её сцене на сетке align_retry_step=48) + правило (в) дают отказ на верной паре, когда контент склейки статичен/чёрный. Цели те же 5 (0, 19050, 38111, 57283, 73498); рост 5→9 точек — голоса замен и повторы сторон. Кадр 0: сцена 0..100 тёмная статика, все кандидаты < 0.7 дБ. Кадр 73498: полностью чёрный (best == second), кандидаты prev-сцены 0.0–0.02 дБ; общий лимит align_retry_max=3 съеден заменами (сторона start−1 не измерена). Склейка 75: повтор применяется, но сетка 48 даёт единственного кандидата 123 (0.25 дБ); кадры вне сетки 90/135 дали бы ≈3.1 дБ (на грани порога 3.0)"
+  artifacts:
+    - path: "src/enpipe/analysis/pair.py"
+      issue: "_point_worker: замены тратят общий бюджет повторов, хотя по WR-09 закрыть цель не могут; закрытие склейки — только повтором в её сцене"
+    - path: "src/enpipe/analysis/align.py"
+      issue: "junction_retry_frames / junction_prev_retry_frames — кандидаты только на фиксированной сетке align_retry_step; aggregate — правило (в)"
+    - path: ".planning/phases/10-frame-extraction-alignment/10-CONTEXT.md"
+      issue: "D-13, WR-08, WR-09, CR-01, CR-02 — политика для статичных/чёрных склеек не определена"
+  missing:
+    - "Решение оператора по политике: (a) лимит повторов не тратить на замены; (b) кандидаты в сцене вне сетки 48; (c) статичная/чёрная склейка не считается отказом при достаточном числе разнесённых «выровнено» (пересмотр правила (в)); (d) содержательный выбор целей-склеек"
+    - "Сохранить якоря CR-01/CR-02: test_junction_prev_side_refused, test_junction_start_side_only_refused, test_junction_retry_in_scene_refused"
+  debug_session: ".planning/debug/alignment-false-undetermined-on-correct-pair.md"
 
 - gap_id: G-10-2
   truth: "Допущение WR-10 (mkvmerge ставит флаг K на первом кадре каждого чанка enpipe и не на каждом кадре) проверяется автоматическим интеграционным тестом на B50, а не ручным UAT"
