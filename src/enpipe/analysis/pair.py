@@ -175,7 +175,7 @@ def grab_frame_pair(
         return FramePair(enc_frame, src_frame, src_planes, enc_planes), None
     except (AnalysisError, OSError, ValueError) as e:
         return None, str(e)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # Контракт «не бросает»: неожиданная ошибка становится данными.
         return None, f"{type(e).__name__}: {e}"
 
