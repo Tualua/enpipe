@@ -20,8 +20,10 @@ severity: major
 
 ### 2. UAT 11 на Arc B50: флаги ключевых кадров энкода enpipe после mkvmerge (допущение WR-10)
 expected: для Gravity Falls S01E01 число K-пакетов в границах [233; 333], причины сверки .scenes пусты; «ВНЕ ГРАНИЦ» — сигнал оператору разобраться, а не доказательство дефекта. Команды — 10-HUMAN-UAT.md, тест 11
-result: skipped
-reason: "Оператор 2026-11-08: ручная проверка внутренней библиотеки через python-однострочник неприемлема — у фазы 10 нет пользовательской команды enpipe (enpipe analyze появляется в фазе 11). Решение: перенести проверку флагов K после mkvmerge (ключевой на каждом начале сцены, число K в границах) в автоматический интеграционный тест на B50 (tests/integration, синтетический энкод qsvencc + mkvmerge) в плане исправления вместе с G-10-1; ручная приёмка анализа — в фазе 11 через enpipe analyze"
+result: pass
+source: automated
+verification: "tests/integration/test_hardware_real_media.py::test_keyframe_flags_after_mkvmerge — 1 passed на B50 2026-11-08 (после WR-02, 60e189c); перенос в автотест по решению оператора (D-28)"
+skip_reason: "Оператор 2026-11-08: ручная проверка внутренней библиотеки через python-однострочник неприемлема — у фазы 10 нет пользовательской команды enpipe (enpipe analyze появляется в фазе 11). Решение: перенести проверку флагов K после mkvmerge (ключевой на каждом начале сцены, число K в границах) в автоматический интеграционный тест на B50 (tests/integration, синтетический энкод qsvencc + mkvmerge) в плане исправления вместе с G-10-1; ручная приёмка анализа — в фазе 11 через enpipe analyze"
 
 ### 3. Повтор UAT 10 после 10-19..10-21: предпроверка пары Young Sherlock без PSNR-выравнивания
 expected: полная пара — ok True, причин нет; частичный без --offset — отказ с подсказкой «--offset 4737 (сцены 40..42)»; --offset 4737 со .scenes — ok True (offset=scenes); --offset 4737 --no-scenes — ok False «задан без .scenes»; нигде нет «.scenes не совпадают с энкодом». Команды — 10-HUMAN-UAT.md, тест 10
@@ -30,10 +32,10 @@ result: pass
 ## Summary
 
 total: 3
-passed: 1
+passed: 2
 issues: 1
 pending: 0
-skipped: 1
+skipped: 0
 blocked: 0
 
 ## Gaps
