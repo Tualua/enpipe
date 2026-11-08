@@ -1,0 +1,32 @@
+"""Seek по таблице pts для извлечения кадра (D-01).
+
+Зачем: кадр N надо достать ровно по номеру, а не по времени, пересчитанному
+через fps. Правило полкадра: цель seek для кадра n — ``pts[n] − (pts[n] −
+pts[n−1])/2``, где ``pts`` — отсортированные в порядке показа абсолютные
+времена пакетов. Середина зазора до предыдущего кадра устойчива к округлению
+времени и работает для VFR (берётся свой зазор кадра, а не полкадра по
+номинальной частоте). Для n = 0 ``-ss`` не нужен. Никаких пересчётов номера
+кадра через fps и ``select=eq(n,N)``: на VFR и при start_time ≠ 0 они попадают
+в чужой кадр. Время абсолютное, потому что ffmpeg вызывается с
+``-seek_timestamp 1``; вычитание start_time сломало бы все кадры источника с
+ненулевым началом.
+
+Модуль чистый: без I/O, subprocess и numpy.
+"""
+
+from __future__ import annotations
+
+from typing import Optional, Sequence
+
+from enpipe.analysis.config import AnalysisError
+
+
+def seek_time_for_frame(pts: Sequence[float], n: int) -> Optional[float]:
+    """Время для ``-ss`` кадра n по таблице pts; None для n = 0 (seek не нужен)."""
+    if not pts:
+        raise AnalysisError("таблица pts пуста: seek невозможен")
+    if n < 0 or n >= len(pts):
+        raise AnalysisError(f"кадр {n} вне таблицы pts (0..{len(pts) - 1})")
+    if n == 0:
+        return None
+    return pts[n] - (pts[n] - pts[n - 1]) / 2

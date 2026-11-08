@@ -1,4 +1,4 @@
-"""Извлечение кадров и сведений о потоке для выравнивания и анализа.
+"""Извлечение кадров и сведений о потоке для предпроверки пары и анализа.
 
 Единственный модуль пакета analysis, запускающий процессы, и только через
 шов ``enpipe.shared.proc``: остальные модули пакета остаются чистыми, а все
@@ -56,7 +56,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from enpipe.analysis.align import seek_time_for_frame
+from enpipe.analysis.seek import seek_time_for_frame
 from enpipe.analysis.config import (
     DECODE_THREADS,
     MAX_GRAB_FRAMES,
