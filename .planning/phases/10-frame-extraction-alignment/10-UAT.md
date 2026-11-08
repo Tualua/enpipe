@@ -49,8 +49,8 @@ blocked: 0
     - path: ".planning/phases/10-frame-extraction-alignment/10-CONTEXT.md"
       issue: "D-13, WR-08, WR-09, CR-01, CR-02 — политика для статичных/чёрных склеек не определена"
   missing:
-    - "Решение оператора по политике: (a) лимит повторов не тратить на замены; (b) кандидаты в сцене вне сетки 48; (c) статичная/чёрная склейка не считается отказом при достаточном числе разнесённых «выровнено» (пересмотр правила (в)); (d) содержательный выбор целей-склеек"
-    - "Сохранить якоря CR-01/CR-02: test_junction_prev_side_refused, test_junction_start_side_only_refused, test_junction_retry_in_scene_refused"
+    - "Решение оператора 2026-11-08 (10-CONTEXT D-24…D-28): убрать проверку выравнивания по PSNR из рабочего пути целиком (точки, склейки, повторы, замены, aggregate, D-14 на кадрах метрик); оставить предпроверку D-16…D-20, WR-10, D-05/D-06/D-07/D-09/WR-11; --offset только вместе с .scenes (без .scenes — отказ)"
+    - "Пара Young Sherlock S01E01 (полная и частичная --offset 4737) проходит предпроверку без ложного отказа"
   debug_session: ".planning/debug/alignment-false-undetermined-on-correct-pair.md"
 
 - gap_id: G-10-2
