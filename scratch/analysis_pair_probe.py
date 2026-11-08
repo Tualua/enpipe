@@ -19,6 +19,10 @@
 пишется только каталог кэша pts. Внешние программы вызываются только через
 функции enpipe.analysis.
 
+Кэш pts по умолчанию — личный каталог $XDG_CACHE_HOME/enpipe/pts-cache (иначе
+~/.cache/enpipe/pts-cache) с правами 0700, а не общий /tmp: в /tmp путь и имя
+временного файла предсказуемы, и чужой пользователь мог бы подложить симлинк.
+
 Примеры:
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC.mkv --check-only
   uv run python scratch/analysis_pair_probe.py SRC.mkv ENC_PART.mkv --check-only --offset 4737
@@ -30,6 +34,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import resource
 import sys
 import time
@@ -190,14 +195,28 @@ def _step_jobs(src, enc, infos, pts, offset, jobs_list, n_points) -> None:
         _mem()
 
 
+def _default_cache() -> Path:
+    """Личный каталог кэша pts (0700); чужой или симлинк — отказ, а не тихий обход."""
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    d = Path(base) / "enpipe" / "pts-cache"
+    d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    st = os.lstat(d)
+    if d.is_symlink() or st.st_uid != os.getuid():
+        raise SystemExit(f"каталог кэша pts {d} — симлинк или чужой; задайте --cache")
+    if st.st_mode & 0o077:
+        os.chmod(d, 0o700)
+    return d
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("src", type=Path, help="источник")
     ap.add_argument("enc", type=Path, nargs="?", help="энкод (не нужен при --probe-only)")
     ap.add_argument("--scenes", type=Path, help="файл сцен (по умолчанию <src>.scenes)")
     ap.add_argument("--offset", type=int, help="смещение кадров источника для частичного энкода")
-    ap.add_argument("--cache", type=Path, default=Path("/tmp/enpipe-pts-cache"),
-                    help="каталог кэша pts")
+    ap.add_argument("--cache", type=Path, default=None,
+                    help="каталог кэша pts (по умолчанию личный "
+                         "$XDG_CACHE_HOME/enpipe/pts-cache, права 0700)")
     ap.add_argument("--jobs", default="1,2,4", help="значения jobs через запятую")
     ap.add_argument("--points", type=int, default=10, help="точек на прогон замера jobs")
     ap.add_argument("--probe-only", action="store_true", help="только probe и предпроверка по src")
@@ -208,6 +227,10 @@ def main() -> int:
     args = ap.parse_args()
     if not args.probe_only and args.enc is None:
         ap.error("нужен enc (или --probe-only)")
+    if args.no_scenes and args.scenes is not None:
+        ap.error("--no-scenes и --scenes взаимоисключающие")
+    if args.cache is None:
+        args.cache = _default_cache()
     jobs_list = [int(x) for x in args.jobs.split(",") if x.strip()]
     cfg = AnalyzeConfig()
 
@@ -224,8 +247,9 @@ def main() -> int:
         return 1 if _FAILED else 0
 
     scenes_path = args.scenes
-    if scenes_path is None and not args.no_scenes and args.src.with_name(args.src.name + ".scenes").exists():
-        scenes_path = args.src.with_name(args.src.name + ".scenes")
+    auto_scenes = args.src.with_name(args.src.name + ".scenes")
+    if scenes_path is None and not args.no_scenes and auto_scenes.exists():
+        scenes_path = auto_scenes
     scenes = None
     if scenes_path is not None:
         scenes = _step(3, f"чтение сцен {scenes_path}", lambda: read_scenes_file(scenes_path))
@@ -241,8 +265,14 @@ def main() -> int:
         return 1 if _FAILED else 0
     if infos is None or pts is None or len(pts) < 2:
         _skip(5, 1 if infos is None else 2)
+    elif chk is None or not chk.ok:
+        # При отказе offset вердикта может быть непроверенным значением оператора,
+        # и grab_frames упал бы на кадре вне диапазона: замер имеет смысл только
+        # на принятой паре.
+        print("\n=== шаг 5: пропущен: пара не прошла предпроверку (шаг 4), "
+              "замер jobs только на принятой паре")
     else:
-        offset = chk.verdict.offset if chk is not None else (args.offset or 0)
+        offset = chk.verdict.offset
         _step(5, "замер jobs", lambda: _step_jobs(
             args.src, args.enc, infos, pts, offset, jobs_list, args.points))
     print(f"\nитог: упавших шагов {len(_FAILED)}" + (f" ({_FAILED})" if _FAILED else ""))
