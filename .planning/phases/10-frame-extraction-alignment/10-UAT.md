@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 10-frame-extraction-alignment
 source: [10-VERIFICATION.md, 10-19-SUMMARY.md, 10-20-SUMMARY.md, 10-21-SUMMARY.md]
 started: 2026-11-07T18:36:03Z
-updated: 2026-11-08T06:06:23Z
+updated: 2026-11-08T11:28:11.256Z
 ---
 
 ## Current Test
 
-number: 3
-name: "Повтор UAT 10 после 10-19..10-21: предпроверка пары Young Sherlock без PSNR-выравнивания"
-expected: |
-  Полная пара: ok True, причин нет. Частичный энкод без --offset: отказ с подсказкой «--offset 4737 (сцены 40..42)». С --offset 4737 и .scenes: ok True, источник offset=scenes. С --offset 4737 и --no-scenes: ok False, причина «задан без .scenes». Причины «.scenes не совпадают с энкодом» нет нигде. Команды — 10-HUMAN-UAT.md, тест 10.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -29,14 +25,14 @@ reason: "Оператор 2026-11-08: ручная проверка внутре
 
 ### 3. Повтор UAT 10 после 10-19..10-21: предпроверка пары Young Sherlock без PSNR-выравнивания
 expected: полная пара — ok True, причин нет; частичный без --offset — отказ с подсказкой «--offset 4737 (сцены 40..42)»; --offset 4737 со .scenes — ok True (offset=scenes); --offset 4737 --no-scenes — ok False «задан без .scenes»; нигде нет «.scenes не совпадают с энкодом». Команды — 10-HUMAN-UAT.md, тест 10
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 3
-passed: 0
+passed: 1
 issues: 1
-pending: 1
+pending: 0
 skipped: 1
 blocked: 0
 
@@ -44,7 +40,9 @@ blocked: 0
 
 - gap_id: G-10-1
   truth: "На заведомо верной паре энкода enpipe (полная пара и частичный энкод с --offset и .scenes) выравнивание подтверждается, а не даёт отказ из-за неразличимых точек"
-  status: failed
+  status: resolved
+  resolved_by: 10-20-PLAN.md
+  resolved_at: 2026-11-08
   reason: "User reported: Это проблема, записывай — полная пара Young Sherlock S01E01: неопределённые 0 (запас 0.8 дБ) и 73498 (0.0 дБ), регресс относительно UAT 9 (5/5); --offset 4737: склейка 75 (2.4 дБ < 3.0) не закрыта повтором CR-02"
   severity: major
   test: 1
@@ -63,7 +61,9 @@ blocked: 0
 
 - gap_id: G-10-2
   truth: "Допущение WR-10 (mkvmerge ставит флаг K на первом кадре каждого чанка enpipe и не на каждом кадре) проверяется автоматическим интеграционным тестом на B50, а не ручным UAT"
-  status: failed
+  status: resolved
+  resolved_by: 10-21-PLAN.md
+  resolved_at: 2026-11-08
   reason: "User decision (UAT test 2 skipped): перенести проверку из ручного UAT 11 в tests/integration — синтетический энкод qsvencc + mkvmerge, keyframe_reasons пуст, число K в границах [сцен; Σ ceil(len/GOP_LEN)]"
   severity: minor
   test: 2
