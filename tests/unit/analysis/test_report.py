@@ -16,14 +16,8 @@ import pytest
 
 from enpipe.analysis.config import AnalyzeConfig, build_thresholds
 from enpipe.analysis.model import (
-    ALIGN_ALIGNED,
-    ALIGN_SHIFT,
-    ALIGN_UNDETERMINED,
-    OFFSET_MANUAL,
     OFFSET_SCENES,
     REPORT_REFUSED,
-    FileAlignment,
-    PointAlignment,
     CHROMA_NO_DETAILS,
     CHROMA_OK,
     ROW_ERROR,
@@ -49,7 +43,6 @@ from enpipe.analysis.model import (
 )
 from enpipe.analysis.report import (
     SUMMARY_METRICS,
-    _alignment_text,
     render_html,
     render_json,
     render_md,
@@ -105,8 +98,6 @@ def _fixture_report() -> AnalysisReport:
             time_sec=4.171,
             vmaf=91.5,
             metrics=_metrics(psnr_u=float("inf")),
-            alignment=ALIGN_ALIGNED,
-            alignment_shift=0,
         ),
         FrameRow(
             frame=500,
@@ -162,26 +153,6 @@ def _fixture_report() -> AnalysisReport:
         ),
         frames=frames,
         summary=summarize(frames),
-        alignment=FileAlignment(
-            verdict=ALIGN_ALIGNED,
-            offset=0,
-            n_aligned=2,
-            points=(
-                PointAlignment(
-                    enc_frame=0, verdict=ALIGN_ALIGNED, shift=0, margin_db=12.5, scene=0
-                ),
-                PointAlignment(
-                    enc_frame=500, verdict=ALIGN_UNDETERMINED, margin_db=1.2, scene=2
-                ),
-                PointAlignment(
-                    enc_frame=999,
-                    verdict=ALIGN_ALIGNED,
-                    shift=0,
-                    margin_db=float("inf"),
-                    scene=4,
-                ),
-            ),
-        ),
     )
 
 
@@ -265,7 +236,6 @@ def test_render_json_schema_keys_literal():
         "summary",
         "status",
         "refusal_reasons",
-        "alignment",
     }
     metrics_keys = {
         "psnr_y",
@@ -291,8 +261,6 @@ def test_render_json_schema_keys_literal():
         "vmaf",
         "metrics",
         "error",
-        "alignment",
-        "alignment_shift",
         "flags",
         "severity",
         "images",
@@ -405,7 +373,7 @@ def test_md_chroma_no_details_and_percent():
     md = render_md(_fixture_report())
     assert "нет мелких цветных деталей" in md
     assert "88 % / 71 %" in md
-    assert "inf" in md and "н/д" in md
+    assert "inf" in md
 
 
 def test_md_error_row_visible_and_padded():
@@ -526,7 +494,6 @@ def _refused_report(reason: str = "размер различается: 3840x160
         base,
         status=REPORT_REFUSED,
         refusal_reasons=(reason,),
-        alignment=None,
         frames=(),
         candidates=(),
         summary=(),
@@ -547,12 +514,10 @@ def test_refused_report_md_json_html():
     assert "Отказ" in html_text and "размер различается" in html_text
 
 
-def test_alignment_section_md():
-    md = render_md(_fixture_report())
-    assert "## Выравнивание" in md
-    assert "выровнено 2 из 3 точек" in md
-    assert "| кадр энкода | вердикт | сдвиг | запас, дБ | сцена |" in md
-    assert "неопределённо" in md and "выровнено" in md
+def test_no_alignment_section():
+    rep = _fixture_report()
+    assert "## Выравнивание" not in render_md(rep)
+    assert "<h2>Выравнивание" not in render_html(rep)
 
 
 def test_meta_offset_lines():
@@ -561,23 +526,10 @@ def test_meta_offset_lines():
         base, meta=dataclasses.replace(base.meta, offset=24, offset_source=OFFSET_SCENES)
     )
     assert "сдвиг (--offset): `24 (проверен по .scenes)`" in render_md(scenes)
-    manual = dataclasses.replace(
-        base, meta=dataclasses.replace(base.meta, offset=24, offset_source=OFFSET_MANUAL)
-    )
-    assert "24 (задан вручную, по .scenes не проверен)" in render_md(manual)
+    bare = dataclasses.replace(base, meta=dataclasses.replace(base.meta, offset=24))
+    assert "сдвиг (--offset): `24`" in render_md(bare)
     md = render_md(base)
     assert "пометка: `VFR-источник, сверка по индексу`" in md
-
-
-def test_alignment_text_variants():
-    assert _alignment_text(ALIGN_ALIGNED, 0) == "выровнено"
-    assert _alignment_text(ALIGN_SHIFT, 1) == "сдвиг +1"
-    assert _alignment_text(ALIGN_SHIFT, -1) == "сдвиг -1"
-    assert _alignment_text(ALIGN_SHIFT, 3, True) == "сдвиг ≥ 3"
-    assert _alignment_text(ALIGN_SHIFT, -3, True) == "сдвиг ≥ 3"
-    assert _alignment_text(ALIGN_UNDETERMINED, None) == "неопределённо"
-    assert _alignment_text(None, None) == "н/д"
-    assert _alignment_text("что-то", None) == "что-то"
 
 
 def test_refusal_html_escaped():

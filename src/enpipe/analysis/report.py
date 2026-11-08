@@ -23,12 +23,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from enpipe.analysis.model import (
-    ALIGN_ALIGNED,
-    ALIGN_SHIFT,
-    ALIGN_UNDETERMINED,
     CHROMA_NO_DETAILS,
     CHROMA_OK,
-    OFFSET_MANUAL,
     OFFSET_SCENES,
     REPORT_REFUSED,
     ROW_ERROR,
@@ -193,7 +189,6 @@ _FRAME_HEADERS: Tuple[str, ...] = (
     "источники",
     "VMAF",
     "сцена/поз.",
-    "выравн.",
     "PSNR Y/U/V, дБ",
     "худший тайл Y",
     "худший тайл цвета (PSNR U/V)",
@@ -265,66 +260,11 @@ def _time_text(sec: Optional[float]) -> str:
     return f"{int(sec // 60)}:{sec % 60:05.2f}"
 
 
-def _alignment_text(
-    verdict: Optional[str], shift: Optional[int], at_least: bool = False
-) -> str:
-    """Русский текст вердикта выравнивания (точка, файл или строка кадра)."""
-    if verdict is None:
-        return _NA
-    if verdict == ALIGN_ALIGNED:
-        return "выровнено"
-    if verdict == ALIGN_UNDETERMINED:
-        return "неопределённо"
-    if verdict == ALIGN_SHIFT:
-        if shift is None:
-            return "сдвиг"
-        if at_least:
-            return f"сдвиг ≥ {abs(shift)}"
-        return f"сдвиг {shift:+d}"
-    return verdict
-
-
-_ALIGN_HEADERS: Tuple[str, ...] = ("кадр энкода", "вердикт", "сдвиг", "запас, дБ", "сцена")
-
-
 def _refusal_lines(report: AnalysisReport) -> List[str]:
     """Причины отказа; пусто, если пара не отвергнута."""
     if report.status != REPORT_REFUSED:
         return []
     return list(report.refusal_reasons)
-
-
-def _alignment_summary(report: AnalysisReport) -> str:
-    a = report.alignment
-    if a is None:
-        return ""
-    text = _alignment_text(a.verdict, a.shift)
-    return f"итог: {text} (выровнено {a.n_aligned} из {len(a.points)} точек)"
-
-
-def _alignment_cells(report: AnalysisReport) -> List[List[str]]:
-    a = report.alignment
-    if a is None:
-        return []
-    rows = []
-    for p in a.points:
-        if p.error:
-            verdict = f"ошибка: {p.error}"
-        else:
-            verdict = _alignment_text(p.verdict, p.shift, p.shift_at_least)
-        shift = _NA if p.shift is None else (
-            f"≥ {abs(p.shift)}" if p.shift_at_least else f"{p.shift:+d}"
-        )
-        rows.append(
-            [
-                str(p.enc_frame),
-                verdict,
-                shift,
-                _fmt(p.margin_db, ".1f"),
-                _NA if p.scene is None else str(p.scene),
-            ]
-        )
-    return rows
 
 
 def _frame_cells(row: FrameRow) -> List[str]:
@@ -340,7 +280,6 @@ def _frame_cells(row: FrameRow) -> List[str]:
         "+".join(row.sources) if row.sources else _NA,
         _fmt(row.vmaf, ".2f"),
         scene,
-        _alignment_text(row.alignment, row.alignment_shift),
     ]
     m = row.metrics
     if m is None:
@@ -419,8 +358,6 @@ def _meta_lines(report: AnalysisReport) -> List[Tuple[str, str]]:
     if m.offset is not None:
         if m.offset_source == OFFSET_SCENES:
             how = " (проверен по .scenes)"
-        elif m.offset_source == OFFSET_MANUAL:
-            how = " (задан вручную, по .scenes не проверен)"
         else:
             how = ""
         out.append(("сдвиг (--offset)", f"{m.offset}{how}"))
@@ -462,9 +399,6 @@ def render_md(report: AnalysisReport) -> str:
     if reasons:
         md += ["", "## Отказ", ""]
         md += [f"- {_md_cell(r)}" for r in reasons]
-    if report.alignment is not None:
-        md += ["", "## Выравнивание", "", _md_cell(_alignment_summary(report)), ""]
-        md += _md_table(_ALIGN_HEADERS, _alignment_cells(report))
     md += ["", f"## {_THRESHOLDS_TITLE}", ""]
     md += _md_table(("порог", "значение"), _threshold_cells(report))
     md += ["", "## Источники кандидатов", ""]
@@ -526,13 +460,6 @@ def render_html(report: AnalysisReport) -> str:
     reasons = _refusal_lines(report)
     if reasons:
         refusal = "<h2>Отказ</h2><ul>" + "".join(f"<li>{_h(r)}</li>" for r in reasons) + "</ul>"
-    align = ""
-    if report.alignment is not None:
-        align = (
-            "<h2>Выравнивание</h2>"
-            f"<p>{_h(_alignment_summary(report))}</p>"
-            + _html_table(_ALIGN_HEADERS, _alignment_cells(report))
-        )
     parts = [
         "<!doctype html>",
         '<meta charset="utf-8">',
@@ -541,7 +468,6 @@ def render_html(report: AnalysisReport) -> str:
         "<h1>Разбор кадров энкода</h1>",
         meta,
         refusal,
-        align,
         f"<p>{_h(_TONEMAP_NOTE)}</p>",
         f"<h2>{_h(_THRESHOLDS_TITLE)}</h2>",
         _html_table(("порог", "значение"), _threshold_cells(report)),

@@ -74,8 +74,6 @@ def _instances():
             color_transfer="smpte2084", color_primaries="bt2020",
         ),
         m.PairVerdict(ok=True),
-        m.PointAlignment(enc_frame=0, verdict=m.ALIGN_ALIGNED),
-        m.FileAlignment(verdict=m.ALIGN_ALIGNED),
         _report(),
     ]
 
@@ -100,7 +98,7 @@ def test_source_priority_order():
 def test_report_new_fields_defaults():
     r = _report()
     assert r.status == m.REPORT_OK == "ok"
-    assert r.refusal_reasons == () and r.alignment is None
+    assert r.refusal_reasons == ()
     assert r.schema_version == 1
     assert r.meta.offset is None and r.meta.offset_source is None
     assert r.meta.notes == ()

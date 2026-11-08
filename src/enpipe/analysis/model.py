@@ -4,9 +4,10 @@
 (RPT-01): рендереры только читают эти датаклассы. Имена полей — английский
 snake_case и являются ключами report.json (D-18). «Нет данных» выражается
 None, а не nan (D-03). Каркас полный уже сейчас: последующие этапы
-(выравнивание, кропы, флаги, серьёзность) лишь заполняют готовые поля, а
-schema_version не меняется (D-20). Поля выравнивания, отказа и пометок
-опциональны, а report.json ещё не выпускался, поэтому версия остаётся 1.
+(кропы, флаги, серьёзность) лишь заполняют готовые поля, а schema_version не
+меняется (D-20). Поля выравнивания удалены (D-24, D-27); версия остаётся 1,
+потому что report.json ещё не выпускался (решение планировщика по Claude's
+Discretion).
 
 Модуль чистый: только stdlib, без numpy, subprocess и импортов enpipe.
 Коллекции — только Tuple (неизменяемость и хешируемость).
@@ -46,18 +47,11 @@ STATE_NOT_REQUESTED = "not_requested"
 ROW_OK = "ok"
 ROW_ERROR = "error"
 
-# Вердикт выравнивания точки/файла (ALN-*): совпал свой кадр / совпал кадр со
-# сдвигом / нельзя определить.
-ALIGN_ALIGNED = "aligned"
-ALIGN_SHIFT = "shift"
-ALIGN_UNDETERMINED = "undetermined"
-
 # Статус отчёта: анализ выполнен или пара отвергнута предпроверкой.
 REPORT_OK = "ok"
 REPORT_REFUSED = "refused"
 
-# Источник значения --offset: задан оператором / проверен по .scenes.
-OFFSET_MANUAL = "manual"
+# Единственный источник проверенного offset: .scenes (D-26).
 OFFSET_SCENES = "scenes"
 
 
@@ -176,7 +170,7 @@ class Candidate:
 
 
 # --------------------------------------------------------------------------- #
-# Пара источник/энкод и выравнивание
+# Пара источник/энкод
 # --------------------------------------------------------------------------- #
 
 
@@ -220,34 +214,6 @@ class PairVerdict:
     vfr: bool = False
 
 
-@dataclass(frozen=True)
-class PointAlignment:
-    """Вердикт выравнивания одной точки.
-
-    shift: d = номер совпавшего кадра источника − (enc_frame + offset).
-    shift_at_least=True — «сдвиг ≥ W»: лучший на краю необрезанного окна (D-12).
-    """
-
-    enc_frame: int
-    verdict: str  # ALIGN_*
-    shift: Optional[int] = None
-    shift_at_least: bool = False
-    margin_db: Optional[float] = None
-    scene: Optional[int] = None
-    error: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class FileAlignment:
-    """Файловый вердикт выравнивания по точкам."""
-
-    verdict: str  # ALIGN_*
-    shift: Optional[int] = None
-    offset: int = 0
-    n_aligned: int = 0  # число разнесённых (> align.vote_separation) голосов «выровнено», см. align.aggregate
-    points: Tuple[PointAlignment, ...] = ()
-
-
 # --------------------------------------------------------------------------- #
 # Отчёт (RPT-01, MET-05)
 # --------------------------------------------------------------------------- #
@@ -275,8 +241,6 @@ class FrameRow:
     vmaf: Optional[float] = None
     metrics: Optional[FrameMetrics] = None
     error: Optional[str] = None
-    alignment: Optional[str] = None  # заполняется при выравнивании
-    alignment_shift: Optional[int] = None
     flags: Tuple[str, ...] = ()  # флаги (CND-06)
     severity: Optional[float] = None  # серьёзность (RPT-03)
     images: Tuple[ImageRef, ...] = ()  # кропы (RPT-02)
@@ -299,7 +263,7 @@ class RunMeta:
     frame_count: Optional[int] = None
     offset: Optional[int] = None
     offset_source: Optional[str] = None  # OFFSET_*
-    notes: Tuple[str, ...] = ()  # пометки: VFR, start_time, «сдвиг задан вручную»
+    notes: Tuple[str, ...] = ()  # пометки: VFR, start_time
 
 
 @dataclass(frozen=True)
@@ -336,5 +300,4 @@ class AnalysisReport:
     summary: Tuple[PercentileSummary, ...]
     status: str = REPORT_OK
     refusal_reasons: Tuple[str, ...] = ()
-    alignment: Optional[FileAlignment] = None
     schema_version: int = SCHEMA_VERSION

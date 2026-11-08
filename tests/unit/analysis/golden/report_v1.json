@@ -1,39 +1,4 @@
 {
-  "alignment": {
-    "n_aligned": 2,
-    "offset": 0,
-    "points": [
-      {
-        "enc_frame": 0,
-        "error": null,
-        "margin_db": 12.5,
-        "scene": 0,
-        "shift": 0,
-        "shift_at_least": false,
-        "verdict": "aligned"
-      },
-      {
-        "enc_frame": 500,
-        "error": null,
-        "margin_db": 1.2,
-        "scene": 2,
-        "shift": null,
-        "shift_at_least": false,
-        "verdict": "undetermined"
-      },
-      {
-        "enc_frame": 999,
-        "error": null,
-        "margin_db": "inf",
-        "scene": 4,
-        "shift": 0,
-        "shift_at_least": false,
-        "verdict": "aligned"
-      }
-    ],
-    "shift": null,
-    "verdict": "aligned"
-  },
   "candidates": [
     {
       "frame": 100,
@@ -59,8 +24,6 @@
   ],
   "frames": [
     {
-      "alignment": "aligned",
-      "alignment_shift": 0,
       "error": null,
       "flags": [],
       "frame": 100,
@@ -120,8 +83,6 @@
       "vmaf": 91.5
     },
     {
-      "alignment": null,
-      "alignment_shift": null,
       "error": null,
       "flags": [],
       "frame": 500,
@@ -180,8 +141,6 @@
       "vmaf": 95.0
     },
     {
-      "alignment": null,
-      "alignment_shift": null,
       "error": "ffmpeg: кадр 900 не извлечён",
       "flags": [],
       "frame": 900,
