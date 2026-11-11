@@ -83,3 +83,40 @@ def test_parse_psnr_average(text: str, expected: float) -> None:
 def test_parse_psnr_average_no_match() -> None:
     with pytest.raises(ValueError):
         content.parse_psnr_average("nothing here")
+
+
+# --- nearest_frame_verdict (D-09) ---------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "center, neighbors, expect_err, expect_disc, err_word",
+    [
+        # центр: чанк ближе к центру, соседи отличимы
+        (42.0, {-1: (31.0, 30.0), 1: (30.5, 29.0)}, False, True, None),
+        # сдвиг +1: чанк ближе к соседу +1
+        (32.0, {1: (41.0, 31.5)}, True, True, "+1"),
+        # сдвиг -1: отличим только отрицательный сосед и чанк к нему ближе
+        (32.0, {-1: (41.0, 31.5), 1: (30.0, 44.0)}, True, True, "-1"),
+        # ниже пола
+        (25.0, {}, True, False, str(content.FLOOR_DB)),
+        # статика: соседи неотличимы
+        (40.0, {-1: (39.5, 45.0)}, False, False, None),
+        # идеальное совпадение
+        (INF, {1: (30.0, 30.0)}, False, True, None),
+        # ничья с отличимым соседом
+        (40.0, {1: (40.0, 20.0)}, True, True, "+1"),
+    ],
+    ids=["center", "shift+1", "shift-1", "floor", "static", "perfect", "tie"],
+)
+def test_nearest_frame_verdict(
+    center: float,
+    neighbors: dict,
+    expect_err: bool,
+    expect_disc: bool,
+    err_word: Optional[str],
+) -> None:
+    err, disc = content.nearest_frame_verdict(center, neighbors)
+    assert (err is not None) == expect_err, err
+    assert disc is expect_disc
+    if err_word is not None:
+        assert err_word in err

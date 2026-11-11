@@ -704,6 +704,91 @@ def _verify_chunk_first_frames(
     return disc_count
 
 
+def _extract_ref(
+    cache: Dict[int, Path], ffmpeg: str, src: Path, n: int, tmp: Path
+) -> Path:
+    """Source frame number `n` (decode numbering), cached: neighbouring scenes
+    share the frames around their common boundary."""
+    if n not in cache:
+        dst = tmp / f"ref_{n:06d}.mkv"
+        content.extract_frame_by_index(ffmpeg, src, n, dst)
+        cache[n] = dst
+    return cache[n]
+
+
+def _edge_verdict(
+    ffmpeg: str,
+    src: Path,
+    cache: Dict[int, Path],
+    chunk_frame: Path,
+    center: int,
+    total: int,
+    tmp: Path,
+) -> Tuple[Optional[str], bool, int, float]:
+    """D-09 verdict for one chunk frame against src[center] and src[center+d],
+    d in -2..2 (d != 0, inside [0, total)). Returns (error, discriminating,
+    offset with the maximal PSNR, PSNR vs the centre)."""
+    ref_c = _extract_ref(cache, ffmpeg, src, center, tmp)
+    psnr_center = content.psnr_db(ffmpeg, chunk_frame, ref_c)
+    neighbors: Dict[int, Tuple[float, float]] = {}
+    for d in (-2, -1, 1, 2):
+        n = center + d
+        if not 0 <= n < total:
+            continue
+        ref_n = _extract_ref(cache, ffmpeg, src, n, tmp)
+        neighbors[d] = (
+            content.psnr_db(ffmpeg, chunk_frame, ref_n),
+            content.psnr_db(ffmpeg, ref_c, ref_n),
+        )
+    best_off, best = 0, psnr_center
+    for d, (chunk_nb, _src_nb) in neighbors.items():
+        if chunk_nb > best:
+            best_off, best = d, chunk_nb
+    err, disc = content.nearest_frame_verdict(psnr_center, neighbors)
+    return err, disc, best_off, psnr_center
+
+
+def _verify_chunk_edges(
+    src: Path,
+    chunks: List[Tuple[int, int, Path, int]],
+    total: int,
+    tmp: Path,
+) -> Tuple[int, int, List[str]]:
+    """D-09: first AND last frame of every chunk must be nearest (by PSNR among
+    neighbours -2..+2) to source frames S and E-1.
+
+    chunks: (S, E, chunk .obu path, actual frames in the chunk) -- the frame
+    count comes from the tuple because on VC-1 it may differ from E-S.
+    Returns (discriminating first frames, discriminating last frames, errors);
+    collect-then-report, never raises on a content mismatch."""
+    ffmpeg = _verify_ffmpeg()
+    tmp.mkdir(parents=True, exist_ok=True)
+    cache: Dict[int, Path] = {}
+    errors: List[str] = []
+    disc_first = disc_last = 0
+    for i, (s, e, chunk, n_frames) in enumerate(chunks):
+        first = tmp / f"c{i:05d}_first.mkv"
+        last = tmp / f"c{i:05d}_last.mkv"
+        content.extract_chunk_first_frame(ffmpeg, chunk, first)
+        content.extract_chunk_last_frame(ffmpeg, chunk, n_frames, last)
+        err_f, disc_f, best_f, psnr_f = _edge_verdict(
+            ffmpeg, src, cache, first, s, total, tmp)
+        err_l, disc_l, best_l, psnr_l = _edge_verdict(
+            ffmpeg, src, cache, last, e - 1, total, tmp)
+        disc_first += 1 if disc_f else 0
+        disc_last += 1 if disc_l else 0
+        print(
+            f"[edges] {src.name} chunk {i} [{s},{e}) first_best={best_f:+d} "
+            f"last_best={best_l:+d} psnr_first={psnr_f:.2f} psnr_last={psnr_l:.2f} "
+            f"disc_first={disc_f} disc_last={disc_l}"
+        )
+        if err_f is not None:
+            errors.append(f"chunk {i} [{s},{e}) first frame: {err_f}")
+        if err_l is not None:
+            errors.append(f"chunk {i} [{s},{e}) last frame: {err_l}")
+    return disc_first, disc_last, errors
+
+
 def _av1_dovi_self_check() -> bool:
     """Read-only AV1-DOVI-parsing self-check (D-07/Assumption A2, opencode
     L2): confirms that the ffmpeg build matching the verification ffprobe
@@ -1184,6 +1269,40 @@ def test_chunk_content_avsw_closed_gop(
     for cmd in built:
         assert cmd[3:5] == ["--avsw", "--va"], cmd[:6]
         assert "--avhw" not in cmd
+
+
+@pytest.mark.parametrize("gop", ["closed", "open", "radl"])
+def test_chunk_edges_avsw_synthetic(tmp_path: Path, gop: str) -> None:
+    """D-08.1/D-09: `--decode sw` on the HEVC Main10 synthetic, ALL scenes: the
+    frame count of every chunk equals the scene length, and the first and last
+    frame of every chunk are nearest (PSNR) to source frames S and E-1."""
+    src, scenes_path, scenes, _included, _fps, _table = _prepare_mid_gop_source(
+        tmp_path, gop=gop)
+    out = tmp_path / "syn.av1.mkv"
+    workdir = tmp_path / "syn.chunks"
+    _run_cli([
+        "encode", str(src), str(scenes_path),
+        "-o", str(out), "--workdir", str(workdir), "--keep", "--no-audio",
+        "--no-metrics", "--jobs", "2", "--decode", "sw",
+    ])
+    chunks: List[Tuple[int, int, Path, int]] = []
+    for i, (s, e) in enumerate(scenes):
+        cp = workdir / f"chunk_{i:05d}.obu"
+        got = count_frames(cp)
+        if got != e - s:
+            pytest.fail(f"chunk {i}: {got} frames, expected {e - s}")
+        chunks.append((s, e, cp, got))
+    total = sum(e - s for s, e in scenes)
+    if count_frames(out) != total:
+        pytest.fail(f"{out}: {count_frames(out)} frames, expected {total}")
+
+    disc_first, disc_last, errors = _verify_chunk_edges(
+        src, chunks, total, tmp_path / "edges")
+    assert not errors, "chunk edge mismatch:\n" + "\n".join(errors)
+    if disc_first == 0 or disc_last == 0:
+        pytest.fail(
+            f"vacuous: neighbour control never discriminated "
+            f"(first={disc_first}, last={disc_last})")
 
 
 def test_dv_profile5(tmp_path: Path) -> None:

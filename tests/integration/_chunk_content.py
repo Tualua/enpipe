@@ -22,6 +22,13 @@ margin separates "correct" from "shifted by one GOP" even when the absolute
 PSNR floor alone would be ambiguous. On static content src[S] ~ src[S+delta];
 the control is then reported as non-discriminating and only the floor applies.
 
+Why the NEAREST frame (D-09, first AND last frame of a chunk): on VC-1 the
+keyframe numbers taken from Cues differ from the I-frame positions in decode
+order by +-1 (10.1-RESEARCH.md), so a single "S vs S+delta" control is not
+enough. D-09 compares the chunk frame with the neighbours S-2..S+2 (first
+frame) and E-3..E+1 (last frame) and requires the nearest one to be exactly
+S / E-1 -- a silent one-frame content shift with a correct frame count fails.
+
 Why the reference frame is picked by frame NUMBER (select=eq(n,...)) with a pts
 guard: seeking by time alone is exactly the class of error being tested for.
 All ffmpeg calls take the binary as an argument; callers pass the verification
@@ -34,7 +41,7 @@ import math
 import re
 import subprocess
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # AV1 ICQ 23 on the intra first frame of a chunk normally gives > 35 dB (4K and
 # 320x180 alike); a frame of another scene/GOP of moving content is normally
@@ -95,6 +102,46 @@ def first_frame_verdict(
     return None, True
 
 
+def nearest_frame_verdict(
+    psnr_center: float,
+    neighbors: Dict[int, Tuple[float, float]],
+) -> Tuple[Optional[str], bool]:
+    """D-09: is the chunk frame nearest to the expected source frame?
+
+    Returns (error message or None, control_was_discriminating).
+
+    psnr_center  PSNR(chunk frame, src[center])
+    neighbors    {offset: (PSNR(chunk frame, src[center+offset]),
+                           PSNR(src[center], src[center+offset]))}
+
+    A neighbour is distinguishable when PSNR(src[center], src[neighbour]) is
+    more than MARGIN_DB below q = max(psnr_center, all chunk-neighbour PSNRs).
+    The verdict is an error when a distinguishable neighbour is at least as
+    close to the chunk frame as the centre (a tie is not "clearly closer").
+    """
+    if psnr_center < FLOOR_DB:
+        return (
+            f"chunk frame PSNR vs expected source frame is {psnr_center:.2f} dB, "
+            f"below the {FLOOR_DB} dB floor",
+            False,
+        )
+    q = max([psnr_center] + [chunk_nb for chunk_nb, _ in neighbors.values()])
+    disc = False
+    for offset in sorted(neighbors):
+        chunk_nb, src_nb = neighbors[offset]
+        if not src_nb < q - MARGIN_DB:
+            continue  # neighbour indistinguishable from the centre (static)
+        disc = True
+        if chunk_nb >= psnr_center:
+            return (
+                f"chunk frame is not nearest to the expected source frame: "
+                f"PSNR vs centre = {psnr_center:.2f} dB, vs offset {offset:+d} = "
+                f"{chunk_nb:.2f} dB (src-src {src_nb:.2f} dB)",
+                True,
+            )
+    return None, disc
+
+
 # --- ffmpeg primitives -------------------------------------------------------- #
 
 
@@ -110,6 +157,47 @@ def extract_chunk_first_frame(ffmpeg: str, chunk: Path, dst: Path) -> None:
         "-i", str(chunk), "-map", "0:v:0", "-frames:v", "1",
         "-c:v", "ffv1", str(dst),
     ])
+
+
+def extract_chunk_last_frame(
+    ffmpeg: str, chunk: Path, n_frames: int, dst: Path
+) -> None:
+    """Last decoded frame (index n_frames-1) of a raw .obu chunk into a lossless
+    ffv1 mkv (an intermediate only)."""
+    _run([
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(chunk), "-map", "0:v:0",
+        "-vf", f"select=eq(n\\,{n_frames - 1})",
+        "-fps_mode", "passthrough", "-frames:v", "1",
+        "-c:v", "ffv1", str(dst),
+    ])
+    if not dst.exists() or dst.stat().st_size == 0:
+        raise RuntimeError(
+            f"{chunk}: last frame (n={n_frames - 1}) was not extracted"
+        )
+
+
+def extract_frame_by_index(ffmpeg: str, src: Path, n: int, dst: Path) -> None:
+    """Source frame number `n` (decode order from the file start, passthrough --
+    exactly the numbering used by detect) into dst (ffv1).
+
+    Decodes from the beginning WITHOUT -ss/-copyts and without a pts guard:
+    VC-1 timestamps in mkv are decode order, so the pts guard of
+    extract_source_frame does not apply. Cost: O(n) decode from the file start
+    (~68 fps for VC-1 1080p, so frame 63000 is ~15 min), hence this helper is
+    meant for pieces <= 30 s (D-08.2) and synthetics. A seek via -ss/-sseof is
+    deliberately not used: a time seek would bring back the Cues-vs-decode
+    numbering ambiguity this helper exists to avoid.
+    """
+    proc = _run([
+        ffmpeg, "-hide_banner", "-loglevel", "info", "-y",
+        "-i", str(src), "-map", "0:v:0",
+        "-vf", f"select=eq(n\\,{n}),showinfo",
+        "-fps_mode", "passthrough", "-frames:v", "1",
+        "-c:v", "ffv1", str(dst),
+    ])
+    if not _PTS_RE.search(proc.stderr):
+        raise RuntimeError(f"showinfo reported no frame for n={n} in {src}")
 
 
 def _select_frame(
