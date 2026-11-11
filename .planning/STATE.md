@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: executing
-stopped_at: Phase 10.1 context gathered
-last_updated: "2026-11-11T15:23:04.827Z"
+stopped_at: Completed 10.1-01-PLAN.md
+last_updated: "2026-11-11T15:32:23.338Z"
 last_activity: 2026-11-11
-last_activity_desc: Phase 10 complete, transitioned to Phase 10.1
-state_head: b4ce5c071bb4f6eed24a290cc173c3c264ab77c0
+last_activity_desc: Phase 10.1 execution started
+state_head: 89a5ffbf3a8ac4658cf34be9e9be801cf473fc61
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 26
+  completed_plans: 27
   percent: 33
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-04)
 
 **Core value:** Produce a correct, bit-exact scene-aware AV1 re-encode (keyframe-aligned chunks, preserved HDR/DV metadata, verified frame counts) from a source video on Intel Arc hardware — correctness of the encoded output is non-negotiable.
-**Current focus:** Phase 10 — frame-extraction-alignment
+**Current focus:** Phase 10.1 — Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 
 ## Current Position
 
-Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — READY TO EXECUTE
-Plan: Not started
+Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-11-11 — Phase 10 complete, transitioned to Phase 10.1
+Last activity: 2026-11-11 — Phase 10.1 execution started
 
 Progress: [███░░░░░░░] 33%
 
@@ -45,6 +45,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 |------|----------|-------|-------|
 | Phase 10 P16 | 35 min | 3 tasks | 4 files |
 | Phase 10 P17 | 45min | 3 tasks | 9 files |
+| Phase 10.1 P01 | 25 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: CR-02: каждую сторону склейки закрывает своя сцена (start−1 — повтор назад в предыдущей сцене, start — в своей); цель закрыта только при обеих закрытых
 - [Phase 10]: Выбор планировщика 10-16: повторы сторон поочерёдно start/start−1; повтор, закрывший одну сторону незакрытой цели, — голос «выровнено» (reversible)
 - [Phase 10]: WR-10 (10-17): .scenes сверяются с источником и ключевыми кадрами энкода, в том числе при полном энкоде; None-флаги при непустых .scenes — отказ (fail-closed)
+- [Phase 10.1]: 10.1-01: extract_frame_by_index декодирует с начала файла (O(n)) намеренно - поиск по времени вернул бы неоднозначность нумерации Cues/декод на VC-1; только куски <= 30 с и синтетика
 
 ### Pending Todos
 
@@ -161,9 +163,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-11T13:25:07.541Z
-Stopped at: Phase 10.1 context gathered
-Resume file: .planning/phases/10.1-programmnyy-dekod-v-enkode-qsvencc-avsw/10.1-CONTEXT.md
+Last session: 2026-11-11T15:32:23.013Z
+Stopped at: Completed 10.1-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
