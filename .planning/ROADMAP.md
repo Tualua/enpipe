@@ -173,15 +173,16 @@ Plans:
   3. Источник с `field_order` `tt/bb/tb/bt` получает громкий отказ на любом пути до детекта; отсутствующий/`unknown` считается прогрессивом (D-13)
   4. Hardware-тесты `--avsw` (синтетика HEVC и кусок VC-1 по `ENPIPE_TEST_VC1`) проверяют число кадров и первый/последний кадр каждого чанка против S и E−1; найденный сдвиг qsvencc — handoff в форк и громкий отказ enpipe до фикса (решение оператора после спайка)
   5. Оператор сам прогоняет `enpipe run` на Fringe S02E01: все чанки прошли сверку числа кадров, mkv собран, число кадров 63211; замеры JOBS 1/2/3 на `--avsw` записаны в SUMMARY, дефолты не менялись
-**Plans:** 4 plans
+**Plans:** 5 plans
 
 Plans:
 **Wave 1**
-- [ ] 10.1-01-PLAN.md — tracer `--decode hw|sw` в encode → `chunk_command` `--avsw`; харнесс D-09 (первый/последний кадр, ближайший PSNR); спайк на куске VC-1 + решение оператора
+- [ ] 10.1-01-PLAN.md — tracer `--decode hw|sw` в encode → `chunk_command` `--avsw`; харнесс D-09 (первый/последний кадр, ближайший PSNR) на синтетике HEVC
 - [ ] 10.1-02-PLAN.md — листовой модуль `enpipe.shared.decode`: разбор `--check-features`, ключ (кодек, цветность, разрядность), опрос qsvencc fail-closed, отказ на чересстрочном, `resolve_decode`
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 10.1-03-PLAN.md — проводка: `--decode auto|hw|sw` в encode/detect/run, `--no-qsv` синоним, одно решение на файл в `run`, строка лога D-12, заглушки быстрого тира
+- [ ] 10.1-05-PLAN.md — спайк на куске VC-1 (`ENPIPE_TEST_VC1`, тест краёв D-09 на `--avsw`) + решение оператора (`checkpoint:decision`)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 10.1-04-PLAN.md — замеры JOBS 1/2/3 (D-11), применение решения по VC-1 (handoff + отказ или без изменений), сквозной `run --decode auto` на куске VC-1, UAT оператора (D-10)
