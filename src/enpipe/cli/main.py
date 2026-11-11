@@ -25,8 +25,13 @@ from enpipe.detection.pipeline import run_detect
 from enpipe.encoding.pipeline import JOBS as ENCODE_JOBS
 from enpipe.encoding.pipeline import _ensure_out_dir, resolve_output_path, run_encode
 from enpipe.shared.batch import iter_input_videos, run_batch
+from enpipe.shared.decode import DECODE_MODES
 from enpipe.shared.logging import die
 from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed
+
+DECODE_HELP = ("путь декода: auto — по таблице аппаратных декодеров GPU "
+               "(qsvencc --check-features) и формату источника; hw — --avhw; "
+               "sw — --avsw (программный декод)")
 
 
 def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
@@ -183,9 +188,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="не считать PSNR/SSIM (быстрее)")
     encode_p.add_argument("--csv", type=Path, default=None,
                            help="CSV с метриками (по умолчанию <out>.metrics.csv)")
-    encode_p.add_argument("--decode", choices=["hw", "sw"], default="hw",
-                           help="путь декода в qsvencc: hw = --avhw (аппаратный), "
-                                "sw = --avsw (программный декод + аппаратный AV1-энкод)")
+    encode_p.add_argument("--decode", choices=list(DECODE_MODES), default="auto",
+                           help=DECODE_HELP)
     encode_p.add_argument("--recursive", action="store_true",
                            help="рекурсивный обход вложенных папок (только если video — папка)")
     encode_p.set_defaults(func=run_encode)

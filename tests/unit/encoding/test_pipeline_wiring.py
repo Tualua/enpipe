@@ -306,3 +306,115 @@ def test_run_encode_refuses_before_any_work_on_old_qsvencc(tmp_path, monkeypatch
 
     assert mock_run.call_count == 0
     assert not workdir.exists()
+
+
+# --- решение о декоде (фаза 10.1, план 03) --- #
+
+def _wiring_env(tmp_path, monkeypatch, **extra):
+    """Общая обвязка: все внешние границы run_encode замоканы; возвращает
+    (args, built) -- built копит argv, реально собранные chunk_command."""
+    video = tmp_path / "source.mkv"
+    video.write_bytes(b"dummy-source-bytes")
+    args = Namespace(
+        video=video, scenes=tmp_path / "source.mkv.scenes",
+        out=tmp_path / "out.mkv", frm=0, to=None, workdir=tmp_path / "chunks",
+        keep=True, jobs=1, no_audio=True, no_metrics=True, csv=None, **extra)
+    monkeypatch.setattr(p.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(p, "probe_fps", lambda src: 24.0)
+    monkeypatch.setattr(p, "keyframe_table", lambda src, fps: _TABLE)
+    monkeypatch.setattr(p, "detect_hdr", lambda src: [])
+    monkeypatch.setattr(p, "read_scenes", lambda path: list(_SCENES))
+    monkeypatch.setattr(p, "write_metrics_csv", Mock(return_value={}))
+    total = sum(e - s for s, e in _SCENES)
+    monkeypatch.setattr(p, "count_frames", lambda path: total)
+
+    def _enc(task):
+        idx, cmd, cp, expect = task
+        cp.write_bytes(b"x")
+        return idx, expect, None, 0.01, {"size": 1}
+
+    monkeypatch.setattr(p, "encode_chunk", Mock(side_effect=_enc))
+    built = []
+
+    def _cc(*a, **kw):
+        cmd = _real_chunk_command(*a, **kw)
+        built.append(cmd)
+        return cmd
+
+    monkeypatch.setattr(p, "chunk_command", Mock(side_effect=_cc))
+
+    def _run(cmd, **kwargs):
+        if cmd and cmd[0] == "mkvmerge":
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(b"m")
+        return Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(p._proc, "run", Mock(side_effect=_run))
+    return args, built
+
+
+def _choice(path="hw", mode="auto"):
+    from enpipe.shared.decode import DecodeChoice
+    return DecodeChoice(path=path, mode=mode, codec="vc1", pix_fmt="yuv420p",
+                        field_order=None, reason="тест")
+
+
+def test_run_encode_resolves_decode_once_with_auto(tmp_path, monkeypatch, capsys):
+    args, built = _wiring_env(tmp_path, monkeypatch)
+    calls = []
+
+    def _resolve(src, mode):
+        calls.append((src, mode))
+        return _choice("sw")
+
+    monkeypatch.setattr(p, "resolve_decode", _resolve)
+    p.run_encode(args)
+
+    assert calls == [(args.video, "auto")]
+    assert len(built) == len(_SCENES)
+    assert all(cmd[3] == "--avsw" for cmd in built)
+    assert "декод: sw" in capsys.readouterr().out
+
+
+def test_run_encode_ready_decode_choice_skips_resolve_and_log(
+        tmp_path, monkeypatch, capsys):
+    args, built = _wiring_env(tmp_path, monkeypatch, decode_choice=_choice("sw"))
+
+    def _boom(src, mode):
+        raise AssertionError("resolve_decode не должен вызываться")
+
+    monkeypatch.setattr(p, "resolve_decode", _boom)
+    p.run_encode(args)
+
+    assert all(cmd[3] == "--avsw" for cmd in built)
+    assert "декод:" not in capsys.readouterr().out
+
+
+def test_run_encode_decode_refusal_leaves_no_workdir(tmp_path, monkeypatch):
+    args, built = _wiring_env(tmp_path, monkeypatch)
+
+    def _refuse(src, mode):
+        raise SystemExit("encode_scenes: отказ D-07")
+
+    monkeypatch.setattr(p, "resolve_decode", _refuse)
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+
+    assert not args.workdir.exists()
+    assert built == []
+
+
+def test_run_encode_explicit_sw_does_not_query_qsvencc(tmp_path, monkeypatch):
+    import enpipe.shared.decode as decode_mod
+
+    args, built = _wiring_env(tmp_path, monkeypatch, decode="sw")
+    monkeypatch.setattr(p, "resolve_decode", decode_mod.resolve_decode)
+    monkeypatch.setattr(decode_mod, "probe_video_format",
+                        lambda src: ("hevc", "yuv420p10le", None))
+
+    def _no_query():
+        raise AssertionError("опрос qsvencc при явном --decode sw (D-04)")
+
+    monkeypatch.setattr(decode_mod, "query_hw_decoders", _no_query)
+    p.run_encode(args)
+
+    assert all(cmd[3] == "--avsw" for cmd in built)

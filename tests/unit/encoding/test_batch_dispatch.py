@@ -259,3 +259,26 @@ def test_encode_directory_out_dir_creates_folder_and_skip_resolves_inside(monkey
     assert should_skip(video) is None
     _touch(out_dir / "a.Encoded.mkv")
     assert should_skip(video) == "уже готов"
+
+
+# --- решение о декоде не переносится между файлами (D-05, T-10.1-09) --- #
+
+def test_encode_batch_resets_stale_decode_choice(monkeypatch, tmp_path):
+    from enpipe.shared.decode import DecodeChoice
+
+    _stub_which(monkeypatch)
+    _touch(tmp_path / "a.mkv")
+    captured = _capture_run_batch(monkeypatch)
+    stale = DecodeChoice(path="sw", mode="auto", codec="vc1", pix_fmt="yuv420p",
+                         field_order=None, reason="чужое решение")
+
+    # настоящий run_encode входит в батч-ветку и отдаёт process_one
+    p.run_encode(_base_args(video=tmp_path, decode_choice=stale))
+
+    # рекурсию process_one перехватываем уже после захвата
+    seen = []
+    monkeypatch.setattr(p, "run_encode", lambda a: seen.append(a))
+    captured["process_one"](tmp_path / "a.mkv")
+
+    assert len(seen) == 1
+    assert seen[0].decode_choice is None

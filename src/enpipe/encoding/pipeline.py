@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 from enpipe.shared import proc as _proc
 from enpipe.shared.batch import iter_input_videos, run_batch
+from enpipe.shared.decode import decode_mode_from_args, describe_decode, resolve_decode
 from enpipe.shared.logging import _START, die, log, step
 from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed
 
@@ -149,7 +150,11 @@ def run_encode(args) -> None:
         out_base = _ensure_out_dir(args)
 
         def process_one(v: Path) -> None:
-            run_encode(Namespace(**{**vars(args), "video": v, "scenes": Path(str(v) + ".scenes")}))
+            # decode_choice=None: каждый файл решает о декоде сам (D-05) --
+            # готовое решение другого файла не переносится
+            run_encode(Namespace(**{**vars(args), "video": v,
+                                    "scenes": Path(str(v) + ".scenes"),
+                                    "decode_choice": None}))
 
         def should_skip(v: Path):
             scenes_path = Path(str(v) + ".scenes")
@@ -168,8 +173,14 @@ def run_encode(args) -> None:
     if not args.video.is_file():
         die(f"нет файла: {args.video}")
 
-    # getattr: старые тесты строят Namespace без поля decode
-    decode = getattr(args, "decode", "hw")
+    # Решение о декоде -- до любых файлов (workdir, вывод), аудио и чанков:
+    # отказ (D-04/D-07/D-14) не должен оставлять пустых папок. Из `run`
+    # решение приходит готовым и уже залогированным (D-05) -- не решаем и
+    # не печатаем строку повторно.
+    choice = getattr(args, "decode_choice", None)
+    if choice is None:
+        choice = resolve_decode(args.video, decode_mode_from_args(args))
+        log(describe_decode(choice))
 
     out_base = _ensure_out_dir(args)
     out = resolve_output_path(args.video, out_base)
@@ -224,7 +235,7 @@ def run_encode(args) -> None:
         cp = workdir / f"chunk_{i:05d}.obu"
         chunk_paths.append(cp)
         cmd = chunk_command(args.video, seek, trim, cp, hdr_flags, metrics_on,
-                            decode=decode)
+                            decode=choice.path)
         tasks.append((i, cmd, cp, e - s))
         meta[i] = (s, e, seek, trim)
 
