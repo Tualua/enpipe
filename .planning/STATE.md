@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.3
 milestone_name: Анализ качества энкода
-current_phase: 10
-current_phase_name: frame-extraction-alignment
-status: verifying
-stopped_at: Completed 10-17-PLAN.md
-last_updated: "2026-11-07T17:50:06.118Z"
-last_activity: 2026-11-07
-last_activity_desc: Phase 10 execution started
-state_head: b5920f455f0801a66509a1ab31bc95c7e9547113
+current_phase: "10.1"
+current_phase_name: Программный декод в энкоде (qsvencc --avsw)
+status: planning
+stopped_at: Phase 10 complete, ready to plan Phase 10.1
+last_updated: "2026-11-11T08:42:23.534Z"
+last_activity: 2026-11-11
+last_activity_desc: Phase 10 complete, transitioned to Phase 10.1
+state_head: bae377bc5262d3068def9a38435930e4f4cf6a93
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 2
-  total_plans: 22
-  completed_plans: 22
-  percent: 40
+  total_plans: 26
+  completed_plans: 26
+  percent: 33
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 
 ## Current Position
 
-Phase: 10 (frame-extraction-alignment) — EXECUTING
-Plan: 17 of 17
-Status: Phase complete — ready for verification
-Last activity: 2026-11-07 — Phase 10 execution started
+Phase: 10.1 — Программный декод в энкоде (qsvencc --avsw)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-11 — Phase 10 complete, transitioned to Phase 10.1
 
-Progress: [████░░░░░░] 40%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -132,6 +132,10 @@ None yet.
 | Phase 10 P14 | 20m | 3 tasks | 5 files |
 | Phase 10 P15 | 25min | 3 tasks | 4 files |
 
+### Roadmap Evolution
+
+- Phase 10.1 inserted after Phase 10: Программный декод в энкоде: qsvencc --avsw для кодеков без аппаратного декода на текущей GPU (VC-1 на Arc B50), с сохранением корректности чанков (seek/trim, сверка числа кадров, keyframe-выравнивание) и детекта сцен (URGENT)
+
 ## Deferred Items
 
 Items acknowledged and deferred at the v1.2 milestone close on 2026-10-04 (pre-close artifact audit — 8 open, 5 resolved in place, 3 deferred):
@@ -158,7 +162,7 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-11-07T17:50:05.971Z
-Stopped at: Completed 10-17-PLAN.md
+Stopped at: Phase 10 complete, ready to plan Phase 10.1
 Resume file: None
 
 ## Operator Next Steps
