@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: executing
-stopped_at: Completed 10.1-02-PLAN.md
-last_updated: "2026-11-11T15:38:32.827Z"
+stopped_at: Completed 10.1-03-PLAN.md
+last_updated: "2026-11-11T15:50:30.597Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 10.1 execution started
-state_head: 6baaef7b58dbe6094005db8ddf1f10716be4a2f4
+state_head: 18612dcc90d1ac9b8fae1619f6df121a9b91e76a
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 28
+  completed_plans: 29
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-11-11 — Phase 10.1 execution started
 
@@ -47,6 +47,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Phase 10 P17 | 45min | 3 tasks | 9 files |
 | Phase 10.1 P01 | 25 min | 2 tasks | 8 files |
 | Phase 10.1 P02 | 25 min | 2 tasks | 5 files |
+| Phase 10.1 P03 | 25 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: WR-10 (10-17): .scenes сверяются с источником и ключевыми кадрами энкода, в том числе при полном энкоде; None-флаги при непустых .scenes — отказ (fail-closed)
 - [Phase 10.1]: 10.1-01: extract_frame_by_index декодирует с начала файла (O(n)) намеренно - поиск по времени вернул бы неоднозначность нумерации Cues/декод на VC-1; только куски <= 30 с и синтетика
 - [Phase 10.1]: 10.1-02: ключ auto (кодек, цветность, разрядность); таблица GPU кэшируется на процесс, сбой не кэшируется
+- [Phase 10.1]: 10.1-03: use_qsv детекта выводится только из DecodeChoice.path; --no-qsv при auto даёт режим sw
+- [Phase 10.1]: 10.1-03: run решает о декоде один раз на файл и передаёт один DecodeChoice в детект и энкод; батч сбрасывает decode_choice
 
 ### Pending Todos
 
@@ -165,8 +168,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-11T15:38:32.520Z
-Stopped at: Completed 10.1-02-PLAN.md
+Last session: 2026-11-11T15:50:30.286Z
+Stopped at: Completed 10.1-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
