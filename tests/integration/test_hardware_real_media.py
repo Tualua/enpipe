@@ -69,7 +69,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pytest
 
@@ -1103,7 +1103,8 @@ def _prepare_mid_gop_source(tmp_path: Path, *, gop: str):
     return src, scenes_path, scenes, included, fps, table
 
 
-def _encode_and_check_content(tmp_path: Path, prepared) -> None:
+def _encode_and_check_content(tmp_path: Path, prepared,
+                              extra_args: Sequence[str] = ()) -> None:
     """Encode the included scenes, verify per-chunk and total frame counts and
     the chunk first-frame content check (with a non-vacuous negative control).
     Encode and precondition problems use pytest.fail()."""
@@ -1116,6 +1117,7 @@ def _encode_and_check_content(tmp_path: Path, prepared) -> None:
         "encode", str(src), str(scenes_path),
         "-o", str(out), "--workdir", str(workdir), "--keep", "--no-audio",
         "--no-metrics", "--jobs", "2", "--from", "0", "--to", str(len(scenes) - 1),
+        *extra_args,
     ])
     total_expect = 0
     for i, (s, e) in enumerate(included):
@@ -1154,6 +1156,34 @@ def test_chunk_content_closed_gop(tmp_path: Path) -> None:
     content check must pass (covers the qsvencc r4663 seek fix on mid-GOP
     cuts)."""
     _encode_and_check_content(tmp_path, _prepare_mid_gop_source(tmp_path, gop="closed"))
+
+
+def test_chunk_content_avsw_closed_gop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`encode --decode sw` on the closed-GOP HEVC Main10 synthetic: every chunk
+    is encoded with `qsvencc --avsw --va` (never a silent `--avhw`; `--va` must
+    not be swallowed by the optional `--avsw [<string>]` argument), and the
+    frame counts plus the chunk first-frame content match the source."""
+    import enpipe.encoding.pipeline as _pipeline
+
+    real = _pipeline.chunk_command
+    built: List[List[str]] = []
+
+    def _spy(*args, **kwargs):
+        cmd = real(*args, **kwargs)
+        built.append(list(cmd))
+        return cmd
+
+    monkeypatch.setattr(_pipeline, "chunk_command", _spy)
+    _encode_and_check_content(
+        tmp_path, _prepare_mid_gop_source(tmp_path, gop="closed"),
+        extra_args=("--decode", "sw"),
+    )
+    assert built, "chunk_command was never called"
+    for cmd in built:
+        assert cmd[3:5] == ["--avsw", "--va"], cmd[:6]
+        assert "--avhw" not in cmd
 
 
 def test_dv_profile5(tmp_path: Path) -> None:

@@ -62,11 +62,15 @@ def test_run_encode_wiring_concat_order_and_seek_trim(tmp_path, monkeypatch):
 
     # --- record (seek, trim) actually flowing into chunk_command, per idx --- #
     recorded_seek_trim = {}
+    recorded_decode = {}
 
-    def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics):
+    def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics,
+                                   decode="hw"):
         idx = int(out_path.stem.rsplit("_", 1)[-1])
         recorded_seek_trim[idx] = (seek, trim)
-        return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics)
+        recorded_decode[idx] = decode
+        return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics,
+                                   decode=decode)
 
     monkeypatch.setattr(p, "chunk_command", Mock(side_effect=_chunk_command_side_effect))
 
@@ -92,6 +96,62 @@ def test_run_encode_wiring_concat_order_and_seek_trim(tmp_path, monkeypatch):
     # (c) --no-metrics: write_metrics_csv is never called, no CSV artifact
     assert mock_write_metrics_csv.call_count == 0
     assert not Path(str(out) + ".metrics.csv").exists()
+
+    # (d) Namespace без поля decode -> прежний путь hw для всех чанков
+    assert recorded_decode == {i: "hw" for i in range(len(_SCENES))}
+
+
+def test_run_encode_decode_sw_reaches_chunk_command(tmp_path, monkeypatch):
+    video = tmp_path / "source.mkv"
+    video.write_bytes(b"dummy-source-bytes")
+    out = tmp_path / "out.mkv"
+    workdir = tmp_path / "chunks"
+
+    args = Namespace(
+        video=video, scenes=tmp_path / "source.mkv.scenes", out=out,
+        frm=0, to=None, workdir=workdir, keep=True, jobs=1,
+        no_audio=True, no_metrics=True, csv=None, decode="sw",
+    )
+
+    monkeypatch.setattr(p.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(p, "probe_fps", lambda src: 24.0)
+    monkeypatch.setattr(p, "keyframe_table", lambda src, fps: _TABLE)
+    monkeypatch.setattr(p, "detect_hdr", lambda src: [])
+    monkeypatch.setattr(p, "read_scenes", lambda path: list(_SCENES))
+    monkeypatch.setattr(p, "write_metrics_csv", Mock(return_value={}))
+    expected_total = sum(e - s for s, e in _SCENES)
+    monkeypatch.setattr(p, "count_frames", lambda path: expected_total)
+
+    def _encode_chunk_side_effect(task):
+        idx, cmd, cp, expect = task
+        cp.write_bytes(b"x")
+        return idx, expect, None, 0.01, {"size": 1}
+
+    monkeypatch.setattr(p, "encode_chunk", Mock(side_effect=_encode_chunk_side_effect))
+
+    built = []
+
+    def _chunk_command_side_effect(*a, **kw):
+        cmd = _real_chunk_command(*a, **kw)
+        built.append(cmd)
+        return cmd
+
+    monkeypatch.setattr(p, "chunk_command", Mock(side_effect=_chunk_command_side_effect))
+
+    def _proc_run_side_effect(cmd, **kwargs):
+        if cmd and cmd[0] == "mkvmerge":
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(b"fake-muxed-output")
+        return Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(p._proc, "run", Mock(side_effect=_proc_run_side_effect))
+
+    p.run_encode(args)
+
+    assert len(built) == len(_SCENES)
+    for cmd in built:
+        assert cmd[3] == "--avsw"
+        assert cmd[4] == "--va"
+        assert "--avhw" not in cmd
 
 
 def test_run_encode_writes_metrics_csv_when_enabled(tmp_path, monkeypatch):
@@ -135,8 +195,10 @@ def test_run_encode_writes_metrics_csv_when_enabled(tmp_path, monkeypatch):
 
     monkeypatch.setattr(p, "encode_chunk", Mock(side_effect=_encode_chunk_side_effect))
 
-    def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics):
-        return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics)
+    def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics,
+                                   decode="hw"):
+        return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics,
+                                   decode=decode)
 
     monkeypatch.setattr(p, "chunk_command", Mock(side_effect=_chunk_command_side_effect))
 
@@ -200,8 +262,10 @@ def test_run_encode_survives_total_without_psnr(tmp_path, monkeypatch):
 
     monkeypatch.setattr(p, "encode_chunk", Mock(side_effect=_encode_chunk_side_effect))
 
-    def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics):
-        return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics)
+    def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics,
+                                   decode="hw"):
+        return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics,
+                                   decode=decode)
 
     monkeypatch.setattr(p, "chunk_command", Mock(side_effect=_chunk_command_side_effect))
 

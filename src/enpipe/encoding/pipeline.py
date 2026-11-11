@@ -168,6 +168,9 @@ def run_encode(args) -> None:
     if not args.video.is_file():
         die(f"нет файла: {args.video}")
 
+    # getattr: старые тесты строят Namespace без поля decode
+    decode = getattr(args, "decode", "hw")
+
     out_base = _ensure_out_dir(args)
     out = resolve_output_path(args.video, out_base)
     workdir = args.workdir or out.with_name(out.stem + ".chunks")
@@ -220,7 +223,8 @@ def run_encode(args) -> None:
         seek, trim = compute_chunk_seek_trim(table, s, e)
         cp = workdir / f"chunk_{i:05d}.obu"
         chunk_paths.append(cp)
-        cmd = chunk_command(args.video, seek, trim, cp, hdr_flags, metrics_on)
+        cmd = chunk_command(args.video, seek, trim, cp, hdr_flags, metrics_on,
+                            decode=decode)
         tasks.append((i, cmd, cp, e - s))
         meta[i] = (s, e, seek, trim)
 

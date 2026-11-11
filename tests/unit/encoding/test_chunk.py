@@ -10,6 +10,8 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import pytest
+
 from enpipe.encoding import chunk
 from enpipe.encoding.chunk import chunk_command, parse_metrics
 
@@ -74,6 +76,33 @@ def test_chunk_command_pins_qsv_backend():
         assert cmd.count("--backend") == 1
         assert cmd[cmd.index("--backend") + 1] == "qsv"
         assert cmd.index("--backend") < cmd.index("--avhw")
+
+
+def test_chunk_command_default_is_hw_decode():
+    cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
+                        Path("out.obu"), hdr_flags=[], metrics=False)
+    assert cmd[3:5] == ["--avhw", "--va"]
+    assert "--avsw" not in cmd
+
+
+def test_chunk_command_sw_decode_swaps_decoder_flag():
+    for metrics in (False, True):
+        hw = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
+                           Path("out.obu"), hdr_flags=[], metrics=metrics)
+        sw = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
+                           Path("out.obu"), hdr_flags=[], metrics=metrics,
+                           decode="sw")
+        # --va строго после --avsw: иначе --avsw [<string>] мог бы её проглотить
+        assert sw[3:5] == ["--avsw", "--va"]
+        assert "--avhw" not in sw
+        assert sw[:3] == hw[:3] and sw[5:] == hw[5:]
+        assert sw.index("--backend") < sw.index("--avsw")
+
+
+def test_chunk_command_rejects_unknown_decode_mode():
+    with pytest.raises(ValueError):
+        chunk_command(Path("in.mkv"), "00:00:00.000", "0:1", Path("out.obu"),
+                      hdr_flags=[], metrics=False, decode="auto")
 
 
 def test_chunk_command_disables_avoid_idle_clock():

@@ -183,6 +183,9 @@ def build_parser() -> argparse.ArgumentParser:
                            help="не считать PSNR/SSIM (быстрее)")
     encode_p.add_argument("--csv", type=Path, default=None,
                            help="CSV с метриками (по умолчанию <out>.metrics.csv)")
+    encode_p.add_argument("--decode", choices=["hw", "sw"], default="hw",
+                           help="путь декода в qsvencc: hw = --avhw (аппаратный), "
+                                "sw = --avsw (программный декод + аппаратный AV1-энкод)")
     encode_p.add_argument("--recursive", action="store_true",
                            help="рекурсивный обход вложенных папок (только если video — папка)")
     encode_p.set_defaults(func=run_encode)
