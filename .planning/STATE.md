@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
-status: executing
-stopped_at: Completed 10.1-05-PLAN.md
-last_updated: "2026-11-11T16:04:04.208Z"
+status: verifying
+stopped_at: Completed 10.1-04-PLAN.md
+last_updated: "2026-11-11T16:19:26.237Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 10.1 execution started
-state_head: 6ff475e7ec8a149d8b1d022e7b479e3bcf8e605b
+state_head: 40c0ba51de302246d29b028aad99ed78691619a1
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 30
+  completed_plans: 31
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-11 — Phase 10.1 execution started
 
 Progress: [███░░░░░░░] 33%
@@ -49,6 +49,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Phase 10.1 P02 | 25 min | 2 tasks | 5 files |
 | Phase 10.1 P03 | 25 min | 2 tasks | 9 files |
 | Phase 10.1 P05 | 60 min | 3 tasks | 2 files |
+| Phase 10.1 P04 | 55min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10.1]: 10.1-03: use_qsv детекта выводится только из DecodeChoice.path; --no-qsv при auto даёт режим sw
 - [Phase 10.1]: 10.1-03: run решает о декоде один раз на файл и передаёт один DecodeChoice в детект и энкод; батч сбрасывает decode_choice
 - [Phase 10.1]: 10.1-05: VC-1 --avsw spike - chunk content shifted by diff(K) (Cues vs decode); operator chose refuse-handoff (handoff + loud refusal in 10.1-04); hypothesis to verify: cause may be enpipe Cues numbering, not qsvencc decode
+- [Phase 10.1]: 10.1-04: выполнена ветка refuse-handoff; VC-1 по --avsw закрыт refuse_unsafe_avsw (в т.ч. при явном --decode sw), --decode hw не отказывается заранее; причина сдвига (нумерация K по Cues в enpipe vs qsvencc) не доказана
 
 ### Pending Todos
 
@@ -170,8 +172,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-11T16:04:03.881Z
-Stopped at: Completed 10.1-05-PLAN.md
+Last session: 2026-11-11T16:19:25.887Z
+Stopped at: Completed 10.1-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
