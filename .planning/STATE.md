@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: executing
-stopped_at: Completed 10.1-01-PLAN.md
-last_updated: "2026-11-11T15:32:23.338Z"
+stopped_at: Completed 10.1-02-PLAN.md
+last_updated: "2026-11-11T15:38:32.827Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 10.1 execution started
-state_head: 89a5ffbf3a8ac4658cf34be9e9be801cf473fc61
+state_head: 6baaef7b58dbe6094005db8ddf1f10716be4a2f4
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 31
-  completed_plans: 27
+  completed_plans: 28
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-11-11 — Phase 10.1 execution started
 
@@ -46,6 +46,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Phase 10 P16 | 35 min | 3 tasks | 4 files |
 | Phase 10 P17 | 45min | 3 tasks | 9 files |
 | Phase 10.1 P01 | 25 min | 2 tasks | 8 files |
+| Phase 10.1 P02 | 25 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10]: Выбор планировщика 10-16: повторы сторон поочерёдно start/start−1; повтор, закрывший одну сторону незакрытой цели, — голос «выровнено» (reversible)
 - [Phase 10]: WR-10 (10-17): .scenes сверяются с источником и ключевыми кадрами энкода, в том числе при полном энкоде; None-флаги при непустых .scenes — отказ (fail-closed)
 - [Phase 10.1]: 10.1-01: extract_frame_by_index декодирует с начала файла (O(n)) намеренно - поиск по времени вернул бы неоднозначность нумерации Cues/декод на VC-1; только куски <= 30 с и синтетика
+- [Phase 10.1]: 10.1-02: ключ auto (кодек, цветность, разрядность); таблица GPU кэшируется на процесс, сбой не кэшируется
 
 ### Pending Todos
 
@@ -163,8 +165,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-11T15:32:23.013Z
-Stopped at: Completed 10.1-01-PLAN.md
+Last session: 2026-11-11T15:38:32.520Z
+Stopped at: Completed 10.1-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
