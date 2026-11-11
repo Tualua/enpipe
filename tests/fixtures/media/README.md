@@ -114,3 +114,27 @@ content-checked (`test_chunk_content_open_gop[rasl|radl]`): qsvencc shifted
 `.planning/debug/HANDOFF-qsvencc-opengop-trim-offset.md`. Their closed-GOP twin
 is `test_chunk_content_closed_gop`, and `test_hdr10` uses x265's default open
 GOP. Hardware tests require qsvencc >= r4677 on PATH.
+
+## ENPIPE_TEST_VC1: a short real VC-1 cut
+
+`test_chunk_edges_avsw_vc1` (D-08.2) encodes chunks of a real VC-1 source with
+`qsvencc --avsw` (VC-1 is not decodable in hardware on the Arc B50) and checks
+the first and last frame of every chunk against source frames S and E-1. On
+VC-1 in mkv the block timestamps are in decode order, so keyframe numbers taken
+from Cues differ from decode-order numbers by -1/0/+1; only a real VC-1 file
+exercises that. The cut is NOT stored in the repository. Without
+`ENPIPE_TEST_VC1` the test is skipped.
+
+Cut about 30 s without re-encoding (the source path has no `/temp/`; `DIR` is
+any scratch directory outside `/data`):
+
+```bash
+DIR=$(mktemp -d)
+mkvmerge -o "$DIR/fringe_s02e01_cut.mkv" --no-audio --no-subtitles --no-chapters --no-attachments --no-global-tags --split parts:00:10:00.000-00:10:30.000 "/data/downloads/Fringe.COMPLETE.SERIES.1080p.REMUX-FraMeSToR/Fringe.S02.BluRay.1080p.DD.5.1.VC-1.REMUX-FraMeSToR/Fringe.S02E01.A.New.Day.in.the.Old.Town.1080p.DD.5.1.VC-1.REMUX-FraMeSToR.mkv"
+```
+
+Run:
+
+```bash
+ENPIPE_TEST_VC1="$DIR/fringe_s02e01_cut.mkv" uv run pytest -q -m hardware tests/integration/test_hardware_real_media.py -k vc1 -s
+```

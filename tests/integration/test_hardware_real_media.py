@@ -88,6 +88,7 @@ from enpipe.encoding.keyframes import (
     fmt_seek,
     kf_before,
     keyframe_table,
+    keyframe_table_cues,
     keyframe_table_ffprobe,
 )
 from enpipe.encoding.pipeline import probe_fps
@@ -1447,3 +1448,94 @@ def test_keyframe_flags_after_mkvmerge(
     assert any(hint in r for r in chk.reasons), (
         f"нет подсказки «{hint}» среди причин: {list(chk.reasons)}"
     )
+
+
+def _decode_pict_types(src: Path) -> List[str]:
+    """pict_type of every frame in the decoder OUTPUT order (numbering from 0 as
+    the detector counts frames); len() is the decoded frame count."""
+    res = subprocess.run(
+        [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_frames",
+         "-show_entries", "frame=pict_type", "-of", "csv=p=0", str(src)],
+        check=True, capture_output=True, text=True,
+    )
+    return [ln.strip().rstrip(",") for ln in res.stdout.splitlines() if ln.strip()]
+
+
+def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
+    """D-08.2/D-09 spike: real VC-1 cut (ENPIPE_TEST_VC1) encoded with --avsw.
+
+    Cues key-frame numbers differ from decode numbers on VC-1 by -1/0/+1 (the
+    block timestamps are in decode order). For scene starts on keyframes of each
+    difference class (and mid-GOP) every chunk is encoded directly via
+    chunk_command(decode="sw") + encode_chunk, bypassing run_encode so per-chunk
+    diagnostics survive a frame-count mismatch; then the first and last frame of
+    every chunk are compared with source frames S and E-1 (nearest by PSNR)."""
+    env = os.environ.get("ENPIPE_TEST_VC1")
+    cut = Path(env) if env else None
+    if cut is None or not cut.is_file():
+        pytest.skip(
+            "ENPIPE_TEST_VC1 is not set or the file is missing -- a short VC-1 "
+            "cut is operator-supplied (D-08, not stored in the repo); see "
+            "tests/fixtures/media/README.md for the mkvmerge command"
+        )
+
+    fps = probe_fps(cut)
+    table = keyframe_table(cut, fps)
+    if keyframe_table_cues(cut, fps) is None:
+        pytest.fail("precondition: the cut has no usable Cues (ffprobe fallback is empty on VC-1)")
+
+    pict = _decode_pict_types(cut)
+    total = len(pict)
+    i_pos = [n for n, t in enumerate(pict) if t == "I"]
+
+    def diff_of(k: int) -> Optional[int]:
+        near = [p - k for p in i_pos if k - 2 <= p <= k + 2]
+        if not near:
+            return None
+        return min(near, key=abs)
+
+    kfs = [k for k, _ in table]
+    diffs = {k: diff_of(k) for k in kfs}
+    print(f"[vc1] {cut.name}: fps={fps} decoded={total} keyframes={len(kfs)}")
+    for k in kfs:
+        print(f"[vc1] K={k} diff={diffs[k]}")
+
+    picked: List[int] = []
+    for cls in (-1, 0, 1):
+        picked += [k for k in kfs if k != 0 and diffs[k] == cls][:2]
+    mids = []
+    for k in picked[:]:
+        later = [x for x in kfs if x > k]
+        if k + 7 < (later[0] if later else total) and len(mids) < 2:
+            mids.append(k + 7)
+    starts = sorted(set(picked + mids))
+    picked_diffs = {diffs[k] for k in picked}
+    if 0 not in picked_diffs or not (picked_diffs - {0}):
+        pytest.fail(
+            f"precondition: need a keyframe with diff 0 and one with diff != 0, "
+            f"got {sorted((k, diffs[k]) for k in picked)}"
+        )
+
+    hdr = detect_hdr(cut)
+    chunks: List[Tuple[int, int, Path, int]] = []
+    errors: List[str] = []
+    for i, s in enumerate(starts):
+        e = starts[i + 1] if i + 1 < len(starts) else total
+        seek, trim = compute_chunk_seek_trim(table, s, e)
+        k, _t = kf_before(table, s)
+        cp = tmp_path / f"chunk_{i:05d}.obu"
+        cmd = _chunk_mod.chunk_command(cut, seek, trim, cp, hdr, False, decode="sw")
+        _idx, got, err, _el, _info = _chunk_mod.encode_chunk((i, cmd, cp, e - s))
+        print(
+            f"[vc1] chunk {i} [{s},{e}) K={k} diff={diffs.get(k)} "
+            f"seek={seek} trim={trim} frames={got}/{e - s} err={err}"
+        )
+        if err is not None:
+            errors.append(f"chunk {i} [{s},{e}) K={k}: {err}")
+        if got > 0:
+            chunks.append((s, e, cp, got))
+
+    if chunks:
+        _df, _dl, edge_errors = _verify_chunk_edges(cut, chunks, total, tmp_path / "edges")
+        errors += edge_errors
+    assert not errors, "VC-1 --avsw chunk problems:\n" + "\n".join(errors)
