@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from enpipe.shared.decode import (
+    AVSW_UNSAFE_CODECS,
     DecodeChoice,
     auto_path,
     check_progressive,
@@ -19,6 +20,7 @@ from enpipe.shared.decode import (
     describe_decode,
     parse_decode_table,
     pix_fmt_format,
+    refuse_unsafe_avsw,
 )
 
 B50_TEXT = Path(__file__).with_name("check_features_b50_r4677.txt").read_text()
@@ -202,3 +204,30 @@ def test_describe_decode():
         field_order=None, reason="vc1 нет среди аппаратных декодеров GPU")
     assert describe_decode(choice) == (
         "декод: sw (vc1 нет среди аппаратных декодеров GPU; --decode auto)")
+
+
+# --- refuse_unsafe_avsw (план 10.1-04, решение refuse-handoff) --- #
+
+def _choice(path, codec):
+    return DecodeChoice(path=path, mode="auto", codec=codec, pix_fmt="yuv420p",
+                        field_order=None, reason="тест")
+
+
+def test_unsafe_codecs_is_vc1_only():
+    assert AVSW_UNSAFE_CODECS == frozenset({"vc1"})
+
+
+def test_refuse_unsafe_avsw_vc1_sw_dies_with_handoff():
+    with pytest.raises(SystemExit) as ei:
+        refuse_unsafe_avsw(Path("a.mkv"), _choice("sw", "vc1"))
+    msg = str(ei.value)
+    assert "HANDOFF-qsvencc-avsw-vc1-seek.md" in msg
+    assert "vc1" in msg
+
+
+def test_refuse_unsafe_avsw_vc1_hw_passes():
+    assert refuse_unsafe_avsw(Path("a.mkv"), _choice("hw", "vc1")) is None
+
+
+def test_refuse_unsafe_avsw_hevc_sw_passes():
+    assert refuse_unsafe_avsw(Path("a.mkv"), _choice("sw", "hevc")) is None

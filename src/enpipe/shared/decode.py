@@ -22,7 +22,8 @@
   флага в контейнере так не поймать — остаточный риск принят оператором.
 
 Публичный API (его импортируют cli/detection/encoding): `DECODE_MODES`,
-`DecodeChoice`, `decode_mode_from_args`, `resolve_decode`, `describe_decode`.
+`DecodeChoice`, `decode_mode_from_args`, `resolve_decode`, `describe_decode`,
+`refuse_unsafe_avsw`, `AVSW_UNSAFE_CODECS`.
 Остальные имена модуля — внутренние части решения, открытые для тестов.
 
 Модуль листовой: импортирует только stdlib, `enpipe.shared.proc` и
@@ -59,6 +60,16 @@ CODEC_COLUMNS: Dict[str, str] = {
     "av1": "AV1",
     "vvc": "VVC",
 }
+
+# Кодеки, на которых путь --avsw даёт ТИХУЮ порчу: спайк 10.1-05 (VC-1,
+# r4677, B50) -- число кадров чанка верное и rc=0, но содержимое сдвинуто
+# на diff(K) кадров (разница между номером ключевого кадра по Cues и его
+# позицией в выводе декодера). Проверка числа кадров этого не видит. До
+# выяснения причины (handoff) кодирование таких кодеков по --avsw закрыто.
+# Снять: исправленная сборка/проверка handoff, тест краёв VC-1 даёт XPASS.
+AVSW_UNSAFE_CODECS = frozenset({"vc1"})
+
+_HANDOFF = ".planning/debug/HANDOFF-qsvencc-avsw-vc1-seek.md"
 
 # Штатно опрос занимает ~4.3 с (инициализация VA); 30 с — запас на
 # загруженную систему, но не бесконечное зависание перед первым чанком.
@@ -179,6 +190,20 @@ def decode_mode_from_args(args: Namespace) -> str:
 
 def describe_decode(choice: DecodeChoice) -> str:
     return f"декод: {choice.path} ({choice.reason}; --decode {choice.mode})"
+
+
+def refuse_unsafe_avsw(src: Path, choice: DecodeChoice) -> None:
+    """die() для кодека из AVSW_UNSAFE_CODECS на пути sw (в т.ч. при явном
+    `--decode sw`: корректность важнее, обхода нет). Вызывать на главном
+    потоке сразу после решения о декоде, до детекта и до первого чанка.
+    `enpipe detect` не вызывает: детект ничего не кодирует."""
+    if choice.path == "sw" and choice.codec in AVSW_UNSAFE_CODECS:
+        die(f"{src.name}: кодирование {choice.codec} по пути --avsw отключено: "
+            "после --seek/--trim содержимое чанка сдвигается относительно "
+            "запрошенных кадров при верном их числе (спайк 10.1-05), см. "
+            f"{_HANDOFF}; кодирование — после выяснения причины и "
+            "исправления (форк Tualua/QSVEnc либо нумерация ключевых кадров "
+            "в enpipe)")
 
 
 # ------------------------------------------------------------------ #

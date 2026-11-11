@@ -354,7 +354,7 @@ def _wiring_env(tmp_path, monkeypatch, **extra):
 
 def _choice(path="hw", mode="auto"):
     from enpipe.shared.decode import DecodeChoice
-    return DecodeChoice(path=path, mode=mode, codec="vc1", pix_fmt="yuv420p",
+    return DecodeChoice(path=path, mode=mode, codec="mpeg2video", pix_fmt="yuv420p",
                         field_order=None, reason="тест")
 
 
@@ -418,3 +418,32 @@ def test_run_encode_explicit_sw_does_not_query_qsvencc(tmp_path, monkeypatch):
     p.run_encode(args)
 
     assert all(cmd[3] == "--avsw" for cmd in built)
+
+
+def test_run_encode_refuses_vc1_sw_before_workdir(tmp_path, monkeypatch):
+    """refuse-handoff (10.1-04): vc1 по --avsw -- отказ до workdir и до chunk_command."""
+    from enpipe.shared.decode import DecodeChoice
+
+    video = tmp_path / "source.mkv"
+    video.write_bytes(b"dummy-source-bytes")
+    out = tmp_path / "out.mkv"
+    workdir = tmp_path / "chunks"
+    args = Namespace(
+        video=video, scenes=tmp_path / "source.mkv.scenes", out=out,
+        frm=0, to=None, workdir=workdir, keep=True, jobs=1,
+        no_audio=True, no_metrics=True, csv=None, decode="auto",
+    )
+    monkeypatch.setattr(p.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(p, "resolve_decode", lambda src, mode: DecodeChoice(
+        path="sw", mode=mode, codec="vc1", pix_fmt="yuv420p",
+        field_order=None, reason="заглушка"))
+    chunk_cmd = Mock()
+    monkeypatch.setattr(p, "chunk_command", chunk_cmd)
+
+    with pytest.raises(SystemExit) as ei:
+        p.run_encode(args)
+
+    assert "HANDOFF-qsvencc-avsw-vc1-seek" in str(ei.value)
+    chunk_cmd.assert_not_called()
+    assert not workdir.exists()
+    assert not out.parent.joinpath("out.mkv").exists()

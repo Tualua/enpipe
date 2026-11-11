@@ -342,3 +342,22 @@ def test_run_decode_line_printed_exactly_once(
 
     captured = capsys.readouterr()
     assert (captured.out + captured.err).count("декод:") == 1
+
+
+def test_run_refuses_vc1_sw_before_detect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """refuse-handoff (10.1-04): vc1 по --avsw -- отказ в _pipeline_one до детекта."""
+    from enpipe.shared.decode import DecodeChoice
+
+    _stub_all_tools_present(monkeypatch)
+    monkeypatch.setattr(cli_main, "resolve_decode", lambda src, mode: DecodeChoice(
+        path="sw", mode=mode, codec="vc1", pix_fmt="yuv420p",
+        field_order=None, reason="заглушка"))
+    calls: List[str] = []
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))
+
+    with pytest.raises(SystemExit) as ei:
+        main(["run", "x.mkv", "--no-metrics"])
+
+    assert "HANDOFF-qsvencc-avsw-vc1-seek" in str(ei.value)
+    assert calls == []

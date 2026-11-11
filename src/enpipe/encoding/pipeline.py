@@ -29,7 +29,12 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 from enpipe.shared import proc as _proc
 from enpipe.shared.batch import iter_input_videos, run_batch
-from enpipe.shared.decode import decode_mode_from_args, describe_decode, resolve_decode
+from enpipe.shared.decode import (
+    decode_mode_from_args,
+    describe_decode,
+    refuse_unsafe_avsw,
+    resolve_decode,
+)
 from enpipe.shared.logging import _START, die, log, step
 from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed
 
@@ -181,6 +186,9 @@ def run_encode(args) -> None:
     if choice is None:
         choice = resolve_decode(args.video, decode_mode_from_args(args))
         log(describe_decode(choice))
+    # Решение оператора по VC-1 (10.1-05): отказ до workdir и первого чанка,
+    # и для готового решения из `run`, и для только что принятого.
+    refuse_unsafe_avsw(args.video, choice)
 
     out_base = _ensure_out_dir(args)
     out = resolve_output_path(args.video, out_base)

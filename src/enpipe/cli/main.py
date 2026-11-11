@@ -29,6 +29,7 @@ from enpipe.shared.decode import (
     DECODE_MODES,
     decode_mode_from_args,
     describe_decode,
+    refuse_unsafe_avsw,
     resolve_decode,
 )
 from enpipe.shared.logging import die, log
@@ -63,6 +64,9 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
     _pipeline_one вызывается на каждый файл, поэтому решение у каждого своё."""
     choice = resolve_decode(video, decode_mode_from_args(args))
     log(describe_decode(choice))
+    # VC-1 по --avsw закрыт (10.1-05, refuse-handoff): отказ ДО детекта,
+    # чтобы не тратить ~16 мин на то, что потом нельзя кодировать.
+    refuse_unsafe_avsw(video, choice)
     detect_args = argparse.Namespace(
         input=video,
         output=scenes_path,
