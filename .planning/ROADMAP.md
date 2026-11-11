@@ -50,7 +50,7 @@ Silent cross-session frame corruption of concurrent `qsvencc` eliminated: fixed 
 
 - [x] **Phase 9: Чистое ядро анализа и ридеры** - метрики кадра, пороги-константы, ридеры источников кандидатов, слияние кандидатов, единая модель отчёта (без subprocess) (completed 2026-10-06)
 - [x] **Phase 10: Извлечение кадров и выравнивание** - точное извлечение кадра N, предпроверка пары, вердикт выравнивания, `--offset`, программный декод без GPU (gaps: CR-01, WR-01) (completed 2026-10-08)
-- [ ] **Phase 10.1: Программный декод в энкоде (qsvencc --avsw)**
+- [ ] **Phase 10.1: Программный декод в энкоде (qsvencc --avsw)** - авто-выбор `--avhw`/`--avsw` по таблице декодеров GPU, флаг `--decode`, отказ на чересстрочном, проверка первого/последнего кадра чанков на `--avsw` (VC-1 на B50)
 - [ ] **Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI** - `enpipe analyze <src> <enc>` выдаёт `report.md`/`index.html`/`report.json` с кропами и флагом «VMAF хорош, цвет плох»
 - [ ] **Phase 12: Скан цвета по сценам и батч по папке** - точка внутри каждой сцены из `.scenes`, режим папки с парами и сводкой сирот
 - [ ] **Phase 13: Калибровка, сравнение двух энкодов, приёмка** - пороги проверены на ≥ 3 материалах и синтетике, режим сравнения, приёмка на известных данных
@@ -163,13 +163,28 @@ Plans:
 
 ### Phase 10.1: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** enpipe кодирует источники, кодек/формат которых текущая GPU не декодирует аппаратно (повод — VC-1 Fringe S02 на Arc B50): путь декода (`--avhw` / `--avsw` у qsvencc, QSV / программный декод в детекте) выбирается один раз на файл по таблице `qsvencc --check-features` и `codec_name`+`pix_fmt` источника (или флагом `--decode auto|hw|sw`), а инварианты корректности (seek/trim по ключевым кадрам, сверка числа кадров на чанк и на `movie.obu`, первый/последний кадр чанка = S и E−1) сохраняются; при сомнении — громкий отказ
+**Requirements**: DEC-01, DEC-02, DEC-03, DEC-04, DEC-05, DEC-06
 **Depends on:** Phase 10
-**Plans:** 0 plans
+**Success Criteria** (what must be TRUE):
+
+  1. `enpipe encode/run/detect --decode auto` на VC-1 (B50) выбирает `sw`, печатает одну строку «декод: sw (…; --decode auto)» до детекта и кодирует чанки через `qsvencc --avsw`; HEVC Main10 по-прежнему идёт `--avhw`
+  2. Неразобранный вывод `qsvencc --check-features`, его сбой или неизвестный `pix_fmt` в режиме auto — `die()` с подсказкой `--decode hw|sw` до детекта и первого чанка; `--no-qsv` — устаревший синоним `--decode sw`, вместе с `--decode hw` — отказ
+  3. Источник с `field_order` `tt/bb/tb/bt` получает громкий отказ на любом пути до детекта; отсутствующий/`unknown` считается прогрессивом (D-13)
+  4. Hardware-тесты `--avsw` (синтетика HEVC и кусок VC-1 по `ENPIPE_TEST_VC1`) проверяют число кадров и первый/последний кадр каждого чанка против S и E−1; найденный сдвиг qsvencc — handoff в форк и громкий отказ enpipe до фикса (решение оператора после спайка)
+  5. Оператор сам прогоняет `enpipe run` на Fringe S02E01: все чанки прошли сверку числа кадров, mkv собран, число кадров 63211; замеры JOBS 1/2/3 на `--avsw` записаны в SUMMARY, дефолты не менялись
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 10.1 to break down)
+**Wave 1**
+- [ ] 10.1-01-PLAN.md — tracer `--decode hw|sw` в encode → `chunk_command` `--avsw`; харнесс D-09 (первый/последний кадр, ближайший PSNR); спайк на куске VC-1 + решение оператора
+- [ ] 10.1-02-PLAN.md — листовой модуль `enpipe.shared.decode`: разбор `--check-features`, ключ (кодек, цветность, разрядность), опрос qsvencc fail-closed, отказ на чересстрочном, `resolve_decode`
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 10.1-03-PLAN.md — проводка: `--decode auto|hw|sw` в encode/detect/run, `--no-qsv` синоним, одно решение на файл в `run`, строка лога D-12, заглушки быстрого тира
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 10.1-04-PLAN.md — замеры JOBS 1/2/3 (D-11), применение решения по VC-1 (handoff + отказ или без изменений), сквозной `run --decode auto` на куске VC-1, UAT оператора (D-10)
 
 ### Phase 11: Анализ одной пары: кандидаты, кропы, отчёт, CLI
 
