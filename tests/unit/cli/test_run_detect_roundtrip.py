@@ -162,3 +162,151 @@ def test_run_detect_no_qsv_maps_use_qsv_false(monkeypatch, tmp_path):
     args2 = _base_args(input=video, no_qsv=False)
     p.run_detect(args2)
     assert captured_cfg["cfg"].use_qsv is True
+
+
+# --- решение о пути декода в детекте (фаза 10.1, план 03) --- #
+
+import pytest  # noqa: E402
+
+import enpipe.shared.decode as decode_mod  # noqa: E402
+from enpipe.shared.decode import DecodeChoice  # noqa: E402
+
+
+def _choice(path: str, mode: str = "auto") -> DecodeChoice:
+    return DecodeChoice(path=path, mode=mode, codec="vc1", pix_fmt="yuv420p",
+                        field_order=None, reason="тест")
+
+
+def _run_capture(monkeypatch, video, **overrides):
+    seen = {}
+
+    def _detect(path, cfg, jobs, show_progress=False):
+        seen["cfg"] = cfg
+        return list(_SYNTHETIC_SCENES)
+
+    monkeypatch.setattr(p, "detect_scenes", _detect)
+    p.run_detect(_base_args(input=video, **overrides))
+    return seen
+
+
+def _video(tmp_path):
+    video = tmp_path / "movie.mkv"
+    video.write_bytes(b"dummy")
+    return video
+
+
+@pytest.mark.parametrize("decode,expected", [("sw", False), ("hw", True), ("auto", True)])
+def test_run_detect_use_qsv_follows_decode(tmp_path, monkeypatch, decode, expected):
+    seen = _run_capture(monkeypatch, _video(tmp_path), decode=decode)
+    assert seen["cfg"].use_qsv is expected
+
+
+def test_run_detect_without_decode_field_is_auto(tmp_path, monkeypatch):
+    modes = []
+
+    def _resolve(src, mode):
+        modes.append(mode)
+        return _choice("hw", mode)
+
+    monkeypatch.setattr(p, "resolve_decode", _resolve)
+    seen = _run_capture(monkeypatch, _video(tmp_path))
+    assert modes == ["auto"]
+    assert seen["cfg"].use_qsv is True
+
+
+def test_run_detect_no_qsv_with_decode_hw_refuses(tmp_path, monkeypatch):
+    def _boom(src, mode):
+        raise AssertionError("resolve_decode не должен вызываться")
+
+    monkeypatch.setattr(p, "resolve_decode", _boom)
+    monkeypatch.setattr(p, "detect_scenes", _boom)
+    with pytest.raises(SystemExit):
+        p.run_detect(_base_args(input=_video(tmp_path), no_qsv=True, decode="hw"))
+
+
+def test_run_detect_auto_resolved_sw_gives_use_qsv_false(tmp_path, monkeypatch):
+    # решение главнее отсутствия --no-qsv (consensus 4)
+    monkeypatch.setattr(p, "resolve_decode", lambda src, mode: _choice("sw", mode))
+    seen = _run_capture(monkeypatch, _video(tmp_path), no_qsv=False, decode="auto")
+    assert seen["cfg"].use_qsv is False
+
+
+def test_run_detect_no_qsv_overrides_auto(tmp_path, monkeypatch):
+    modes = []
+
+    def _resolve(src, mode):
+        modes.append(mode)
+        return _choice("sw" if mode == "sw" else "hw", mode)
+
+    monkeypatch.setattr(p, "resolve_decode", _resolve)
+    seen = _run_capture(monkeypatch, _video(tmp_path), no_qsv=True, decode="auto")
+    assert modes == ["sw"]
+    assert seen["cfg"].use_qsv is False
+
+
+def test_run_detect_ready_choice_skips_resolve_and_log(tmp_path, monkeypatch, capsys):
+    def _boom(src, mode):
+        raise AssertionError("resolve_decode не должен вызываться")
+
+    monkeypatch.setattr(p, "resolve_decode", _boom)
+    seen = _run_capture(monkeypatch, _video(tmp_path), no_qsv=False,
+                        decode_choice=_choice("sw"))
+    assert seen["cfg"].use_qsv is False
+    assert "декод:" not in capsys.readouterr().err
+
+
+def test_run_detect_logs_decode_to_stderr_stdout_unchanged(tmp_path, monkeypatch, capsys):
+    video = _video(tmp_path)
+    _run_capture(monkeypatch, video, decode="sw")
+    out, err = capsys.readouterr()
+    assert "декод: " in err
+    assert "декод:" not in out
+    assert out.strip().splitlines()[-1] == f"{len(_SYNTHETIC_SCENES)} сцен -> {video}.scenes"
+
+
+def _no_qsvencc_env(monkeypatch):
+    """Настоящий resolve_decode; ffprobe даёт VC-1, qsvencc отсутствует."""
+    monkeypatch.setattr(p, "resolve_decode", decode_mod.resolve_decode)
+    monkeypatch.setattr(decode_mod, "probe_video_format",
+                        lambda src: ("vc1", "yuv420p", None))
+    decode_mod._decode_table_cached.cache_clear()
+
+    def _run(argv, *a, **kw):
+        if argv[0] == "qsvencc":
+            raise FileNotFoundError("qsvencc")
+        raise AssertionError(f"неожиданный вызов {argv}")
+
+    monkeypatch.setattr(decode_mod._proc, "run", _run)
+
+
+def test_run_detect_auto_without_qsvencc_refuses_before_detect(
+        tmp_path, monkeypatch):
+    _no_qsvencc_env(monkeypatch)
+    called = []
+    monkeypatch.setattr(p, "detect_scenes", lambda *a, **k: called.append(1))
+    out = tmp_path / "x.scenes"
+    try:
+        with pytest.raises(SystemExit) as ei:
+            p.run_detect(_base_args(input=_video(tmp_path), decode="auto", output=out))
+    finally:
+        decode_mod._decode_table_cached.cache_clear()
+    text = str(ei.value)
+    assert "qsvencc не найден" in text
+    assert "--decode hw" in text
+    assert called == []
+    assert not out.exists()
+
+
+def test_run_detect_explicit_sw_without_qsvencc_passes_without_query(
+        tmp_path, monkeypatch):
+    _no_qsvencc_env(monkeypatch)
+
+    def _no_query():
+        raise AssertionError("опрос qsvencc при явном --decode sw (D-04)")
+
+    monkeypatch.setattr(decode_mod, "query_hw_decoders", _no_query)
+    try:
+        seen = _run_capture(monkeypatch, _video(tmp_path), decode="sw")
+    finally:
+        decode_mod._decode_table_cached.cache_clear()
+    assert seen["cfg"].use_qsv is False

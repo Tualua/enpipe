@@ -10,7 +10,18 @@ legacy/scene_detection.py's __main__ его никогда не было (prefli
 только в encode_scenes.py's main()), поэтому его добавление сюда было бы
 изменением поведения. Отсутствие ffmpeg/ffprobe проявится как обычный
 FileNotFoundError из недр detect_scenes, ровно как в legacy, а не как
-аккуратный die()."""
+аккуратный die().
+
+ИЗМЕНЕНИЕ ПОВЕДЕНИЯ (фаза 10.1): раньше `enpipe detect` не зависел от
+qsvencc; теперь в режиме auto (дефолт, D-03) он спрашивает qsvencc
+(`--check-features`) и ffprobe, чтобы выбрать аппаратный или программный
+декод. При отсутствии qsvencc -- понятный отказ D-04 «qsvencc не найден …
+задайте --decode hw или --decode sw» до детекта и без .scenes; с явным
+`--decode hw|sw` qsvencc детекту не нужен. which-preflight по-прежнему нет
+(санкционированное отклонение выше не меняется). Известное ограничение
+(deferred): на VC-1 в mkv параллельный детект тихо уходит в
+последовательный (`keyframes_in_window` не видит `pts_time=N/A`), результат
+корректен."""
 
 from __future__ import annotations
 
@@ -20,6 +31,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from enpipe.shared.batch import iter_input_videos, run_batch
+from enpipe.shared.decode import decode_mode_from_args, describe_decode, resolve_decode
 from enpipe.shared.logging import die
 
 from .config import DetectionConfig
@@ -27,6 +39,9 @@ from .detect import detect_scenes
 
 
 def run_detect(args) -> None:
+    # fail-fast взаимоисключения --no-qsv/--decode hw (D-06) -- до батча
+    mode = decode_mode_from_args(args)
+
     # --- батч-ветка: args.input — директория (QUICK-260709-89t) --- #
     if args.input.is_dir():
         # -o одноместный: .scenes должен писаться РЯДОМ с каждым файлом
@@ -39,7 +54,9 @@ def run_detect(args) -> None:
             die("в папке нет видеофайлов")
 
         def process_one(v: Path) -> None:
-            run_detect(Namespace(**{**vars(args), "input": v, "output": None}))
+            # decode_choice=None: решение о декоде у каждого файла своё (D-05)
+            run_detect(Namespace(**{**vars(args), "input": v, "output": None,
+                                    "decode_choice": None}))
 
         def should_skip(v: Path):
             out_path = Path(str(v) + ".scenes")
@@ -58,9 +75,17 @@ def run_detect(args) -> None:
     else:
         msl_frames, msl_sec = 72, 3.0
 
+    # Решение о декоде -- до любой работы и до записи .scenes. Из `run` оно
+    # приходит готовым и уже залогированным (D-05). Строка идёт в stderr,
+    # чтобы не смешаться с парсибельной итоговой строкой stdout (D-12).
+    choice = getattr(args, "decode_choice", None)
+    if choice is None:
+        choice = resolve_decode(args.input, mode)
+        print(describe_decode(choice), file=sys.stderr, flush=True)
+
     cfg = DetectionConfig(
         analysis_width=args.width,
-        use_qsv=not args.no_qsv,
+        use_qsv=(choice.path == "hw"),
         qsv_device=args.qsv_device,
         adaptive_threshold=args.threshold,
         min_scene_len_frames=msl_frames,

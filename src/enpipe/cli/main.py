@@ -25,8 +25,13 @@ from enpipe.detection.pipeline import run_detect
 from enpipe.encoding.pipeline import JOBS as ENCODE_JOBS
 from enpipe.encoding.pipeline import _ensure_out_dir, resolve_output_path, run_encode
 from enpipe.shared.batch import iter_input_videos, run_batch
-from enpipe.shared.decode import DECODE_MODES
-from enpipe.shared.logging import die
+from enpipe.shared.decode import (
+    DECODE_MODES,
+    decode_mode_from_args,
+    describe_decode,
+    resolve_decode,
+)
+from enpipe.shared.logging import die, log
 from enpipe.shared.qsvencc_version import ensure_qsvencc_fixed
 
 DECODE_HELP = ("путь декода: auto — по таблице аппаратных декодеров GPU "
@@ -48,7 +53,16 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
     Извлечено из run_pipeline (QUICK-260709-89t) для переиспользования и
     одиночным путём, и батч-веткой директории — тело дословно то же, что
     было в run_pipeline до извлечения; which-preflight остаётся в
-    run_pipeline (делается один раз на весь батч, не на файл)."""
+    run_pipeline (делается один раз на весь батч, не на файл).
+
+    Решение о пути декода (D-05) принимается ЗДЕСЬ ОДИН РАЗ на файл и
+    передаётся значением: в обе стадии идут ДВА поля -- `decode` (запрошенный
+    режим из CLI, для совместимости и диагностики) и `decode_choice` (готовое
+    решение). Стадия, получившая `decode_choice`, не решает заново и не
+    печатает строку D-12 (её печатает этот вызов, до детекта). В батче
+    _pipeline_one вызывается на каждый файл, поэтому решение у каждого своё."""
+    choice = resolve_decode(video, decode_mode_from_args(args))
+    log(describe_decode(choice))
     detect_args = argparse.Namespace(
         input=video,
         output=scenes_path,
@@ -59,6 +73,8 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
         no_qsv=args.no_qsv,
         qsv_device=args.qsv_device,
         jobs=args.detect_jobs,
+        decode=args.decode,
+        decode_choice=choice,
     )
     run_detect(detect_args)
 
@@ -75,6 +91,8 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
         no_audio=args.no_audio,
         no_metrics=args.no_metrics,
         csv=args.csv,
+        decode=args.decode,
+        decode_choice=choice,
     )
     run_encode(encode_args)
 
@@ -99,6 +117,10 @@ def run_pipeline(args) -> None:
     # D-11: `enpipe run` обязан отказать на старом qsvencc ДО (долгой) стадии
     # детекта. Повторная проверка внутри run_encode -- намеренная (см. там).
     ensure_qsvencc_fixed()
+
+    # D-06: взаимоисключение --no-qsv/--decode hw -- fail-fast до батча и
+    # детекта (результат не нужен; функция чистая).
+    decode_mode_from_args(args)
 
     if args.out is not None and getattr(args, "out_dir", None) is not None:
         die("-o/--out и --out-dir взаимоисключающи: задайте только один")
@@ -157,7 +179,10 @@ def build_parser() -> argparse.ArgumentParser:
                            help="мин. длина сцены в КАДРАХ (приоритетнее секунд; дефолт 72)")
     detect_p.add_argument("--min-scene-len", type=float, default=None,
                            help="мин. длина сцены в секундах (если кадры не заданы; дефолт 3.0)")
-    detect_p.add_argument("--no-qsv", action="store_true", help="программный декод")
+    detect_p.add_argument("--no-qsv", action="store_true",
+                           help="устарел: то же, что --decode sw; вместе с --decode hw — ошибка")
+    detect_p.add_argument("--decode", choices=list(DECODE_MODES), default="auto",
+                           help=DECODE_HELP + "; auto требует qsvencc в PATH")
     detect_p.add_argument("--qsv-device", default=None)
     detect_p.add_argument("--jobs", type=int, default=4,
                            help="параллельных сегментов детекта (дефолт 4; 1 = последовательно)")
@@ -214,7 +239,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="мин. длина сцены в КАДРАХ (приоритетнее секунд; дефолт 72)")
     run_p.add_argument("--min-scene-len", type=float, default=None,
                         help="мин. длина сцены в секундах (если кадры не заданы; дефолт 3.0)")
-    run_p.add_argument("--no-qsv", action="store_true", help="программный декод")
+    run_p.add_argument("--no-qsv", action="store_true",
+                        help="устарел: то же, что --decode sw; вместе с --decode hw — ошибка")
+    run_p.add_argument("--decode", choices=list(DECODE_MODES), default="auto",
+                        help=DECODE_HELP + "; управляет и детектом, и энкодом")
     run_p.add_argument("--qsv-device", default=None)
     run_p.add_argument("--detect-jobs", type=int, default=4,
                         help="параллельных сегментов детекта (дефолт 4; 1 = последовательно)")

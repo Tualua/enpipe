@@ -94,3 +94,26 @@ def test_detect_empty_directory_dies(tmp_path):
 
     with pytest.raises(SystemExit):
         p.run_detect(args)
+
+
+def test_detect_batch_resets_stale_decode_choice(monkeypatch, tmp_path):
+    from enpipe.shared.decode import DecodeChoice
+
+    _touch(tmp_path / "a.mkv")
+    captured = {}
+    monkeypatch.setattr(
+        p, "run_batch",
+        lambda videos, process_one, label, should_skip=None:
+            captured.update(process_one=process_one))
+    stale = DecodeChoice(path="sw", mode="auto", codec="vc1", pix_fmt="yuv420p",
+                         field_order=None, reason="чужое решение")
+
+    real_run_detect = p.run_detect
+    real_run_detect(_base_args(input=tmp_path, decode_choice=stale))
+
+    seen = []
+    monkeypatch.setattr(p, "run_detect", lambda a: seen.append(a))
+    captured["process_one"](tmp_path / "a.mkv")
+
+    assert len(seen) == 1
+    assert seen[0].decode_choice is None

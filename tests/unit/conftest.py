@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 import enpipe.cli.main as cli_main
+import enpipe.detection.pipeline as det_pipeline
 import enpipe.encoding.pipeline as enc_pipeline
 from enpipe.shared.decode import DecodeChoice
 from enpipe.shared.qsvencc_version import QSVENCC_MIN_REV
@@ -49,3 +50,5 @@ def _stub_resolve_decode(monkeypatch: pytest.MonkeyPatch) -> None:
             reason="заглушка быстрого тира")
 
     monkeypatch.setattr(enc_pipeline, "resolve_decode", _resolve)
+    monkeypatch.setattr(cli_main, "resolve_decode", _resolve)
+    monkeypatch.setattr(det_pipeline, "resolve_decode", _resolve)

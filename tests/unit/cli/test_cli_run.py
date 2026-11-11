@@ -245,3 +245,100 @@ def test_qsvencc_real_gate_refuses_old_build_end_to_end(
 
     assert "r4634" in str(ei.value.code)
     assert calls == []
+
+
+# --- одно решение о декоде на файл (фаза 10.1, план 03) --- #
+
+def _spy_resolve(monkeypatch: pytest.MonkeyPatch):
+    from enpipe.shared.decode import DecodeChoice
+
+    calls = []
+
+    def _resolve(src, mode):
+        calls.append((src, mode))
+        return DecodeChoice(path="sw" if mode == "sw" else "hw", mode=mode,
+                            codec="hevc", pix_fmt="yuv420p10le",
+                            field_order=None, reason="шпион")
+
+    monkeypatch.setattr(cli_main, "resolve_decode", _resolve)
+    return calls
+
+
+def test_run_resolves_decode_once_and_shares_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    calls = _spy_resolve(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: captured.setdefault("detect", args))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: captured.setdefault("encode", args))
+
+    main(["run", "x.mkv", "--no-metrics"])
+
+    assert calls == [(Path("x.mkv"), "auto")]
+    assert captured["detect"].decode_choice is captured["encode"].decode_choice
+    assert captured["detect"].decode == captured["encode"].decode == "auto"
+
+
+def test_run_decode_resolved_before_detect(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    order: List[str] = []
+    calls = _spy_resolve(monkeypatch)
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: order.append(f"detect:{len(calls)}"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: None)
+
+    main(["run", "x.mkv", "--no-metrics"])
+
+    assert order == ["detect:1"]
+
+
+def test_run_no_qsv_means_sw(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    calls = _spy_resolve(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: captured.setdefault("detect", args))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: None)
+
+    main(["run", "x.mkv", "--no-metrics", "--no-qsv"])
+
+    assert [m for _, m in calls] == ["sw"]
+    assert captured["detect"].no_qsv is True
+
+
+def test_run_explicit_decode_sw(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    calls = _spy_resolve(monkeypatch)
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: None)
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: None)
+
+    main(["run", "x.mkv", "--no-metrics", "--decode", "sw"])
+
+    assert [m for _, m in calls] == ["sw"]
+
+
+def test_run_no_qsv_with_decode_hw_refuses_before_anything(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    calls = _spy_resolve(monkeypatch)
+    stages: List[str] = []
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: stages.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: stages.append("encode"))
+
+    with pytest.raises(SystemExit):
+        main(["run", "x.mkv", "--no-metrics", "--no-qsv", "--decode", "hw"])
+
+    assert calls == []
+    assert stages == []
+
+
+def test_run_decode_line_printed_exactly_once(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    _stub_all_tools_present(monkeypatch)
+    _spy_resolve(monkeypatch)
+    # стадии заглушены, но настоящие run_detect/run_encode не печатали бы
+    # строку повторно: у них готовое decode_choice (проверено выше)
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: None)
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: None)
+
+    main(["run", "x.mkv", "--no-metrics"])
+
+    captured = capsys.readouterr()
+    assert (captured.out + captured.err).count("декод:") == 1
