@@ -1461,6 +1461,10 @@ def _decode_pict_types(src: Path) -> List[str]:
     return [ln.strip().rstrip(",") for ln in res.stdout.splitlines() if ln.strip()]
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="qsvencc --avsw на VC-1: см. .planning/debug/HANDOFF-qsvencc-avsw-vc1-seek.md",
+)
 def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
     """D-08.2/D-09 spike: real VC-1 cut (ENPIPE_TEST_VC1) encoded with --avsw.
 
@@ -1539,3 +1543,26 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
         _df, _dl, edge_errors = _verify_chunk_edges(cut, chunks, total, tmp_path / "edges")
         errors += edge_errors
     assert not errors, "VC-1 --avsw chunk problems:\n" + "\n".join(errors)
+
+
+def test_run_auto_vc1_cut_refused(tmp_path: Path, capsys) -> None:
+    """refuse-handoff (10.1-04): `enpipe run` на куске VC-1 (авто-режим даёт sw)
+    отказывает сразу после решения о декоде: ссылка на handoff, детект не
+    запускался (.scenes не создан), энкод не стартовал (workdir не создан)."""
+    env = os.environ.get("ENPIPE_TEST_VC1")
+    cut = Path(env) if env else None
+    if cut is None or not cut.is_file():
+        pytest.skip(
+            "ENPIPE_TEST_VC1 не задан или файла нет -- кусок VC-1 даёт оператор "
+            "(см. tests/fixtures/media/README.md)"
+        )
+    scenes = tmp_path / "cut.scenes"
+    workdir = tmp_path / "wd"
+    with pytest.raises(SystemExit) as ei:
+        _enpipe_main(["run", str(cut), "--scenes", str(scenes),
+                      "-o", str(tmp_path / "out.mkv"), "--workdir", str(workdir),
+                      "--no-audio", "--no-metrics"])
+    assert "HANDOFF-qsvencc-avsw-vc1-seek" in str(ei.value)
+    assert capsys.readouterr().out.count("декод:") == 1
+    assert not scenes.exists()
+    assert not workdir.exists()
