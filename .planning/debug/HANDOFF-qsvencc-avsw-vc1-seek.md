@@ -1,5 +1,6 @@
 ---
-status: open
+status: resolved
+resolved: 2026-11-12 — исправлено в enpipe: перенумерация ключевых кадров по выводу декодера (10.1-09), доказано на B50 (10.1-10, 10.1-11)
 opened: 2026-11-11
 experiment_3: 2026-11-12 причина — нумерация ключевых кадров в enpipe (qsvencc при seek/trim от настоящего I-кадра даёт верные края)
 source: фаза 10.1, планы 10.1-05 (спайк) и 10.1-04 (отказ в enpipe)
@@ -109,6 +110,18 @@ ENPIPE_TEST_VC1="$DIR/fringe_s02e01_cut.mkv" uv run pytest -m hardware tests/int
 
 ## 6. Что снять в enpipe после фикса
 
-1. `AVSW_UNSAFE_CODECS` и `refuse_unsafe_avsw` в `src/enpipe/shared/decode.py`, их вызовы в `src/enpipe/encoding/pipeline.py` (`run_encode`) и `src/enpipe/cli/main.py` (`_pipeline_one`); юнит-тесты `refuse_unsafe_avsw` и `*_refuses_vc1_sw_*`.
-2. `xfail(strict=True)` у `test_chunk_edges_avsw_vc1` (после фикса он даст XPASS и как strict-провал сам напомнит об этом); `test_run_auto_vc1_cut_refused` заменить сквозным `test_run_auto_vc1_cut`.
-3. Прогнать UAT D-10 (полный Fringe S02E01) из `10.1-HUMAN-UAT.md`.
+1. `AVSW_UNSAFE_CODECS` и `refuse_unsafe_avsw` -- **выполнено частично (10.1-11, решение оператора 2026-11-12):** отказ снят для `vc1` и `vc1image`; механизм отказа НЕ удалён, `AVSW_UNSAFE_CODECS = {"wmv3"}` (края чанков `wmv3` не проверены); юнит-тесты отказа параметризованы по `wmv3`.
+2. `xfail(strict=True)` у `test_chunk_edges_avsw_vc1` -- **выполнено:** снят в 10.1-10; `test_run_auto_vc1_cut_refused` заменён сквозным `test_run_auto_vc1_cut` (10.1-11).
+3. Прогнать UAT D-10 (полный Fringe S02E01) из `10.1-HUMAN-UAT.md` -- **вынесено в 10.1-12.**
+
+---
+
+## 7. Исправление
+
+**Что изменено.** Причина -- нумерация ключевых кадров в enpipe (§3.1), qsvencc исправен. В `src/enpipe/encoding/keyframes.py` (10.1-09) ключевые кадры для VC-1 берутся по выводу декодера (`keyframe_table_decoder_order`, `decoded_i_frames`), а не по номерам блоков Cues; `run_encode` перенумеровывает таблицу и логирует `ключевые кадры по выводу декодера`. Область и источник позиций -- ответы оператора, записаны в 10.1-09-SUMMARY.md.
+
+**Доказательства (Arc B50, r4677, `--avsw`).**
+- 10.1-10: `-k edges_avsw_vc1` -- 1 passed, все 7 чанков `first=ok last=ok`; эксперимент §3 -- `оракул == production-таблица`, вывод «нумерация enpipe».
+- 10.1-11: сквозной `enpipe run` на куске -- rc 0, `склейка: 716 кадров (совпало с суммой сцен)`, 716 видеопакетов; `-k "run_auto_vc1_cut or edges_avsw_vc1"` -- см. 10.1-11-SUMMARY.md.
+
+**Остаток.** `wmv3` по `--avsw` по-прежнему отказывает; `vc1image` допущен без замера (тестового файла нет), края его чанков не проверены.

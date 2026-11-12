@@ -1807,18 +1807,42 @@ def test_vc1_seek_experiment_true_keyframes(tmp_path: Path) -> None:
         "номер кадра; qsvencc при seek/trim от настоящего I-кадра выдаёт верные края)")
 
 
-def test_run_auto_vc1_cut_refused(tmp_path: Path, capsys) -> None:
-    """refuse-handoff (10.1-04): `enpipe run` на куске VC-1 (авто-режим даёт sw)
-    отказывает сразу после решения о декоде: ссылка на handoff, детект не
-    запускался (.scenes не создан), энкод не стартовал (workdir не создан)."""
+def test_run_auto_vc1_cut(tmp_path: Path, capsys) -> None:
+    """End-to-end production `enpipe run` on the real VC-1 cut (auto mode picks
+    sw): detect -> decoder-order renumbering -> --avsw chunks -> mkv. The
+    decode line is printed once, the scene list covers the whole cut, the
+    output has one video packet per source frame, and the first and last frame
+    of EVERY chunk the production run produced match source frames S and E-1."""
     cut = _vc1_cut_or_skip()
     scenes = tmp_path / "cut.scenes"
     workdir = tmp_path / "wd"
-    with pytest.raises(SystemExit) as ei:
-        _enpipe_main(["run", str(cut), "--scenes", str(scenes),
-                      "-o", str(tmp_path / "out.mkv"), "--workdir", str(workdir),
-                      "--no-audio", "--no-metrics"])
-    assert "HANDOFF-qsvencc-avsw-vc1-seek" in str(ei.value)
-    assert capsys.readouterr().out.count("декод:") == 1
-    assert not scenes.exists()
-    assert not workdir.exists()
+    out = tmp_path / "out.mkv"
+    try:
+        _enpipe_main(["run", str(cut), "--scenes", str(scenes), "-o", str(out),
+                      "--workdir", str(workdir), "--keep", "--no-metrics"])
+    except SystemExit as ex:
+        if ex.code not in (None, 0):
+            pytest.fail(f"enpipe run exited with {ex.code!r}")
+    stdout = capsys.readouterr().out
+    assert stdout.count("декод:") == 1
+    assert "ключевые кадры по выводу декодера" in stdout
+
+    sc = read_scenes(scenes)
+    total = len(_decode_pict_types(cut))
+    if sc[-1][1] != total:
+        pytest.fail(f"scenes end at {sc[-1][1]}, source has {total} frames")
+    r = subprocess.run(
+        [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0", "-count_packets",
+         "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(out)],
+        capture_output=True, text=True, check=True)
+    assert int(r.stdout.strip()) == total
+
+    chunks = [(s, e, workdir / f"chunk_{i:05d}.obu", e - s)
+              for i, (s, e) in enumerate(sc)]
+    errors, inconclusive, _bests = _verify_chunk_edges(
+        cut, chunks, total, tmp_path / "edges")
+    assert not errors, "VC-1 run chunk edge mismatch:\n" + "\n".join(errors)
+    if inconclusive:
+        pytest.fail(
+            "inconclusive edges, a one-frame shift is not ruled out:\n"
+            + "\n".join(inconclusive))
