@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: executing
-stopped_at: Completed 10.1-06-PLAN.md
-last_updated: "2026-11-12T02:15:41.066Z"
+stopped_at: Completed 10.1-07-PLAN.md
+last_updated: "2026-11-12T02:21:49.672Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 10.1 execution started
-state_head: 174902a75437606c5e0f0f8cbe18a1e53467c8ad
+state_head: bc36d84c101e522cadcaa13595e58e059364ba07
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 32
+  completed_plans: 33
   percent: 33
 ---
 
@@ -51,6 +51,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Phase 10.1 P05 | 60 min | 3 tasks | 2 files |
 | Phase 10.1 P04 | 55min | 3 tasks | 9 files |
 | Phase 10.1 P06 | 15min | 3 tasks | 9 files |
+| Phase 10.1 P07 | 25min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10.1]: 10.1-05: VC-1 --avsw spike - chunk content shifted by diff(K) (Cues vs decode); operator chose refuse-handoff (handoff + loud refusal in 10.1-04); hypothesis to verify: cause may be enpipe Cues numbering, not qsvencc decode
 - [Phase 10.1]: 10.1-04: выполнена ветка refuse-handoff; VC-1 по --avsw закрыт refuse_unsafe_avsw (в т.ч. при явном --decode sw), --decode hw не отказывается заранее; причина сдвига (нумерация K по Cues в enpipe vs qsvencc) не доказана
 - [Phase 10.1]: 10.1-06: deny-list расширен на семейство VC-1 (vc1, wmv3, vc1image); chunk_command decode обязателен keyword-only
+- [Phase 10.1]: 10.1-07: nearest_frame_verdict three-valued; inconclusive never ok, synthetic fails on any inconclusive; VC-1 xfail raises=AssertionError
 
 ### Pending Todos
 
@@ -174,8 +176,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-12T02:15:40.728Z
-Stopped at: Completed 10.1-06-PLAN.md
+Last session: 2026-11-12T02:21:49.353Z
+Stopped at: Completed 10.1-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
