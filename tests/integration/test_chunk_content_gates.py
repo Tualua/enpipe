@@ -88,35 +88,53 @@ def test_parse_psnr_average_no_match() -> None:
 # --- nearest_frame_verdict (D-09) ---------------------------------------------- #
 
 
+OK = content.VERDICT_OK
+FAIL = content.VERDICT_FAIL
+INCONCLUSIVE = content.VERDICT_INCONCLUSIVE
+
+
 @pytest.mark.parametrize(
-    "center, neighbors, expect_err, expect_disc, err_word",
+    "center, neighbors, status, word",
     [
         # центр: чанк ближе к центру, соседи отличимы
-        (42.0, {-1: (31.0, 30.0), 1: (30.5, 29.0)}, False, True, None),
+        (42.0, {-1: (31.0, 30.0), 1: (30.5, 29.0)}, OK, None),
         # сдвиг +1: чанк ближе к соседу +1
-        (32.0, {1: (41.0, 31.5)}, True, True, "+1"),
+        (32.0, {1: (41.0, 31.5)}, FAIL, "+1"),
         # сдвиг -1: отличим только отрицательный сосед и чанк к нему ближе
-        (32.0, {-1: (41.0, 31.5), 1: (30.0, 44.0)}, True, True, "-1"),
+        (32.0, {-1: (41.0, 31.5), 1: (30.0, 44.0)}, FAIL, "-1"),
         # ниже пола
-        (25.0, {}, True, False, str(content.FLOOR_DB)),
-        # статика: соседи неотличимы
-        (40.0, {-1: (39.5, 45.0)}, False, False, None),
+        (25.0, {}, FAIL, str(content.FLOOR_DB)),
+        # статика: соседи неотличимы -> раньше молча ok (WR-04)
+        (40.0, {-1: (39.5, 45.0)}, INCONCLUSIVE, None),
         # идеальное совпадение
-        (INF, {1: (30.0, 30.0)}, False, True, None),
+        (INF, {1: (30.0, 30.0)}, OK, None),
         # ничья с отличимым соседом
-        (40.0, {1: (40.0, 20.0)}, True, True, "+1"),
+        (40.0, {1: (40.0, 20.0)}, FAIL, "+1"),
+        # почти-ничья из ревью: сосед неотличим, сдвиг не исключён
+        (37.0, {1: (36.5, 34.0)}, INCONCLUSIVE, None),
+        # отличимый сосед -1 в порядке, но чанк ближе к неотличимому +1
+        (40.0, {-1: (31.0, 30.0), 1: (41.0, 44.0)}, INCONCLUSIVE, "+1"),
+        # всё идентично: различить нечем
+        (INF, {1: (INF, INF)}, INCONCLUSIVE, None),
+        # соседей нет вовсе
+        (40.0, {}, INCONCLUSIVE, None),
     ],
-    ids=["center", "shift+1", "shift-1", "floor", "static", "perfect", "tie"],
+    ids=[
+        "center", "shift+1", "shift-1", "floor", "static", "perfect", "tie",
+        "near-tie", "hidden-shift", "all-identical", "no-neighbours",
+    ],
 )
 def test_nearest_frame_verdict(
     center: float,
     neighbors: dict,
-    expect_err: bool,
-    expect_disc: bool,
-    err_word: Optional[str],
+    status: str,
+    word: Optional[str],
 ) -> None:
-    err, disc = content.nearest_frame_verdict(center, neighbors)
-    assert (err is not None) == expect_err, err
-    assert disc is expect_disc
-    if err_word is not None:
-        assert err_word in err
+    got, msg = content.nearest_frame_verdict(center, neighbors)
+    assert got == status, msg
+    if status == OK:
+        assert msg is None
+    else:
+        assert isinstance(msg, str) and msg
+    if word is not None:
+        assert word in msg

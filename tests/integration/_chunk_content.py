@@ -52,6 +52,11 @@ FLOOR_DB = 30.0
 # The correct frame must be clearly closer than the "next GOP" frame.
 MARGIN_DB = 3.0
 
+# Outcomes of nearest_frame_verdict (WR-04: three-valued, never a silent ok).
+VERDICT_OK = "ok"
+VERDICT_FAIL = "fail"
+VERDICT_INCONCLUSIVE = "inconclusive"
+
 _AVG_RE = re.compile(r"average:(inf|[\d.]+)")
 _PTS_RE = re.compile(r"pts_time:\s*(-?[\d.]+)")
 
