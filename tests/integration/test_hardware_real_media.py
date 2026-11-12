@@ -1468,7 +1468,13 @@ def _decode_pict_types(src: Path) -> List[str]:
 
 @pytest.mark.xfail(
     strict=True,
-    reason="qsvencc --avsw на VC-1: см. .planning/debug/HANDOFF-qsvencc-avsw-vc1-seek.md",
+    raises=AssertionError,
+    reason=(
+        "qsvencc --avsw на VC-1: см. .planning/debug/HANDOFF-qsvencc-avsw-vc1-seek.md; "
+        "XFAIL засчитывается только для assert содержимого краёв (сдвиг ±1), "
+        "всё прочее (ошибки кодирования, inconclusive-края, предусловия) -- FAILED "
+        "(WR-03)"
+    ),
 )
 def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
     """D-08.2/D-09 spike: real VC-1 cut (ENPIPE_TEST_VC1) encoded with --avsw.
@@ -1478,7 +1484,13 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
     difference class (and mid-GOP) every chunk is encoded directly via
     chunk_command(decode="sw") + encode_chunk, bypassing run_encode so per-chunk
     diagnostics survive a frame-count mismatch; then the first and last frame of
-    every chunk are compared with source frames S and E-1 (nearest by PSNR)."""
+    every chunk are compared with source frames S and E-1 (nearest by PSNR).
+
+    Outcomes (WR-03): XFAIL means exactly "chunk edge content is shifted" -- the
+    single `assert` below, raised as AssertionError. Everything else is FAILED
+    via pytest.fail (Failed is not an AssertionError): encoding errors (rc,
+    frame count), inconclusive edges (not a confirmed shift) and preconditions;
+    ffmpeg/ffprobe errors are CalledProcessError/RuntimeError, also FAILED."""
     env = os.environ.get("ENPIPE_TEST_VC1")
     cut = Path(env) if env else None
     if cut is None or not cut.is_file():
@@ -1527,7 +1539,7 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
 
     hdr = detect_hdr(cut)
     chunks: List[Tuple[int, int, Path, int]] = []
-    errors: List[str] = []
+    enc_errors: List[str] = []
     for i, s in enumerate(starts):
         e = starts[i + 1] if i + 1 < len(starts) else total
         seek, trim = compute_chunk_seek_trim(table, s, e)
@@ -1540,14 +1552,18 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
             f"seek={seek} trim={trim} frames={got}/{e - s} err={err}"
         )
         if err is not None:
-            errors.append(f"chunk {i} [{s},{e}) K={k}: {err}")
+            enc_errors.append(f"chunk {i} [{s},{e}) K={k}: {err}")
         if got > 0:
             chunks.append((s, e, cp, got))
 
-    if chunks:
-        edge_errors, _inconclusive, _bests = _verify_chunk_edges(cut, chunks, total, tmp_path / "edges")
-        errors += edge_errors
-    assert not errors, "VC-1 --avsw chunk problems:\n" + "\n".join(errors)
+    if enc_errors:
+        pytest.fail("VC-1 --avsw encoding errors (not a content shift):\n" + "\n".join(enc_errors))
+    edge_errors, inconclusive, _bests = _verify_chunk_edges(cut, chunks, total, tmp_path / "edges")
+    if inconclusive:
+        pytest.fail(
+            "inconclusive edges, a one-frame shift is not ruled out:\n"
+            + "\n".join(inconclusive))
+    assert not edge_errors, "VC-1 --avsw chunk edge mismatch:\n" + "\n".join(edge_errors)
 
 
 def test_run_auto_vc1_cut_refused(tmp_path: Path, capsys) -> None:
