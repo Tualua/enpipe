@@ -344,14 +344,33 @@ def test_run_decode_line_printed_exactly_once(
     assert (captured.out + captured.err).count("декод:") == 1
 
 
-def test_run_refuses_vc1_sw_before_detect(monkeypatch: pytest.MonkeyPatch) -> None:
-    """refuse-handoff (10.1-04): vc1 по --avsw -- отказ в _pipeline_one до детекта."""
+def _sw_choice(codec):
     from enpipe.shared.decode import DecodeChoice
 
+    return lambda src, mode: DecodeChoice(
+        path="sw", mode=mode, codec=codec, pix_fmt="yuv420p",
+        field_order=None, reason="заглушка")
+
+
+def test_run_vc1_sw_reaches_detect_and_encode(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    """10.1-11: vc1 на sw больше не отказывает: детект, затем энкод."""
     _stub_all_tools_present(monkeypatch)
-    monkeypatch.setattr(cli_main, "resolve_decode", lambda src, mode: DecodeChoice(
-        path="sw", mode=mode, codec="vc1", pix_fmt="yuv420p",
-        field_order=None, reason="заглушка"))
+    monkeypatch.setattr(cli_main, "resolve_decode", _sw_choice("vc1"))
+    calls: List[str] = []
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))
+
+    main(["run", "x.mkv", "--no-metrics"])
+
+    assert calls == ["detect", "encode"]
+    assert (capsys.readouterr().out).count("декод:") == 1
+
+
+def test_run_refuses_wmv3_sw_before_detect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Отказ (10.1-04, 10.1-11): wmv3 по --avsw -- отказ в _pipeline_one до детекта."""
+    _stub_all_tools_present(monkeypatch)
+    monkeypatch.setattr(cli_main, "resolve_decode", _sw_choice("wmv3"))
     calls: List[str] = []
     monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
     monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))

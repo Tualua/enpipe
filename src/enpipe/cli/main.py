@@ -64,8 +64,9 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
     _pipeline_one вызывается на каждый файл, поэтому решение у каждого своё."""
     choice = resolve_decode(video, decode_mode_from_args(args))
     log(describe_decode(choice))
-    # VC-1 по --avsw закрыт (10.1-05, refuse-handoff): отказ ДО детекта,
-    # чтобы не тратить ~16 мин на то, что потом нельзя кодировать.
+    # wmv3 по --avsw закрыт (10.1-11, решение оператора): отказ ДО детекта,
+    # чтобы не тратить ~16 мин на то, что потом нельзя кодировать. vc1 и
+    # vc1image кодируются (перенумерация ключевых кадров, 10.1-09).
     refuse_unsafe_avsw(video, choice)
     detect_args = argparse.Namespace(
         input=video,

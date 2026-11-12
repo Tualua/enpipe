@@ -188,8 +188,9 @@ def run_encode(args) -> None:
     if choice is None:
         choice = resolve_decode(args.video, decode_mode_from_args(args))
         log(describe_decode(choice))
-    # Решение оператора по VC-1 (10.1-05): отказ до workdir и первого чанка,
-    # и для готового решения из `run`, и для только что принятого.
+    # Закрыты wmv3 (10.1-11, решение оператора): отказ до workdir и первого
+    # чанка, и для готового решения из `run`, и для только что принятого.
+    # vc1 кодируется: перенумерация ключевых кадров (10.1-09) ниже.
     refuse_unsafe_avsw(args.video, choice)
 
     out_base = _ensure_out_dir(args)

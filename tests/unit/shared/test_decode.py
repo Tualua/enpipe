@@ -218,24 +218,28 @@ def _choice(path, codec):
                         field_order=None, reason="тест")
 
 
-_VC1_FAMILY = ["vc1", "wmv3", "vc1image"]
+_UNMEASURED = ["wmv3"]
 
 
-def test_unsafe_codecs_is_vc1_family():
-    assert AVSW_UNSAFE_CODECS == frozenset({"vc1", "wmv3", "vc1image"})
+def test_unsafe_codecs_is_unmeasured_vc1_family():
+    assert AVSW_UNSAFE_CODECS == frozenset({"wmv3"})
 
 
-@pytest.mark.parametrize("codec", _VC1_FAMILY)
-def test_refuse_unsafe_avsw_vc1_family_sw_dies(codec):
+@pytest.mark.parametrize("codec", _UNMEASURED)
+def test_refuse_unsafe_avsw_unmeasured_sw_dies(codec):
     with pytest.raises(SystemExit) as ei:
         refuse_unsafe_avsw(Path("a.mkv"), _choice("sw", codec))
     msg = str(ei.value)
     assert "HANDOFF-qsvencc-avsw-vc1-seek.md" in msg
     assert codec in msg
-    assert "VC-1" in msg
+    assert "баг" not in msg
 
 
-@pytest.mark.parametrize("codec", _VC1_FAMILY)
+def test_refuse_unsafe_avsw_vc1_sw_passes():
+    assert refuse_unsafe_avsw(Path("a.mkv"), _choice("sw", "vc1")) is None
+
+
+@pytest.mark.parametrize("codec", ["vc1", "wmv3", "vc1image"])
 def test_refuse_unsafe_avsw_vc1_family_hw_passes(codec):
     assert refuse_unsafe_avsw(Path("a.mkv"), _choice("hw", codec)) is None
 

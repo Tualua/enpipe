@@ -421,9 +421,9 @@ def test_run_encode_explicit_sw_does_not_query_qsvencc(tmp_path, monkeypatch):
     assert all(cmd[3] == "--avsw" for cmd in built)
 
 
-@pytest.mark.parametrize("codec", ["vc1", "wmv3", "vc1image"])
-def test_run_encode_refuses_vc1_sw_before_workdir(tmp_path, monkeypatch, codec):
-    """refuse-handoff (10.1-04/06): семейство VC-1 по --avsw -- отказ до workdir и до chunk_command."""
+@pytest.mark.parametrize("codec", ["wmv3"])
+def test_run_encode_refuses_unmeasured_vc1_family_sw_before_workdir(tmp_path, monkeypatch, codec):
+    """Отказ (10.1-04/06, 10.1-11): wmv3 по --avsw -- отказ до workdir и до chunk_command."""
     from enpipe.shared.decode import DecodeChoice
 
     video = tmp_path / "source.mkv"
@@ -453,7 +453,7 @@ def test_run_encode_refuses_vc1_sw_before_workdir(tmp_path, monkeypatch, codec):
 
 # --- перенумерация ключевых кадров по выводу декодера (10.1-09) --- #
 
-def _vc1_env(tmp_path, monkeypatch, decoded, codec="vc1"):
+def _vc1_env(tmp_path, monkeypatch, decoded, codec="vc1", path="hw"):
     from enpipe.shared.decode import DecodeChoice
     import enpipe.encoding.keyframes as kf
 
@@ -461,7 +461,7 @@ def _vc1_env(tmp_path, monkeypatch, decoded, codec="vc1"):
     scenes = [(0, 72), (72, 100)]
     args, built = _wiring_env(
         tmp_path, monkeypatch,
-        decode_choice=DecodeChoice(path="hw", mode="auto", codec=codec,
+        decode_choice=DecodeChoice(path=path, mode="auto", codec=codec,
                                    pix_fmt="yuv420p", field_order=None,
                                    reason="тест"))
     monkeypatch.setattr(p, "keyframe_table", lambda src, fps: cues)
@@ -488,6 +488,16 @@ def test_run_encode_vc1_seek_trim_from_decoder_order(tmp_path, monkeypatch, caps
     second = next(c for c in built if "chunk_00001" in " ".join(map(str, c)))
     assert _arg(second, "--seek") == "00:00:02.002"
     assert _arg(second, "--trim") == "24:51"
+    assert "ключевые кадры по выводу декодера" in capsys.readouterr().out
+
+
+def test_run_encode_vc1_sw_reaches_chunk_command(tmp_path, monkeypatch, capsys):
+    """10.1-11: vc1 на sw больше не отказывает: перенумерация, workdir, все argv с --avsw."""
+    args, built, calls = _vc1_env(tmp_path, monkeypatch, decoded=100, path="sw")
+    p.run_encode(args)
+    assert len(calls) == 1
+    assert args.workdir.exists()
+    assert built and all(cmd[3] == "--avsw" for cmd in built)
     assert "ключевые кадры по выводу декодера" in capsys.readouterr().out
 
 
