@@ -8,7 +8,15 @@ EBML/Cues-парсер вынесен в изолированный, чисты�
 enpipe.mkv.ebml (D-01/D-02, фаза 2, DEBT-01): keyframe_table_cues здесь —
 тонкая I/O-обёртка (stat/open/seek/read), которая вызывает ebml.
 find_cues_position/peek_element_header/parse_cues_body для самого байтового
-разбора."""
+разбора.
+
+Перенумерация по выводу декодера (фаза 10.1, план 09). У VC-1 блоки в mkv идут
+в порядке декодирования, поэтому `round(время Cues * fps)` расходится с позицией
+I-кадра в выводе декодера на ±1 (handoff §3.1, эксперимент 10.1-08). Детект
+нумерует кадры по выводу декодера, и qsvencc `--trim` считает свои выходные
+кадры так же. Для выбранных кодеков номер ключевого кадра берётся из вывода
+декодера, а время seek остаётся из Cues: эксперимент показал, что qsvencc
+приземляется на нужный I-кадр. Любая неясность — громкий отказ, не догадка."""
 
 from __future__ import annotations
 
@@ -18,6 +26,12 @@ from typing import List, Optional, Tuple
 from enpipe.mkv import ebml as _ebml
 from enpipe.shared import proc as _proc
 from enpipe.shared.logging import die, log
+
+# Решение оператора (10.1-09, Task 1): `vc1-family` — только семейство VC-1 по
+# codec_name, на любом пути декода. Остальные кодеки проходят без лишнего декода.
+DECODER_ORDER_CODECS = frozenset({"vc1", "wmv3", "vc1image"})
+# Окно поиска I-кадра вокруг номера Cues; не расширять (расхождение ≤ ±1).
+RENUMBER_WINDOW = 2
 
 
 def keyframe_table_cues(src: Path, fps: float) -> Optional[List[Tuple[int, float]]]:
@@ -120,3 +134,77 @@ def compute_chunk_seek_trim(table: List[Tuple[int, float]], s: int, e: int) -> T
     seek = fmt_seek(kf_time)
     trim = f"{s - kf_frame}:{e - 1 - kf_frame}"
     return seek, trim
+
+
+# --- нумерация по выводу декодера (10.1-09) ----------------------------------- #
+
+
+def needs_decoder_order(codec: str) -> bool:
+    """Нужна ли перенумерация ключевых кадров по выводу декодера (решение
+    оператора Task 1: семейство VC-1)."""
+    return codec in DECODER_ORDER_CODECS
+
+
+def decoded_i_frames(src: Path) -> Tuple[List[int], int]:
+    """Позиции I-кадров в выводе декодера и общее число кадров.
+
+    Решение оператора Task 2: отдельный проход `ffprobe -show_frames`
+    (полный программный декод; ~86 к/с)."""
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+           "-show_frames", "-show_entries", "frame=pict_type",
+           "-of", "csv=p=0", str(src)]
+    proc = _proc.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        tail = proc.stderr.strip()[-500:]
+        die(f"ffprobe (позиции I-кадров) упал: {tail}")
+    types = [ln.strip().rstrip(",") for ln in proc.stdout.splitlines()
+             if ln.strip()]
+    if not types:
+        die("ffprobe (позиции I-кадров) не вернул ни одного кадра")
+    return [i for i, t in enumerate(types) if t == "I"], len(types)
+
+
+def renumber_to_decoder_order(
+    table: List[Tuple[int, float]],
+    i_positions: List[int],
+    window: int = RENUMBER_WINDOW,
+) -> List[Tuple[int, float]]:
+    """Номера ключевых кадров Cues -> позиции I-кадров в выводе декодера.
+
+    Время (Cues) не меняется, меняется только номер. ValueError: нет I-кадра
+    в ±window, ничья, нестрогое возрастание, кадр 0 не отображается в 0."""
+    out: List[Tuple[int, float]] = []
+    for k, t in table:
+        near = [q for q in i_positions if abs(q - k) <= window]
+        if not near:
+            raise ValueError(
+                f"нет I-кадра в пределах ±{window} от ключевого кадра Cues {k}")
+        best = min(abs(q - k) for q in near)
+        tied = sorted({q for q in near if abs(q - k) == best})
+        if len(tied) > 1:
+            raise ValueError(
+                f"неоднозначный I-кадр для ключевого кадра Cues {k}: {tied}")
+        out.append((tied[0], t))
+    for (a, _), (b, _) in zip(out, out[1:]):
+        if b <= a:
+            raise ValueError(
+                f"перенумерованные ключевые кадры не строго возрастают: {a} -> {b}")
+    if not out or out[0][0] != 0:
+        raise ValueError(
+            "ключевой кадр 0 не отображается в позицию 0 "
+            f"(получено {out[0][0] if out else 'пусто'})")
+    return out
+
+
+def keyframe_table_decoder_order(
+    src: Path, table: List[Tuple[int, float]],
+) -> Tuple[List[Tuple[int, float]], int, int]:
+    """(новая таблица, кадров декода, сколько номеров изменилось)."""
+    i_pos, decoded = decoded_i_frames(src)
+    try:
+        new = renumber_to_decoder_order(table, i_pos)
+    except ValueError as ex:
+        die(f"{src.name}: нумерация ключевых кадров по выводу декодера "
+            f"неоднозначна: {ex}; кодирование остановлено")
+    shifted = sum(1 for (a, _), (b, _) in zip(table, new) if a != b)
+    return new, decoded, shifted

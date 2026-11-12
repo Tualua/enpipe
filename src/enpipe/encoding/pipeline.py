@@ -44,6 +44,8 @@ from .hdr import detect_hdr
 from .keyframes import (
     compute_chunk_seek_trim,
     keyframe_table,
+    keyframe_table_decoder_order,
+    needs_decoder_order,
 )
 from .metrics import format_total_line, write_metrics_csv
 from .scenes_io import read_scenes
@@ -213,6 +215,18 @@ def run_encode(args) -> None:
     with step("чтение keyframe-таблицы источника"):
         table = keyframe_table(args.video, fps)
     log(f">> keyframe'ов в источнике: {len(table)}")
+
+    # У VC-1 номер по времени Cues расходится с позицией I-кадра в выводе
+    # декодера на ±1 (handoff §3.1). Решения оператора 10.1-09: область —
+    # семейство VC-1 (Task 1), позиции — отдельный проход ffprobe (Task 2).
+    if needs_decoder_order(choice.codec):
+        with step(f"номера ключевых кадров по выводу декодера ({choice.codec})"):
+            table, decoded, shifted = keyframe_table_decoder_order(args.video, table)
+        log(f">> ключевые кадры по выводу декодера: перенумеровано {shifted} "
+            f"из {len(table)}, кадров декода {decoded}")
+        if scenes_all and decoded != scenes_all[-1][1]:
+            die(f"кадров декода {decoded}, а конец последней сцены "
+                f"{scenes_all[-1][1]}: нумерация детекта и декодера расходится — стоп")
 
     # open-GOP источники (RASL/RADL) режутся корректно начиная с qsvencc r4665
     # (8.32-vppsync7, фикс #6); это гарантирует глобальный гейт

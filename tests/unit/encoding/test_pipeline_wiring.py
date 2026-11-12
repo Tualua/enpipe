@@ -449,3 +449,66 @@ def test_run_encode_refuses_vc1_sw_before_workdir(tmp_path, monkeypatch, codec):
     chunk_cmd.assert_not_called()
     assert not workdir.exists()
     assert not out.parent.joinpath("out.mkv").exists()
+
+
+# --- перенумерация ключевых кадров по выводу декодера (10.1-09) --- #
+
+def _vc1_env(tmp_path, monkeypatch, decoded, codec="vc1"):
+    from enpipe.shared.decode import DecodeChoice
+    import enpipe.encoding.keyframes as kf
+
+    cues = [(0, 0.0), (48, 2.0021), (72, 3.003)]
+    scenes = [(0, 72), (72, 100)]
+    args, built = _wiring_env(
+        tmp_path, monkeypatch,
+        decode_choice=DecodeChoice(path="hw", mode="auto", codec=codec,
+                                   pix_fmt="yuv420p", field_order=None,
+                                   reason="тест"))
+    monkeypatch.setattr(p, "keyframe_table", lambda src, fps: cues)
+    monkeypatch.setattr(p, "read_scenes", lambda path: list(scenes))
+    monkeypatch.setattr(p, "count_frames", lambda path: 100)
+    calls = []
+
+    def _i_frames(src):
+        calls.append(src)
+        return [0, 48, 73], decoded
+
+    monkeypatch.setattr(kf, "decoded_i_frames", _i_frames)
+    return args, built, calls
+
+
+def _arg(cmd, flag):
+    return cmd[cmd.index(flag) + 1]
+
+
+def test_run_encode_vc1_seek_trim_from_decoder_order(tmp_path, monkeypatch, capsys):
+    args, built, calls = _vc1_env(tmp_path, monkeypatch, decoded=100)
+    p.run_encode(args)
+    assert len(calls) == 1
+    second = next(c for c in built if "chunk_00001" in " ".join(map(str, c)))
+    assert _arg(second, "--seek") == "00:00:02.002"
+    assert _arg(second, "--trim") == "24:51"
+    assert "ключевые кадры по выводу декодера" in capsys.readouterr().out
+
+
+def test_run_encode_vc1_decoded_count_mismatch_dies(tmp_path, monkeypatch):
+    args, built, _ = _vc1_env(tmp_path, monkeypatch, decoded=99)
+    with pytest.raises(SystemExit) as ei:
+        p.run_encode(args)
+    assert "99" in str(ei.value) and "100" in str(ei.value)
+    assert built == []
+
+
+def test_run_encode_hevc_skips_decoder_order(tmp_path, monkeypatch):
+    args, built, _ = _vc1_env(tmp_path, monkeypatch, decoded=100, codec="hevc")
+    import enpipe.encoding.keyframes as kf
+
+    def _boom(src):
+        raise AssertionError("decoded_i_frames не должна вызываться")
+
+    monkeypatch.setattr(kf, "decoded_i_frames", _boom)
+    cues = [(0, 0.0), (48, 2.0021), (72, 3.003)]
+    p.run_encode(args)
+    second = next(c for c in built if "chunk_00001" in " ".join(map(str, c)))
+    seek, trim = compute_chunk_seek_trim(cues, 72, 100)
+    assert (_arg(second, "--seek"), _arg(second, "--trim")) == (seek, trim)
