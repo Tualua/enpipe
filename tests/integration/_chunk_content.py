@@ -183,6 +183,36 @@ def nearest_frame_verdict(
     return VERDICT_OK, None
 
 
+def true_keyframe_table(
+    table: List[Tuple[int, float]],
+    i_positions: List[int],
+    window: int = 2,
+) -> List[Tuple[int, float]]:
+    """Map Cues key-frame numbers to real I-frame positions in decoder output.
+
+    ONLY for the handoff section 3 experiment (plan 10.1-08): it tests the
+    hypothesis "frame number derived from the Cues time != I-frame position in
+    decoder output order". This is NOT production numbering and NOT a fix.
+    The Cues time is kept; only the frame number changes. Raises ValueError if
+    no I-frame lies within +-window of a number, if two are equally near, or
+    if the result is not strictly increasing."""
+    out: List[Tuple[int, float]] = []
+    for k, t in table:
+        near = [p for p in i_positions if abs(p - k) <= window]
+        if not near:
+            raise ValueError(f"no I-frame within +-{window} of Cues keyframe {k}")
+        best = min(abs(p - k) for p in near)
+        tied = sorted({p for p in near if abs(p - k) == best})
+        if len(tied) > 1:
+            raise ValueError(f"ambiguous I-frame for Cues keyframe {k}: {tied}")
+        out.append((tied[0], t))
+    for (a, _), (b, _) in zip(out, out[1:]):
+        if b <= a:
+            raise ValueError(f"mapped keyframes not strictly increasing: {a} -> {b}")
+    return out
+
+
+
 # --- ffmpeg primitives -------------------------------------------------------- #
 
 

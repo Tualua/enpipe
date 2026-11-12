@@ -1466,31 +1466,8 @@ def _decode_pict_types(src: Path) -> List[str]:
     return [ln.strip().rstrip(",") for ln in res.stdout.splitlines() if ln.strip()]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "qsvencc --avsw на VC-1: см. .planning/debug/HANDOFF-qsvencc-avsw-vc1-seek.md; "
-        "XFAIL засчитывается только для assert содержимого краёв (сдвиг ±1), "
-        "всё прочее (ошибки кодирования, inconclusive-края, предусловия) -- FAILED "
-        "(WR-03)"
-    ),
-)
-def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
-    """D-08.2/D-09 spike: real VC-1 cut (ENPIPE_TEST_VC1) encoded with --avsw.
-
-    Cues key-frame numbers differ from decode numbers on VC-1 by -1/0/+1 (the
-    block timestamps are in decode order). For scene starts on keyframes of each
-    difference class (and mid-GOP) every chunk is encoded directly via
-    chunk_command(decode="sw") + encode_chunk, bypassing run_encode so per-chunk
-    diagnostics survive a frame-count mismatch; then the first and last frame of
-    every chunk are compared with source frames S and E-1 (nearest by PSNR).
-
-    Outcomes (WR-03): XFAIL means exactly "chunk edge content is shifted" -- the
-    single `assert` below, raised as AssertionError. Everything else is FAILED
-    via pytest.fail (Failed is not an AssertionError): encoding errors (rc,
-    frame count), inconclusive edges (not a confirmed shift) and preconditions;
-    ffmpeg/ffprobe errors are CalledProcessError/RuntimeError, also FAILED."""
+def _vc1_cut_or_skip() -> Path:
+    """Operator-supplied VC-1 cut (ENPIPE_TEST_VC1) or skip with a README hint."""
     env = os.environ.get("ENPIPE_TEST_VC1")
     cut = Path(env) if env else None
     if cut is None or not cut.is_file():
@@ -1499,7 +1476,16 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
             "cut is operator-supplied (D-08, not stored in the repo); see "
             "tests/fixtures/media/README.md for the mkvmerge command"
         )
+    return cut
 
+
+def _vc1_layout(cut: Path):
+    """Layout of a VC-1 cut shared by the edge test and the section 3 experiment.
+
+    Returns (fps, table, i_pos, total, diffs, starts): the Cues key-frame table,
+    I-frame positions in decoder output order, the decoded frame count,
+    diff(K) = nearest I-frame position minus K per Cues keyframe, and the scene
+    starts (two first K != 0 per diff class -1/0/+1, plus up to two mid-GOP K+7)."""
     fps = probe_fps(cut)
     table = keyframe_table(cut, fps)
     if keyframe_table_cues(cut, fps) is None:
@@ -1536,6 +1522,36 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
             f"precondition: need a keyframe with diff 0 and one with diff != 0, "
             f"got {sorted((k, diffs[k]) for k in picked)}"
         )
+    return fps, table, i_pos, total, diffs, starts
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason=(
+        "qsvencc --avsw на VC-1: см. .planning/debug/HANDOFF-qsvencc-avsw-vc1-seek.md; "
+        "XFAIL засчитывается только для assert содержимого краёв (сдвиг ±1), "
+        "всё прочее (ошибки кодирования, inconclusive-края, предусловия) -- FAILED "
+        "(WR-03)"
+    ),
+)
+def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
+    """D-08.2/D-09 spike: real VC-1 cut (ENPIPE_TEST_VC1) encoded with --avsw.
+
+    Cues key-frame numbers differ from decode numbers on VC-1 by -1/0/+1 (the
+    block timestamps are in decode order). For scene starts on keyframes of each
+    difference class (and mid-GOP) every chunk is encoded directly via
+    chunk_command(decode="sw") + encode_chunk, bypassing run_encode so per-chunk
+    diagnostics survive a frame-count mismatch; then the first and last frame of
+    every chunk are compared with source frames S and E-1 (nearest by PSNR).
+
+    Outcomes (WR-03): XFAIL means exactly "chunk edge content is shifted" -- the
+    single `assert` below, raised as AssertionError. Everything else is FAILED
+    via pytest.fail (Failed is not an AssertionError): encoding errors (rc,
+    frame count), inconclusive edges (not a confirmed shift) and preconditions;
+    ffmpeg/ffprobe errors are CalledProcessError/RuntimeError, also FAILED."""
+    cut = _vc1_cut_or_skip()
+    fps, table, _i_pos, total, diffs, starts = _vc1_layout(cut)
 
     hdr = detect_hdr(cut)
     chunks: List[Tuple[int, int, Path, int]] = []
@@ -1566,17 +1582,105 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
     assert not edge_errors, "VC-1 --avsw chunk edge mismatch:\n" + "\n".join(edge_errors)
 
 
+def _edge_state(errors: List[str], i: int) -> str:
+    """ok/fail for the edges of chunk i from the collected fail messages."""
+    return "fail" if any(m.startswith(f"chunk {i} ") for m in errors) else "ok"
+
+
+def test_vc1_seek_experiment_true_keyframes(tmp_path: Path) -> None:
+    """Handoff section 3 experiment (10.1-08): is the VC-1 +-1 content shift caused
+    by enpipe's key-frame numbering or by qsvencc?
+
+    Every scene of the cut is encoded twice with --avsw: control = seek/trim from
+    Cues numbers (as production does), experiment = seek/trim from real I-frame
+    positions in decoder output (content.true_keyframe_table). Edges of both are
+    checked with the three-valued verdict of 10.1-07.
+
+    The test only checks that the experiment is VALID: the control must reproduce
+    the spike (shift exactly where diff(K) != 0), no edge may be inconclusive, no
+    encode may fail. The conclusion is printed as `[vc1-exp] ВЫВОД:` and recorded in
+    the handoff. A future fix plan turns this into a regression."""
+    cut = _vc1_cut_or_skip()
+    fps, table, i_pos, total, diffs, starts = _vc1_layout(cut)
+    true_table = content.true_keyframe_table(table, i_pos)
+    hdr = detect_hdr(cut)
+
+    rows = []
+    ctl_chunks: List[Tuple[int, int, Path, int]] = []
+    exp_chunks: List[Tuple[int, int, Path, int]] = []
+    for i, s in enumerate(starts):
+        e = starts[i + 1] if i + 1 < len(starts) else total
+        variants = {}
+        for name, tbl in (("ctl", table), ("exp", true_table)):
+            seek, trim = compute_chunk_seek_trim(tbl, s, e)
+            k, _t = kf_before(tbl, s)
+            cp = tmp_path / f"{name}_{i:05d}.obu"
+            cmd = _chunk_mod.chunk_command(cut, seek, trim, cp, hdr, False, decode="sw")
+            _idx, got, err, _el, _info = _chunk_mod.encode_chunk((i, cmd, cp, e - s))
+            if err is not None and got <= 0:
+                pytest.fail(f"{name} chunk {i} [{s},{e}) encode failed: {err}")
+            variants[name] = (seek, trim, k, got, err, cp)
+        if variants["ctl"][3] != e - s:
+            pytest.fail(
+                f"control chunk {i} [{s},{e}): {variants['ctl'][3]} frames, expected "
+                f"{e - s} -- differs from the 10.1-05 spike data")
+        ctl_chunks.append((s, e, variants["ctl"][5], variants["ctl"][3]))
+        exp_chunks.append((s, e, variants["exp"][5], variants["exp"][3]))
+        rows.append((i, s, e, variants))
+
+    n = len(starts)
+    errors, inconclusive, bests = _verify_chunk_edges(
+        cut, ctl_chunks + exp_chunks, total, tmp_path / "edges")
+
+    # Verdicts per variant: chunk indices 0..n-1 control, n..2n-1 experiment.
+    ctl_fail = {i: _edge_state(errors, i) == "fail" for i in range(n)}
+    exp_fail = {i: _edge_state(errors, n + i) == "fail" for i in range(n)}
+    exp_count_ok = {i: rows[i][3]["exp"][3] == rows[i][2] - rows[i][1] for i in range(n)}
+
+    for i, s, e, v in rows:
+        ck = kf_before(table, s)[0]
+        tk = kf_before(true_table, s)[0]
+        print(
+            f"[vc1-exp] chunk {i} [{s},{e}) cuesK={ck} trueK={tk} diff={diffs.get(ck)} "
+            f"ctl seek={v['ctl'][0]} trim={v['ctl'][1]} frames={v['ctl'][3]} "
+            f"first_best={bests[i][0]:+d} last_best={bests[i][1]:+d} "
+            f"verdict={'fail' if ctl_fail[i] else 'ok'} | "
+            f"exp seek={v['exp'][0]} trim={v['exp'][1]} frames={v['exp'][3]} "
+            f"first_best={bests[n + i][0]:+d} last_best={bests[n + i][1]:+d} "
+            f"verdict={'fail' if exp_fail[i] else 'ok'}"
+        )
+
+    if inconclusive:
+        pytest.fail(
+            "эксперимент неубедителен, inconclusive-края (причина не определена):\n"
+            + "\n".join(inconclusive))
+    bad_control = []
+    for i, s, e, v in rows:
+        d = diffs.get(kf_before(table, s)[0])
+        if (d != 0) != ctl_fail[i]:
+            bad_control.append(f"chunk {i} [{s},{e}) diff={d} ctl_fail={ctl_fail[i]}")
+    if bad_control:
+        pytest.fail(
+            "контроль не воспроизвёл спайк 10.1-05 -- эксперимент недействителен:\n"
+            + "\n".join(bad_control))
+
+    bad_exp = [i for i in range(n) if exp_fail[i] or not exp_count_ok[i]]
+    if not bad_exp:
+        print(
+            "[vc1-exp] ВЫВОД: нумерация enpipe (сдвиг даёт перевод времени Cues в "
+            "номер кадра; qsvencc при seek/trim от настоящего I-кадра выдаёт верные края)")
+    else:
+        listing = ", ".join(f"{i} [{rows[i][1]},{rows[i][2]})" for i in bad_exp)
+        print(
+            "[vc1-exp] ВЫВОД: qsvencc (сдвиг остаётся при верных seek/trim; чанки: "
+            f"{listing})")
+
+
 def test_run_auto_vc1_cut_refused(tmp_path: Path, capsys) -> None:
     """refuse-handoff (10.1-04): `enpipe run` на куске VC-1 (авто-режим даёт sw)
     отказывает сразу после решения о декоде: ссылка на handoff, детект не
     запускался (.scenes не создан), энкод не стартовал (workdir не создан)."""
-    env = os.environ.get("ENPIPE_TEST_VC1")
-    cut = Path(env) if env else None
-    if cut is None or not cut.is_file():
-        pytest.skip(
-            "ENPIPE_TEST_VC1 не задан или файла нет -- кусок VC-1 даёт оператор "
-            "(см. tests/fixtures/media/README.md)"
-        )
+    cut = _vc1_cut_or_skip()
     scenes = tmp_path / "cut.scenes"
     workdir = tmp_path / "wd"
     with pytest.raises(SystemExit) as ei:
