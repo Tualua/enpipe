@@ -28,6 +28,8 @@ order by +-1 (10.1-RESEARCH.md), so a single "S vs S+delta" control is not
 enough. D-09 compares the chunk frame with the neighbours S-2..S+2 (first
 frame) and E-3..E+1 (last frame) and requires the nearest one to be exactly
 S / E-1 -- a silent one-frame content shift with a correct frame count fails.
+The verdict has three outcomes (ok / fail / inconclusive): an edge whose
+neighbours cannot be told apart from the expected frame is inconclusive, never ok.
 
 Why the reference frame is picked by frame NUMBER (select=eq(n,...)) with a pts
 guard: seeking by time alone is exactly the class of error being tested for.
@@ -110,10 +112,11 @@ def first_frame_verdict(
 def nearest_frame_verdict(
     psnr_center: float,
     neighbors: Dict[int, Tuple[float, float]],
-) -> Tuple[Optional[str], bool]:
+) -> Tuple[str, Optional[str]]:
     """D-09: is the chunk frame nearest to the expected source frame?
 
-    Returns (error message or None, control_was_discriminating).
+    Returns (status, message); status is VERDICT_OK, VERDICT_FAIL or
+    VERDICT_INCONCLUSIVE, message is None only for VERDICT_OK.
 
     psnr_center  PSNR(chunk frame, src[center])
     neighbors    {offset: (PSNR(chunk frame, src[center+offset]),
@@ -121,30 +124,63 @@ def nearest_frame_verdict(
 
     A neighbour is distinguishable when PSNR(src[center], src[neighbour]) is
     more than MARGIN_DB below q = max(psnr_center, all chunk-neighbour PSNRs).
-    The verdict is an error when a distinguishable neighbour is at least as
-    close to the chunk frame as the centre (a tie is not "clearly closer").
+    Rules, strongest first:
+      * centre below FLOOR_DB, or a distinguishable neighbour at least as
+        close to the chunk frame as the centre (a tie is not "clearly
+        closer")                                              -> fail;
+      * an indistinguishable neighbour strictly closer to the chunk frame
+        than the centre: a one-frame shift is not ruled out   -> inconclusive;
+      * no distinguishable neighbour at all (static edge, no neighbours)
+                                                              -> inconclusive;
+      * otherwise                                             -> ok.
+    Why an indistinguishable neighbour is no longer skipped silently: on
+    low-motion material a one-frame shift would come out "ok" (WR-04,
+    10.1-REVIEW.md). Callers must never turn inconclusive into ok.
     """
     if psnr_center < FLOOR_DB:
         return (
+            VERDICT_FAIL,
             f"chunk frame PSNR vs expected source frame is {psnr_center:.2f} dB, "
             f"below the {FLOOR_DB} dB floor",
-            False,
         )
     q = max([psnr_center] + [chunk_nb for chunk_nb, _ in neighbors.values()])
-    disc = False
+    any_disc = False
+    unclear: Optional[str] = None
     for offset in sorted(neighbors):
         chunk_nb, src_nb = neighbors[offset]
         if not src_nb < q - MARGIN_DB:
-            continue  # neighbour indistinguishable from the centre (static)
-        disc = True
+            # neighbour indistinguishable from the centre (static / low motion)
+            if chunk_nb > psnr_center and unclear is None:
+                unclear = (
+                    f"chunk frame is closer to indistinguishable offset "
+                    f"{offset:+d} than to the expected frame: PSNR vs centre = "
+                    f"{psnr_center:.2f} dB, vs offset = {chunk_nb:.2f} dB "
+                    f"(src-src {src_nb:.2f} dB); a one-frame shift is not "
+                    f"ruled out"
+                )
+            continue
+        any_disc = True
         if chunk_nb >= psnr_center:
             return (
+                VERDICT_FAIL,
                 f"chunk frame is not nearest to the expected source frame: "
                 f"PSNR vs centre = {psnr_center:.2f} dB, vs offset {offset:+d} = "
                 f"{chunk_nb:.2f} dB (src-src {src_nb:.2f} dB)",
-                True,
             )
-    return None, disc
+    if unclear is not None:
+        return VERDICT_INCONCLUSIVE, unclear
+    if not any_disc:
+        best_src = max((src_nb for _, src_nb in neighbors.values()), default=None)
+        what = (
+            "no neighbours" if best_src is None
+            else f"max src-src {best_src:.2f} dB"
+        )
+        return (
+            VERDICT_INCONCLUSIVE,
+            f"static or low-motion edge: no neighbour is distinguishable from "
+            f"the expected frame ({what}); a one-frame shift is not ruled out",
+        )
+    return VERDICT_OK, None
 
 
 # --- ffmpeg primitives -------------------------------------------------------- #
