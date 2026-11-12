@@ -1588,21 +1588,28 @@ def _edge_state(errors: List[str], i: int) -> str:
 
 
 def test_vc1_seek_experiment_true_keyframes(tmp_path: Path) -> None:
-    """Handoff section 3 experiment (10.1-08): is the VC-1 +-1 content shift caused
-    by enpipe's key-frame numbering or by qsvencc?
+    """Regression of the 10.1-09 fix, born from the handoff section 3 experiment
+    (10.1-08): the VC-1 +-1 content shift was caused by enpipe's key-frame
+    numbering, not by qsvencc.
 
     Every scene of the cut is encoded twice with --avsw: control = seek/trim from
-    Cues numbers (as production does), experiment = seek/trim from real I-frame
-    positions in decoder output (content.true_keyframe_table). Edges of both are
-    checked with the three-valued verdict of 10.1-07.
+    Cues numbers (the old behaviour), experiment = seek/trim from the production
+    keyframe_table_decoder_order. The production table must equal the independent
+    test oracle content.true_keyframe_table built from _decode_pict_types
+    positions. Edges are checked with the three-valued verdict of 10.1-07.
 
-    The test only checks that the experiment is VALID: the control must reproduce
-    the spike (shift exactly where diff(K) != 0), no edge may be inconclusive, no
-    encode may fail. The conclusion is printed as `[vc1-exp] ВЫВОД:` and recorded in
-    the handoff. A future fix plan turns this into a regression."""
+    Validity: the control must reproduce the spike (shift exactly where
+    diff(K) != 0), no edge may be inconclusive, no encode may fail. Since 10.1-10
+    the conclusion is asserted: the experiment chunks must have correct edges and
+    frame counts."""
     cut = _vc1_cut_or_skip()
     fps, table, i_pos, total, diffs, starts = _vc1_layout(cut)
-    true_table = content.true_keyframe_table(table, i_pos)
+    prod_table, decoded, _shifted = keyframe_table_decoder_order(cut, table)
+    if decoded != total:
+        pytest.fail(f"decoded frame count {decoded} != {total} from the layout")
+    assert prod_table == content.true_keyframe_table(table, i_pos), (
+        "production table differs from the independent oracle")
+    true_table = prod_table
     hdr = detect_hdr(cut)
 
     rows = []
@@ -1665,15 +1672,11 @@ def test_vc1_seek_experiment_true_keyframes(tmp_path: Path) -> None:
             + "\n".join(bad_control))
 
     bad_exp = [i for i in range(n) if exp_fail[i] or not exp_count_ok[i]]
-    if not bad_exp:
-        print(
-            "[vc1-exp] ВЫВОД: нумерация enpipe (сдвиг даёт перевод времени Cues в "
-            "номер кадра; qsvencc при seek/trim от настоящего I-кадра выдаёт верные края)")
-    else:
-        listing = ", ".join(f"{i} [{rows[i][1]},{rows[i][2]})" for i in bad_exp)
-        print(
-            "[vc1-exp] ВЫВОД: qsvencc (сдвиг остаётся при верных seek/trim; чанки: "
-            f"{listing})")
+    listing = ", ".join(f"{i} [{rows[i][1]},{rows[i][2]})" for i in bad_exp)
+    assert not bad_exp, f"регрессия нумерации: чанки с неверными краями/числом кадров: {listing}"
+    print(
+        "[vc1-exp] ВЫВОД: нумерация enpipe (сдвиг даёт перевод времени Cues в "
+        "номер кадра; qsvencc при seek/trim от настоящего I-кадра выдаёт верные края)")
 
 
 def test_run_auto_vc1_cut_refused(tmp_path: Path, capsys) -> None:
