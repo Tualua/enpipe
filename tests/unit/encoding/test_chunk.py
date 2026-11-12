@@ -78,9 +78,19 @@ def test_chunk_command_pins_qsv_backend():
         assert cmd.index("--backend") < cmd.index("--avhw")
 
 
-def test_chunk_command_default_is_hw_decode():
+def test_chunk_command_requires_decode():
+    with pytest.raises(TypeError):
+        chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
+                      Path("out.obu"), hdr_flags=[], metrics=False)
+    with pytest.raises(TypeError):
+        chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
+                      Path("out.obu"), [], False, "hw")
+
+
+def test_chunk_command_hw_decode_flag():
     cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
-                        Path("out.obu"), hdr_flags=[], metrics=False)
+                        Path("out.obu"), hdr_flags=[], metrics=False,
+                        decode="hw")
     assert cmd[3:5] == ["--avhw", "--va"]
     assert "--avsw" not in cmd
 

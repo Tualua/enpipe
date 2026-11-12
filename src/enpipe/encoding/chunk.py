@@ -25,12 +25,14 @@ GOP_LEN = int(os.environ.get("GOP_LEN", "300"))
 
 def chunk_command(src: Path, seek: str, trim: str, out: Path,
                   hdr_flags: List[str], metrics: bool,
-                  decode: str = "hw") -> List[str]:
+                  *, decode: str) -> List[str]:
     # D-03/D-05: переключается только декодер (`--avhw` аппаратный / `--avsw`
     # программный + аппаратный AV1-энкод); `--backend qsv` остаётся явным.
     # `--avsw [<string>]` принимает необязательное имя декодера и проглотил бы
     # следующий токен, не начинающийся с `-`, поэтому между `--avsw` и `--va`
     # нельзя вставлять позиционные значения: `--va` строго на argv[4].
+    # Умолчания у decode нет намеренно (WR-02): забытый аргумент должен падать,
+    # а не молча включать аппаратный путь.
     if decode not in ("hw", "sw"):
         raise ValueError(
             f"неизвестный режим декода {decode!r}: допустимо только 'hw' или 'sw'")

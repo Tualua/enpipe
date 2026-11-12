@@ -65,7 +65,7 @@ def test_run_encode_wiring_concat_order_and_seek_trim(tmp_path, monkeypatch):
     recorded_decode = {}
 
     def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics,
-                                   decode="hw"):
+                                   *, decode):
         idx = int(out_path.stem.rsplit("_", 1)[-1])
         recorded_seek_trim[idx] = (seek, trim)
         recorded_decode[idx] = decode
@@ -97,7 +97,8 @@ def test_run_encode_wiring_concat_order_and_seek_trim(tmp_path, monkeypatch):
     assert mock_write_metrics_csv.call_count == 0
     assert not Path(str(out) + ".metrics.csv").exists()
 
-    # (d) Namespace без поля decode -> прежний путь hw для всех чанков
+    # (d) Namespace без поля decode -> hw приходит из решения о декоде (заглушка
+    # _stub_resolve_decode в conftest), а не из умолчания chunk_command
     assert recorded_decode == {i: "hw" for i in range(len(_SCENES))}
 
 
@@ -196,7 +197,7 @@ def test_run_encode_writes_metrics_csv_when_enabled(tmp_path, monkeypatch):
     monkeypatch.setattr(p, "encode_chunk", Mock(side_effect=_encode_chunk_side_effect))
 
     def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics,
-                                   decode="hw"):
+                                   *, decode):
         return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics,
                                    decode=decode)
 
@@ -263,7 +264,7 @@ def test_run_encode_survives_total_without_psnr(tmp_path, monkeypatch):
     monkeypatch.setattr(p, "encode_chunk", Mock(side_effect=_encode_chunk_side_effect))
 
     def _chunk_command_side_effect(src, seek, trim, out_path, hdr_flags, metrics,
-                                   decode="hw"):
+                                   *, decode):
         return _real_chunk_command(src, seek, trim, out_path, hdr_flags, metrics,
                                    decode=decode)
 
