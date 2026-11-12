@@ -111,7 +111,8 @@ def test_qsvencc_command_metrics_flag(_no_hdr: None) -> None:
     on = harness.qsvencc_command("00:00:01.000", "0:10", out, metrics=True)
     off = harness.qsvencc_command("00:00:01.000", "0:10", out)
     assert on == chunk_command(
-        harness.FIXTURE, "00:00:01.000", "0:10", out, hdr_flags=[], metrics=True
+        harness.FIXTURE, "00:00:01.000", "0:10", out, hdr_flags=[], metrics=True,
+        decode="hw",
     )
     assert "--psnr" in on and "--ssim" in on
     assert "--psnr" not in off and "--ssim" not in off

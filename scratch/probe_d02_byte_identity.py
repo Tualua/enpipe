@@ -136,6 +136,7 @@ def _cmd(scene: "harness.HandoffScene", out: Path, metrics: bool) -> List[str]:
     return chunk_command(
         harness.FIXTURE, scene.seek, scene.trim, out,
         hdr_flags=list(harness._fixture_hdr_flags()), metrics=metrics,
+        decode="hw",
     )
 
 

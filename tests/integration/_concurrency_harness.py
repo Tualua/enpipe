@@ -164,7 +164,8 @@ def qsvencc_command(
     removes `--backend <v>` for the one-time D-16 non-vacuity run: the old
     r4604 binary does not know that flag."""
     cmd = chunk_command(
-        FIXTURE, seek, trim, out, hdr_flags=list(_fixture_hdr_flags()), metrics=metrics
+        FIXTURE, seek, trim, out, hdr_flags=list(_fixture_hdr_flags()), metrics=metrics,
+        decode="hw",  # путь декода задан явно: харнесс проверяет --avhw
     )
     if icq is not None:
         cmd[cmd.index("--icq") + 1] = str(icq)

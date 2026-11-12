@@ -18,7 +18,7 @@ from enpipe.encoding.chunk import chunk_command, parse_metrics
 
 def test_chunk_command_includes_seek_and_trim():
     cmd = chunk_command(Path("in.mkv"), "00:00:02.000", "0:47",
-                         Path("out.obu"), hdr_flags=[], metrics=False)
+                         Path("out.obu"), hdr_flags=[], metrics=False, decode="hw")
     assert "--seek" in cmd and cmd[cmd.index("--seek") + 1] == "00:00:02.000"
     assert "--trim" in cmd and cmd[cmd.index("--trim") + 1] == "0:47"
     assert "--psnr" not in cmd  # metrics=False
@@ -26,13 +26,13 @@ def test_chunk_command_includes_seek_and_trim():
 
 def test_chunk_command_adds_psnr_ssim_when_metrics_true():
     cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:0",
-                         Path("out.obu"), hdr_flags=[], metrics=True)
+                         Path("out.obu"), hdr_flags=[], metrics=True, decode="hw")
     assert "--psnr" in cmd and "--ssim" in cmd
 
 
 def test_chunk_command_uses_default_icq_qpmax_goplen():
     cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:0",
-                         Path("out.obu"), hdr_flags=[], metrics=False)
+                         Path("out.obu"), hdr_flags=[], metrics=False, decode="hw")
     assert cmd[cmd.index("--icq") + 1] == "23"
     assert cmd[cmd.index("--qp-max") + 1] == "100"
     assert cmd[cmd.index("--gop-len") + 1] == "300"
@@ -41,14 +41,14 @@ def test_chunk_command_uses_default_icq_qpmax_goplen():
 def test_chunk_command_uses_custom_icq_via_monkeypatch(monkeypatch):
     monkeypatch.setattr(chunk, "ICQ", 30)
     cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:99",
-                         Path("out.obu"), hdr_flags=[], metrics=False)
+                         Path("out.obu"), hdr_flags=[], metrics=False, decode="hw")
     assert "--icq" in cmd and cmd[cmd.index("--icq") + 1] == "30"
 
 
 def test_chunk_command_appends_hdr_flags():
     cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:0",
                          Path("out.obu"),
-                         hdr_flags=["--dolby-vision-rpu", "copy"], metrics=False)
+                         hdr_flags=["--dolby-vision-rpu", "copy"], metrics=False, decode="hw")
     assert "--dolby-vision-rpu" in cmd and "copy" in cmd
 
 
@@ -71,7 +71,7 @@ def test_parse_metrics_returns_none_fields_when_absent():
 def test_chunk_command_pins_qsv_backend():
     for metrics in (False, True):
         cmd = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
-                            Path("out.obu"), hdr_flags=[], metrics=metrics)
+                            Path("out.obu"), hdr_flags=[], metrics=metrics, decode="hw")
         assert cmd[0] == "qsvencc"
         assert cmd.count("--backend") == 1
         assert cmd[cmd.index("--backend") + 1] == "qsv"
@@ -88,7 +88,7 @@ def test_chunk_command_default_is_hw_decode():
 def test_chunk_command_sw_decode_swaps_decoder_flag():
     for metrics in (False, True):
         hw = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
-                           Path("out.obu"), hdr_flags=[], metrics=metrics)
+                           Path("out.obu"), hdr_flags=[], metrics=metrics, decode="hw")
         sw = chunk_command(Path("in.mkv"), "00:00:00.000", "0:1",
                            Path("out.obu"), hdr_flags=[], metrics=metrics,
                            decode="sw")
@@ -110,7 +110,7 @@ def test_chunk_command_disables_avoid_idle_clock():
         cmd = chunk_command(Path("in.mkv"), "00:00:01.000", "0:47",
                             Path("out.obu"),
                             hdr_flags=["--dolby-vision-rpu", "copy"],
-                            metrics=metrics)
+                            metrics=metrics, decode="hw")
         assert cmd.count("--avoid-idle-clock") == 1
         i = cmd.index("--avoid-idle-clock")
         assert cmd[i + 1] == "off"

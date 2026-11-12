@@ -126,7 +126,8 @@ def test_default_command_equals_production_chunk_command(_no_hdr: None) -> None:
     out = Path("/tmp/x.obu")
     got = harness.qsvencc_command("00:00:01.000", "0:10", out)
     want = chunk_command(
-        harness.FIXTURE, "00:00:01.000", "0:10", out, hdr_flags=[], metrics=False
+        harness.FIXTURE, "00:00:01.000", "0:10", out, hdr_flags=[], metrics=False,
+        decode="hw",
     )
     assert got == want
     i = got.index("--backend")
@@ -259,6 +260,7 @@ def test_metrics_command_equals_production_chunk_command(_no_hdr: None) -> None:
     out = Path("/tmp/x.obu")
     got = harness.qsvencc_command("00:00:01.000", "0:10", out, metrics=True)
     want = chunk_command(
-        harness.FIXTURE, "00:00:01.000", "0:10", out, hdr_flags=[], metrics=True
+        harness.FIXTURE, "00:00:01.000", "0:10", out, hdr_flags=[], metrics=True,
+        decode="hw",
     )
     assert got == want
