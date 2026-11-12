@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: executing
-stopped_at: Completed 10.1-08-PLAN.md
-last_updated: "2026-11-12T08:23:44.984Z"
-last_activity: 2026-11-11
+stopped_at: Completed 10.1-09-PLAN.md
+last_updated: "2026-11-12T08:50:33.862Z"
+last_activity: 2026-11-12
 last_activity_desc: Phase 10.1 execution started
-state_head: 3793f0ef8ec1f99ccf5e96f4cbb7b77d2d09a2c1
+state_head: 8014efa576905bb4e4e93ba79eaf58f7e31021e5
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 38
-  completed_plans: 34
+  completed_plans: 35
   percent: 33
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 
 ## Current Position
 
-Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — READY TO EXECUTE
-Plan: 5 of 5
+Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
+Plan: 10 of 12
 Status: Ready to execute
-Last activity: 2026-11-11 — Phase 10.1 execution started
+Last activity: 2026-11-12 — Phase 10.1 execution started
 
 Progress: [███░░░░░░░] 33%
 
@@ -52,6 +52,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Phase 10.1 P04 | 55min | 3 tasks | 9 files |
 | Phase 10.1 P06 | 15min | 3 tasks | 9 files |
 | Phase 10.1 P07 | 25min | 2 tasks | 3 files |
+| Phase 10.1 P09 | 20min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10.1]: 10.1-06: deny-list расширен на семейство VC-1 (vc1, wmv3, vc1image); chunk_command decode обязателен keyword-only
 - [Phase 10.1]: 10.1-07: nearest_frame_verdict three-valued; inconclusive never ok, synthetic fails on any inconclusive; VC-1 xfail raises=AssertionError
 - [Phase 10.1]: Причина сдвига VC-1 ±1: нумерация ключевых кадров в enpipe (время Cues -> номер кадра), не баг qsvencc; в форк не отправлять
+- [Phase 10.1]: 10.1-09: перенумерация ключевых кадров по выводу декодера — область vc1-family, позиции I-кадров через ffprobe-pass
 
 ### Pending Todos
 
@@ -177,8 +179,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-12T05:51:49.841Z
-Stopped at: Completed 10.1-08-PLAN.md
+Last session: 2026-11-12T08:50:33.534Z
+Stopped at: Completed 10.1-09-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
