@@ -1467,29 +1467,49 @@ def _decode_pict_types(src: Path) -> List[str]:
     return [ln.strip().rstrip(",") for ln in res.stdout.splitlines() if ln.strip()]
 
 
-def _vc1_cut_or_skip() -> Path:
-    """Operator-supplied VC-1 cut (ENPIPE_TEST_VC1) or skip with a README hint."""
-    env = os.environ.get("ENPIPE_TEST_VC1")
+def _env_cut_or_skip(var: str, hint: str) -> Path:
+    """Operator-supplied cut from the environment variable `var` or skip with `hint`."""
+    env = os.environ.get(var)
     cut = Path(env) if env else None
     if cut is None or not cut.is_file():
-        pytest.skip(
-            "ENPIPE_TEST_VC1 is not set or the file is missing -- a short VC-1 "
-            "cut is operator-supplied (D-08, not stored in the repo); see "
-            "tests/fixtures/media/README.md for the mkvmerge command"
-        )
+        pytest.skip(f"{var} is not set or the file is missing -- {hint}")
     return cut
 
 
-def _vc1_layout(cut: Path):
+def _vc1_cut_or_skip() -> Path:
+    """Operator-supplied VC-1 cut (ENPIPE_TEST_VC1) or skip with a README hint."""
+    return _env_cut_or_skip(
+        "ENPIPE_TEST_VC1",
+        "a short VC-1 cut is operator-supplied (D-08, not stored in the repo); "
+        "see tests/fixtures/media/README.md for the mkvmerge command",
+    )
+
+
+def _wmv3_cut_or_skip() -> Path:
+    """Operator-supplied wmv3 (ASF) cut (ENPIPE_TEST_WMV3) or skip with a hint."""
+    return _env_cut_or_skip(
+        "ENPIPE_TEST_WMV3",
+        "a short wmv3 cut in ASF is operator-supplied (not stored in the repo); "
+        "see the ENPIPE_TEST_WMV3 section in tests/fixtures/media/README.md "
+        "and scratch/wmv3_cut.sh",
+    )
+
+
+def _vc1_layout(cut: Path, *, tag: str = "vc1", require_cues: bool = True):
     """Layout of a VC-1 cut shared by the edge test and the section 3 experiment.
 
-    Returns (fps, table, i_pos, total, diffs, starts): the Cues key-frame table,
+    Returns (fps, table, i_pos, total, diffs, starts): the production key-frame table,
     I-frame positions in decoder output order, the decoded frame count,
     diff(K) = nearest I-frame position minus K per Cues keyframe, and the scene
     starts (two first K != 0 per diff class -1/0/+1, plus up to two mid-GOP K+7)."""
     fps = probe_fps(cut)
-    table = keyframe_table(cut, fps)
-    if keyframe_table_cues(cut, fps) is None:
+    try:
+        table = keyframe_table(cut, fps)
+    except SystemExit as exc:
+        # die() в production = SystemExit; для ASF без pts это результат замера
+        pytest.fail(f"production keyframe_table refused the cut: {exc}")
+    cues = keyframe_table_cues(cut, fps) if cut.suffix.lower() in (".mkv", ".mka", ".webm") else None
+    if require_cues and keyframe_table_cues(cut, fps) is None:
         pytest.fail("precondition: the cut has no usable Cues (ffprobe fallback is empty on VC-1)")
 
     pict = _decode_pict_types(cut)
@@ -1510,9 +1530,13 @@ def _vc1_layout(cut: Path):
 
     kfs = [k for k, _ in table]
     diffs = {k: diff_of(k) for k in kfs}
-    print(f"[vc1] {cut.name}: fps={fps} decoded={total} keyframes={len(kfs)}")
+    classes = {c: sum(1 for k in kfs if diffs[k] == c) for c in (-1, 0, 1, None)}
+    print(
+        f"[{tag}] {cut.name}: fps={fps} decoded={total} keyframes={len(kfs)} "
+        f"table_source={'cues' if cues is not None else 'ffprobe'} diff_classes={classes}"
+    )
     for k in kfs:
-        print(f"[vc1] K={k} diff={diffs[k]}")
+        print(f"[{tag}] K={k} diff={diffs[k]}")
 
     picked: List[int] = []
     for cls in (-1, 0, 1):
@@ -1580,6 +1604,110 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
         pytest.fail(
             "inconclusive edges, a one-frame shift is not ruled out:\n"
             + "\n".join(inconclusive))
+
+
+def test_chunk_edges_avsw_wmv3(tmp_path: Path) -> None:
+    """Measurement for the 10.1-11 decision on wmv3 (WMV9 Main in ASF, B-frames):
+    chunk edges with --avsw on a real cut (ENPIPE_TEST_WMV3).
+
+    The key-frame table is the PRODUCTION keyframe_table (ASF has no Cues, so the
+    ffprobe packet fallback, number = round(pts_time * fps)); seek/trim of the
+    checked variant come from the production keyframe_table_decoder_order. Chunks
+    are encoded directly via chunk_command(decode="sw") + encode_chunk, bypassing
+    run_encode, so the wmv3 refusal in decode.py neither fires nor changes.
+
+    Each scene is encoded twice: `prod` (production renumbering, asserted) and
+    `ctl` (seek/trim from the fallback table without renumbering, diagnostics
+    only: shows whether the shift exists without the fix; printed, not asserted).
+    The table is printed BEFORE the asserts so the log keeps the measurement on
+    failure. A failed precondition or an ambiguous renumbering is pytest.fail --
+    that is a measurement result, not a test bug."""
+    cut = _wmv3_cut_or_skip()
+    fps, table, i_pos, total, diffs, starts = _vc1_layout(cut, tag="wmv3", require_cues=False)
+    try:
+        prod_table, decoded, shifted = keyframe_table_decoder_order(cut, table)
+    except SystemExit as exc:
+        pytest.fail(f"keyframe_table_decoder_order refused the cut: {exc}")
+    if decoded != total:
+        pytest.fail(f"decoded frame count {decoded} != {total} from the layout")
+    print(f"[wmv3] shifted={shifted} fps={fps}")
+    assert prod_table == content.true_keyframe_table(table, i_pos), (
+        "production table differs from the independent oracle")
+
+    hdr = detect_hdr(cut)
+    n = len(starts)
+    rows = []
+    for i, s in enumerate(starts):
+        e = starts[i + 1] if i + 1 < n else total
+        variants = {}
+        for name, tbl in (("ctl", table), ("prod", prod_table)):
+            seek, trim = compute_chunk_seek_trim(tbl, s, e)
+            k, _t = kf_before(tbl, s)
+            cp = tmp_path / f"{name}_{i:05d}.obu"
+            cmd = _chunk_mod.chunk_command(cut, seek, trim, cp, hdr, False, decode="sw")
+            _idx, got, err, _el, _info = _chunk_mod.encode_chunk((i, cmd, cp, e - s))
+            variants[name] = (seek, trim, k, got, err, cp)
+        rows.append((i, s, e, variants))
+
+    def verify(name: str):
+        """Edges of one variant; chunks without frames are excluded and mapped back."""
+        idx = [r[0] for r in rows if r[3][name][3] > 0]
+        chunks = [(r[1], r[2], r[3][name][5], r[3][name][3]) for r in rows if r[3][name][3] > 0]
+        if not chunks:
+            return {}, {}, {}
+        errors, inconc, bests = _verify_chunk_edges(cut, chunks, total, tmp_path / f"edges_{name}")
+        state = {}
+        for j, i in enumerate(idx):
+            if any(m.startswith(f"chunk {j} ") for m in inconc):
+                state[i] = "inconcl"
+            elif any(m.startswith(f"chunk {j} ") for m in errors):
+                state[i] = "fail"
+            else:
+                state[i] = "ok"
+        return state, {i: bests[j] for j, i in enumerate(idx)}, (errors, inconc, idx)
+
+    ctl_state, ctl_bests, ctl_raw = verify("ctl")
+    prod_state, prod_bests, prod_raw = verify("prod")
+
+    def fmt(name: str, v, state, bests, i: int) -> str:
+        seek, trim, _k, got, err, _cp = v[name]
+        if i not in state:
+            return f"{name}=нет кадров err={err}"
+        fb, lb = bests[i]
+        return (f"{name} seek={seek} trim={trim} frames={got} err={err} "
+                f"first_best={fb:+d} last_best={lb:+d} verdict={state[i]}")
+
+    for i, s, e, v in rows:
+        fb_k = v["ctl"][2]
+        print(
+            f"[wmv3] chunk {i} [{s},{e}) fbK={fb_k} prodK={v['prod'][2]} "
+            f"diff={diffs.get(fb_k)} expected={e - s} | "
+            f"{fmt('ctl', v, ctl_state, ctl_bests, i)} | "
+            f"{fmt('prod', v, prod_state, prod_bests, i)}"
+        )
+
+    shift_set = {i for i, _s, _e, v in rows if diffs.get(v["ctl"][2]) != 0}
+    ctl_fail_set = {i for i, st in ctl_state.items() if st == "fail"}
+    prod_fail = [i for i, st in prod_state.items() if st == "fail"]
+    prod_inc = [i for i, st in prod_state.items() if st == "inconcl"]
+    prod_enc_err = [i for i, _s, _e, v in rows if v["prod"][4] is not None]
+    prod_bad_count = [i for i, s, e, v in rows if v["prod"][3] != e - s]
+    print(
+        f"[wmv3] ИТОГ: чанков={n} diff!=0: {len(shift_set)}; контроль: fail={len(ctl_fail_set)} "
+        f"совпадает с diff!=0: {ctl_fail_set == shift_set}; production: fail={len(prod_fail)} "
+        f"inconclusive={len(prod_inc)} ошибок кодирования={len(prod_enc_err)} "
+        f"неверное число кадров={len(prod_bad_count)}"
+    )
+
+    if prod_enc_err:
+        pytest.fail(f"wmv3 --avsw production encoding errors, chunks {prod_enc_err}")
+    if prod_raw:
+        errors, inconc, idx = prod_raw
+        assert not errors, "wmv3 --avsw chunk edge mismatch:\n" + "\n".join(errors)
+        if inconc:
+            pytest.fail(
+                "inconclusive edges, a one-frame shift is not ruled out:\n" + "\n".join(inconc))
+    assert not prod_bad_count, f"wrong frame count in production chunks {prod_bad_count}"
 
 
 def _edge_state(errors: List[str], i: int) -> str:

@@ -138,3 +138,23 @@ Run:
 ```bash
 ENPIPE_TEST_VC1="$DIR/fringe_s02e01_cut.mkv" uv run pytest -q -m hardware tests/integration/test_hardware_real_media.py -k vc1 -s
 ```
+
+## ENPIPE_TEST_WMV3: a short real wmv3 (WMV9, ASF) cut
+
+ASF has no Cues, so key-frame numbers come from the ffprobe packet fallback
+(`round(pts_time * fps)`), and wmv3 streams carry B-frames. The hardware test
+`test_chunk_edges_avsw_wmv3` measures `--avsw` chunk edges on such a cut (input
+for the 10.1-11 decision). The cut is operator-supplied and not stored in the
+repository.
+
+Cut (from the file start, no re-encode; prints a summary and the run command):
+
+```
+scratch/wmv3_cut.sh /data/downloads/wmv_test4.wmv 100
+```
+
+Run:
+
+```
+ENPIPE_TEST_WMV3="<cut path>" uv run pytest -q -m hardware tests/integration/test_hardware_real_media.py -k wmv3 -s
+```
