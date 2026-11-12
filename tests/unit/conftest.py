@@ -16,6 +16,11 @@ test_qsvencc_version.py по-прежнему проверяет настоящ�
 Сам `enpipe.shared.decode` не патчится -- его проверяют
 tests/unit/shared/test_decode.py и tests/subprocess/shared/test_decode.py.
 
+Третья заглушка, `_stub_probe_pts`, подменяет probe_pts (одночанковый режим,
+10.1-13) в местах импорта: быстрому тиру не нужен ffprobe, источник «с pts»
+идёт прежним сценовым путём. Сам probe_pts проверяет
+tests/subprocess/encoding/test_single_chunk.py.
+
 Тесту, которому нужен НАСТОЯЩИЙ гейт, надо заново подставить в место импорта
 `enpipe.shared.qsvencc_version.ensure_qsvencc_fixed` и отдавать `qsvencc
 --version` через фикстуру `fp` -- а не через Mock `_proc.run` с пустым stdout
@@ -52,3 +57,12 @@ def _stub_resolve_decode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(enc_pipeline, "resolve_decode", _resolve)
     monkeypatch.setattr(cli_main, "resolve_decode", _resolve)
     monkeypatch.setattr(det_pipeline, "resolve_decode", _resolve)
+
+
+@pytest.fixture(autouse=True)
+def _stub_probe_pts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # raising=False для cli_main: имя появляется в нём вместе с Task 2
+    monkeypatch.setattr(enc_pipeline, "probe_pts", lambda src: (False, 1),
+                        raising=False)
+    monkeypatch.setattr(cli_main, "probe_pts", lambda src: (False, 1),
+                        raising=False)

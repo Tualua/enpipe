@@ -522,3 +522,138 @@ def test_run_encode_hevc_skips_decoder_order(tmp_path, monkeypatch):
     second = next(c for c in built if "chunk_00001" in " ".join(map(str, c)))
     seek, trim = compute_chunk_seek_trim(cues, 72, 100)
     assert (_arg(second, "--seek"), _arg(second, "--trim")) == (seek, trim)
+
+
+# --- одночанковый режим для источников без pts (10.1-13) --- #
+
+def _single_env(tmp_path, monkeypatch, frames=120, path="sw", codec="wmv3",
+                packets_out=None, **extra):
+    """_wiring_env + пути одночанкового режима. Шпионы падают, если сценовая
+    машина вызвана. Возвращает (args, built, spies)."""
+    from enpipe.shared.decode import DecodeChoice
+
+    args, built = _wiring_env(
+        tmp_path, monkeypatch,
+        decode_choice=DecodeChoice(path=path, mode="auto", codec=codec,
+                                   pix_fmt="yuv420p", field_order=None,
+                                   reason="тест"),
+        **extra)
+    spies = {"probe_pts": Mock(return_value=(True, frames))}
+
+    def _forbid(name):
+        def _f(*a, **k):
+            raise AssertionError(f"{name} не должна вызываться в одночанковом режиме")
+        return _f
+
+    monkeypatch.setattr(p, "probe_pts", spies["probe_pts"])
+    monkeypatch.setattr(p, "decoded_frame_count", lambda src: frames)
+    monkeypatch.setattr(p, "mux_source_args", lambda src: [])
+    monkeypatch.setattr(p, "keyframe_table", _forbid("keyframe_table"))
+    monkeypatch.setattr(p, "keyframe_table_decoder_order",
+                        _forbid("keyframe_table_decoder_order"))
+    monkeypatch.setattr(p, "read_scenes", _forbid("read_scenes"))
+    monkeypatch.setattr(p, "refuse_unsafe_avsw", _forbid("refuse_unsafe_avsw"))
+    monkeypatch.setattr(p, "count_frames", lambda path: frames)
+    return args, built, spies
+
+
+def test_run_encode_single_chunk_no_pts(tmp_path, monkeypatch, capsys):
+    args, built, spies = _single_env(tmp_path, monkeypatch)
+    p.run_encode(args)
+    out = capsys.readouterr().out
+
+    assert len(built) == 1
+    assert "--seek" not in built[0] and "--trim" not in built[0]
+    assert built[0][3] == "--avsw"
+    task = p.encode_chunk.call_args_list[0][0][0]
+    assert task[3] == 120                                  # expect
+    assert out.count("режим: один чанк") == 1
+    assert "склейка: 120 кадров (совпало с числом кадров декода источника)" in out
+    assert "кадров декода источника: 120" in out
+
+
+def test_run_encode_single_chunk_frame_mismatch_dies(tmp_path, monkeypatch):
+    args, built, _ = _single_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(p, "count_frames", lambda path: 119)
+    mux_calls = []
+    inner = p._proc.run
+
+    def _run(cmd, **kw):
+        if cmd and cmd[0] == "mkvmerge":
+            mux_calls.append(cmd)
+        return inner(cmd, **kw)
+
+    monkeypatch.setattr(p._proc, "run", _run)
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+    assert mux_calls == []
+
+
+def test_run_encode_single_chunk_ready_flag_skips_probe(tmp_path, monkeypatch, capsys):
+    args, built, spies = _single_env(tmp_path, monkeypatch, single_chunk=True)
+    p.run_encode(args)
+    spies["probe_pts"].assert_not_called()
+    assert "режим: один чанк" not in capsys.readouterr().out
+    assert len(built) == 1
+
+
+def test_run_encode_single_chunk_hw_dies(tmp_path, monkeypatch):
+    args, built, _ = _single_env(tmp_path, monkeypatch, path="hw")
+    with pytest.raises(SystemExit) as ei:
+        p.run_encode(args)
+    assert "--decode sw" in str(ei.value)
+    assert not args.workdir.exists()
+
+
+def test_run_encode_single_chunk_from_to_dies(tmp_path, monkeypatch):
+    args, built, _ = _single_env(tmp_path, monkeypatch)
+    args.frm = 1
+    with pytest.raises(SystemExit):
+        p.run_encode(args)
+    assert not args.workdir.exists()
+
+
+def test_run_encode_single_chunk_metrics_one_row(tmp_path, monkeypatch):
+    args, built, _ = _single_env(tmp_path, monkeypatch)
+    args.no_metrics = False
+    wm = Mock(return_value={})
+    monkeypatch.setattr(p, "write_metrics_csv", wm)
+    p.run_encode(args)
+    rows = wm.call_args[0][1]
+    assert list(rows) == [0]
+    r = rows[0]
+    assert (r["start_frame"], r["end_frame"], r["frames"]) == (0, 120, 120)
+    assert r["seek"] == "" and r["trim"] == ""
+
+
+def test_run_encode_single_chunk_mux_uses_mux_extra(tmp_path, monkeypatch):
+    args, built, _ = _single_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(p, "mux_source_args", lambda src: ["--X"])
+    p.run_encode(args)
+    mux = next(c[0][0] for c in p._proc.run.call_args_list if c[0][0][0] == "mkvmerge")
+    assert mux[-1] == "--X" and "--no-video" not in mux
+
+
+def test_run_encode_with_pts_unchanged(tmp_path, monkeypatch, capsys):
+    from enpipe.shared.decode import DecodeChoice
+
+    args, built = _wiring_env(
+        tmp_path, monkeypatch,
+        decode_choice=DecodeChoice(path="sw", mode="auto", codec="hevc",
+                                   pix_fmt="yuv420p", field_order=None,
+                                   reason="тест"))
+    monkeypatch.setattr(p, "probe_pts", lambda src: (False, 5))
+    kt = Mock(return_value=_TABLE)
+    monkeypatch.setattr(p, "keyframe_table", kt)
+    p.run_encode(args)
+    kt.assert_called_once()
+    assert all("--seek" in c and "--trim" in c for c in built)
+    assert "режим: один чанк" not in capsys.readouterr().out
+
+
+def test_run_encode_single_chunk_ignores_scenes_file(tmp_path, monkeypatch, capsys):
+    args, built, _ = _single_env(tmp_path, monkeypatch)
+    args.scenes.write_text("scene 0000 frames [0, 5) 0 .. 1\n")
+    p.run_encode(args)
+    out = capsys.readouterr().out
+    assert "не используется" in out

@@ -49,6 +49,13 @@ from .keyframes import (
 )
 from .metrics import format_total_line, write_metrics_csv
 from .scenes_io import read_scenes
+from .single_chunk import (
+    check_single_chunk_args,
+    decoded_frame_count,
+    describe_single_chunk,
+    mux_source_args,
+    probe_pts,
+)
 
 JOBS = int(os.environ.get("JOBS", "3"))            # параллельных qsvencc-сессий
 
@@ -161,7 +168,8 @@ def run_encode(args) -> None:
             # готовое решение другого файла не переносится
             run_encode(Namespace(**{**vars(args), "video": v,
                                     "scenes": Path(str(v) + ".scenes"),
-                                    "decode_choice": None}))
+                                    "decode_choice": None,
+                                    "single_chunk": None}))
 
         def should_skip(v: Path):
             scenes_path = Path(str(v) + ".scenes")
@@ -188,46 +196,81 @@ def run_encode(args) -> None:
     if choice is None:
         choice = resolve_decode(args.video, decode_mode_from_args(args))
         log(describe_decode(choice))
-    # Закрыты wmv3 (10.1-11, решение оператора): отказ до workdir и первого
-    # чанка, и для готового решения из `run`, и для только что принятого.
-    # vc1 кодируется: перенумерация ключевых кадров (10.1-09) ниже.
-    refuse_unsafe_avsw(args.video, choice)
+    # Режим решается после решения о декоде (10.1-13): из `run` приходит
+    # готовым флагом (там же напечатана строка режима), у `encode` решаем здесь.
+    single = getattr(args, "single_chunk", None)
+    if single is None:
+        no_pts, packets = probe_pts(args.video)
+        single = no_pts
+        if single:
+            log(describe_single_chunk(packets))
+    mux_extra: List[str] = []
+    if single:
+        # refuse_unsafe_avsw НЕ вызывается: отказ касается краёв --seek/--trim
+        # (замер 261112-dab), которых в одночанковом режиме нет (решение 7).
+        check_single_chunk_args(args.video, choice, args.frm, args.to)
+        mux_extra = mux_source_args(args.video)   # die() до workdir/энкода
+    else:
+        # Закрыты wmv3 (10.1-11, решение оператора): отказ до workdir и первого
+        # чанка, и для готового решения из `run`, и для только что принятого.
+        # vc1 кодируется: перенумерация ключевых кадров (10.1-09) ниже.
+        refuse_unsafe_avsw(args.video, choice)
 
     out_base = _ensure_out_dir(args)
     out = resolve_output_path(args.video, out_base)
     workdir = args.workdir or out.with_name(out.stem + ".chunks")
     workdir.mkdir(parents=True, exist_ok=True)
 
-    scenes_all = read_scenes(args.scenes)
-    lo = max(0, args.frm)
-    hi = args.to if args.to is not None else len(scenes_all)
-    scenes = scenes_all[lo:hi]
-    if not scenes:
-        die("пустой диапазон сцен (--from/--to)")
-    partial = (lo != 0) or (hi != len(scenes_all))
-
     metrics_on = not args.no_metrics
-    log(f">> источник: {args.video.name}")
-    log(f">> сцен: {len(scenes)} [{lo},{hi})  ICQ={ICQ} qp-max={QPMAX} "
-        f"gop={GOP_LEN} jobs={args.jobs} metrics={'on' if metrics_on else 'off'}")
+    n_decoded = 0
+    if single:
+        # Файл сцен не читается: сцен в этом режиме нет.
+        if args.scenes.exists():
+            log(f">> файл сцен {args.scenes} не используется: в одночанковом "
+                f"режиме сцен нет")
+        log(f">> источник: {args.video.name}")
+        fps = probe_fps(args.video)
+        # Подсчёт на главном потоке до энкода (fail-fast); число — ожидаемое
+        # для encode_chunk и для сверки после склейки.
+        with step("подсчёт кадров источника полным декодом"):
+            n_decoded = decoded_frame_count(args.video)
+        log(f">> кадров декода источника: {n_decoded}")
+        scenes = scenes_all = [(0, n_decoded)]
+        lo, hi = 0, 1
+        partial = False
+        log(f">> один чанк: кадров {n_decoded}  ICQ={ICQ} qp-max={QPMAX} "
+            f"gop={GOP_LEN} jobs={args.jobs} metrics={'on' if metrics_on else 'off'}")
+        log(f">> fps={fps:.5f}")
+    else:
+        scenes_all = read_scenes(args.scenes)
+        lo = max(0, args.frm)
+        hi = args.to if args.to is not None else len(scenes_all)
+        scenes = scenes_all[lo:hi]
+        if not scenes:
+            die("пустой диапазон сцен (--from/--to)")
+        partial = (lo != 0) or (hi != len(scenes_all))
 
-    fps = probe_fps(args.video)
-    log(f">> fps={fps:.5f}")
-    with step("чтение keyframe-таблицы источника"):
-        table = keyframe_table(args.video, fps)
-    log(f">> keyframe'ов в источнике: {len(table)}")
+        log(f">> источник: {args.video.name}")
+        log(f">> сцен: {len(scenes)} [{lo},{hi})  ICQ={ICQ} qp-max={QPMAX} "
+            f"gop={GOP_LEN} jobs={args.jobs} metrics={'on' if metrics_on else 'off'}")
 
-    # У VC-1 номер по времени Cues расходится с позицией I-кадра в выводе
-    # декодера на ±1 (handoff §3.1). Решения оператора 10.1-09: область —
-    # семейство VC-1 (Task 1), позиции — отдельный проход ffprobe (Task 2).
-    if needs_decoder_order(choice.codec):
-        with step(f"номера ключевых кадров по выводу декодера ({choice.codec})"):
-            table, decoded, shifted = keyframe_table_decoder_order(args.video, table)
-        log(f">> ключевые кадры по выводу декодера: перенумеровано {shifted} "
-            f"из {len(table)}, кадров декода {decoded}")
-        if scenes_all and decoded != scenes_all[-1][1]:
-            die(f"кадров декода {decoded}, а конец последней сцены "
-                f"{scenes_all[-1][1]}: нумерация детекта и декодера расходится — стоп")
+        fps = probe_fps(args.video)
+        log(f">> fps={fps:.5f}")
+        with step("чтение keyframe-таблицы источника"):
+            table = keyframe_table(args.video, fps)
+        log(f">> keyframe'ов в источнике: {len(table)}")
+
+        # У VC-1 номер по времени Cues расходится с позицией I-кадра в выводе
+        # декодера на ±1 (handoff §3.1). Решения оператора 10.1-09: область —
+        # семейство VC-1 (Task 1), позиции — отдельный проход ffprobe (Task 2).
+        if needs_decoder_order(choice.codec):
+            with step(f"номера ключевых кадров по выводу декодера ({choice.codec})"):
+                table, decoded, shifted = keyframe_table_decoder_order(args.video, table)
+            log(f">> ключевые кадры по выводу декодера: перенумеровано {shifted} "
+                f"из {len(table)}, кадров декода {decoded}")
+            if scenes_all and decoded != scenes_all[-1][1]:
+                die(f"кадров декода {decoded}, а конец последней сцены "
+                    f"{scenes_all[-1][1]}: нумерация детекта и декодера расходится — стоп")
 
     # open-GOP источники (RASL/RADL) режутся корректно начиная с qsvencc r4665
     # (8.32-vppsync7, фикс #6); это гарантирует глобальный гейт
@@ -254,13 +297,14 @@ def run_encode(args) -> None:
     chunk_paths: List[Path] = []
     meta: Dict[int, Tuple[int, int, str, str]] = {}  # idx -> (s, e, seek, trim)
     for i, (s, e) in enumerate(scenes):
-        seek, trim = compute_chunk_seek_trim(table, s, e)
+        # одночанковый режим: без --seek/--trim (оба None), таблицы нет
+        seek, trim = (None, None) if single else compute_chunk_seek_trim(table, s, e)
         cp = workdir / f"chunk_{i:05d}.obu"
         chunk_paths.append(cp)
         cmd = chunk_command(args.video, seek, trim, cp, hdr_flags, metrics_on,
                             decode=choice.path)
         tasks.append((i, cmd, cp, e - s))
-        meta[i] = (s, e, seek, trim)
+        meta[i] = (s, e, "" if seek is None else seek, "" if trim is None else trim)
 
     # --- кодирование чанков + инкрементальная упорядоченная склейка ---
     # Чанки финишируют не по порядку (параллель), а склейка обязана быть в
@@ -335,8 +379,11 @@ def run_encode(args) -> None:
         got = count_frames(movie)
     if got != total_expect:
         die(f"после склейки кадров {got}, ожидалось {total_expect} — стоп")
-    log(f">> склейка: {got} кадров (совпало с суммой сцен)")
-    if not partial and scenes_all and got != scenes_all[-1][1]:
+    if single:
+        log(f">> склейка: {got} кадров (совпало с числом кадров декода источника)")
+    else:
+        log(f">> склейка: {got} кадров (совпало с суммой сцен)")
+    if not single and not partial and scenes_all and got != scenes_all[-1][1]:
         log(f"   ВНИМАНИЕ: кадров {got}, а конец последней сцены "
             f"{scenes_all[-1][1]} — расхождение с исходником")
 
@@ -375,7 +422,9 @@ def run_encode(args) -> None:
            "--default-duration", f"0:{fps_str}p", str(movie)]
     if has_audio:
         mux += [str(audio)]
-    if not partial:
+    if single:
+        mux += mux_extra       # [] для контейнера, который mkvmerge не читает
+    elif not partial:
         # сабы + главы + вложения из источника (видео/аудио источника не берём)
         mux += ["--no-video", "--no-audio", str(args.video)]
     with step("финальный мукс (mkvmerge)"):

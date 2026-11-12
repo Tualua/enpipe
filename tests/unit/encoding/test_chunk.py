@@ -181,3 +181,20 @@ def test_parse_metrics_negative_nan_and_inf():
     assert m["ssim_y"] == 1.0 and m["ssim_all"] == 1.0
     assert math.isnan(m["ssim_db"])
     assert math.isnan(m["psnr_y"]) and math.isnan(m["psnr_avg"])
+
+
+# --- одночанковый режим (10.1-13): seek/trim необязательны, но только вместе --- #
+
+def test_chunk_command_without_seek_trim_has_neither_flag():
+    cmd = chunk_command(Path("in.wmv"), None, None, Path("out.obu"), [], False,
+                        decode="sw")
+    assert "--seek" not in cmd and "--trim" not in cmd
+    assert cmd[-2:] == ["-o", "out.obu"]
+    assert cmd[3] == "--avsw" and cmd[4] == "--va"
+
+
+@pytest.mark.parametrize("seek,trim", [("00:00:01.000", None), (None, "0:10")])
+def test_chunk_command_one_of_seek_trim_none_raises(seek, trim):
+    with pytest.raises(ValueError):
+        chunk_command(Path("in.wmv"), seek, trim, Path("out.obu"), [], False,
+                      decode="sw")

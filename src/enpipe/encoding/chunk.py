@@ -23,7 +23,7 @@ QPMAX = int(os.environ.get("QPMAX", "100"))
 GOP_LEN = int(os.environ.get("GOP_LEN", "300"))
 
 
-def chunk_command(src: Path, seek: str, trim: str, out: Path,
+def chunk_command(src: Path, seek: Optional[str], trim: Optional[str], out: Path,
                   hdr_flags: List[str], metrics: bool,
                   *, decode: str) -> List[str]:
     # D-03/D-05: переключается только декодер (`--avhw` аппаратный / `--avsw`
@@ -67,7 +67,13 @@ def chunk_command(src: Path, seek: str, trim: str, out: Path,
     ]
     if metrics:                                  # PSNR/SSIM считает сам qsvencc
         cmd += ["--psnr", "--ssim"]
-    cmd += ["--seek", seek, "--trim", trim, "-o", str(out)]
+    # Одночанковый режим (10.1-13): источник без pts кодируется целиком, края
+    # чанков не нужны -- оба None. Один None -- ошибка вызова, не догадка.
+    if (seek is None) != (trim is None):
+        raise ValueError("seek и trim задаются вместе или не задаются оба")
+    if seek is not None:
+        cmd += ["--seek", seek, "--trim", trim]
+    cmd += ["-o", str(out)]
     return cmd
 
 
