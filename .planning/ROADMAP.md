@@ -173,7 +173,7 @@ Plans:
   3. Источник с `field_order` `tt/bb/tb/bt` получает громкий отказ на любом пути до детекта; отсутствующий/`unknown` считается прогрессивом (D-13)
   4. Hardware-тесты `--avsw` (синтетика HEVC и кусок VC-1 по `ENPIPE_TEST_VC1`) проверяют число кадров и первый/последний кадр каждого чанка против S и E−1; найденный сдвиг qsvencc — handoff в форк и громкий отказ enpipe до фикса (решение оператора после спайка)
   5. Оператор сам прогоняет `enpipe run` на Fringe S02E01: все чанки прошли сверку числа кадров, mkv собран, число кадров 63211; замеры JOBS 1/2/3 на `--avsw` записаны в SUMMARY, дефолты не менялись
-**Plans:** 10/13 plans executed (06–13 — gap closure)
+**Plans:** 11/13 plans executed (06–13 — gap closure)
 
 Plans:
 **Wave 1**
@@ -201,7 +201,7 @@ Plans:
 - [x] 10.1-10-PLAN.md — доказательство на B50: `test_chunk_edges_avsw_vc1` без xfail через production-нумерацию (handoff §5), WR-05, IN-03; эксперимент §3 → регрессия (IN-04); регрессия HEVC/H.264 на B50
 
 **Gap closure — Wave 8** *(blocked on 10.1-10)*
-- [ ] 10.1-11-PLAN.md — решение оператора по `wmv3`/`vc1image`; снятие отказа `vc1` (handoff §6), сквозной `enpipe run` на куске VC-1, `test_run_auto_vc1_cut` с краями всех чанков; handoff `resolved`; IN-01/IN-02
+- [x] 10.1-11-PLAN.md — решение оператора по `wmv3`/`vc1image`; снятие отказа `vc1` (handoff §6), сквозной `enpipe run` на куске VC-1, `test_run_auto_vc1_cut` с краями всех чанков; handoff `resolved`; IN-01/IN-02
 
 **Gap closure — Wave 9** *(blocked on 10.1-11)*
 - [ ] 10.1-13-PLAN.md — одночанковый режим для источников без pts (все видеопакеты `pts_time=N/A`, повод — wmv3 в ASF, quick 261112-dab): один `qsvencc --avsw` на весь файл без `--seek`/`--trim` и без детекта, сверка с полным декодом источника, явная строка режима в логе, CSV одна строка + ИТОГО; `wmv3` с pts — громкий отказ; фолбэк таблицы ключевых кадров отказывает при ключевом пакете без pts; сквозной `run` на куске wmv3 (B50); CLAUDE.md без «глав по сценам»

@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: executing
-stopped_at: Completed 10.1-10-PLAN.md
-last_updated: "2026-11-12T09:08:24.628Z"
+stopped_at: Completed 10.1-11-PLAN.md
+last_updated: "2026-11-12T11:23:29.278Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 10.1 execution started
-state_head: bf06bee7e532903f7b17e80501504549ac378ba7
+state_head: 4a4a9f79884924e71308af9a1ac9e3bc349508e0
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 38
-  completed_plans: 36
+  total_plans: 39
+  completed_plans: 37
   percent: 33
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
-Plan: 11 of 12
+Plan: 12 of 13
 Status: Ready to execute
-Last activity: 2026-11-12 - Completed quick task 261112-dab: замер краёв чанков --avsw для wmv3 на B50
+Last activity: 2026-11-12 — Phase 10.1 execution started
 
 Progress: [███░░░░░░░] 33%
 
@@ -54,6 +54,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Phase 10.1 P07 | 25min | 2 tasks | 3 files |
 | Phase 10.1 P09 | 20min | 3 tasks | 5 files |
 | Phase 10.1 P10 | 25min | 2 tasks | 2 files |
+| Phase 10.1 P11 | 35min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10.1]: Причина сдвига VC-1 ±1: нумерация ключевых кадров в enpipe (время Cues -> номер кадра), не баг qsvencc; в форк не отправлять
 - [Phase 10.1]: 10.1-09: перенумерация ключевых кадров по выводу декодера — область vc1-family, позиции I-кадров через ffprobe-pass
 - [Phase 10.1]: 10.1-10: края VC-1 на B50 верны при production-перенумерации; xfail снят, эксперимент §3 - регрессия
+- [Phase 10.1]: 10.1-11: отказ --avsw снят для vc1 и vc1image (оператор: lift-family, края vc1image не проверены); wmv3 остаётся под отказом, механизм отказа сохранён
 
 ### Pending Todos
 
@@ -182,8 +184,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-12T09:08:24.291Z
-Stopped at: Completed 10.1-10-PLAN.md
+Last session: 2026-11-12T11:23:28.933Z
+Stopped at: Completed 10.1-11-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
