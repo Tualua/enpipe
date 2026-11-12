@@ -420,8 +420,9 @@ def test_run_encode_explicit_sw_does_not_query_qsvencc(tmp_path, monkeypatch):
     assert all(cmd[3] == "--avsw" for cmd in built)
 
 
-def test_run_encode_refuses_vc1_sw_before_workdir(tmp_path, monkeypatch):
-    """refuse-handoff (10.1-04): vc1 по --avsw -- отказ до workdir и до chunk_command."""
+@pytest.mark.parametrize("codec", ["vc1", "wmv3", "vc1image"])
+def test_run_encode_refuses_vc1_sw_before_workdir(tmp_path, monkeypatch, codec):
+    """refuse-handoff (10.1-04/06): семейство VC-1 по --avsw -- отказ до workdir и до chunk_command."""
     from enpipe.shared.decode import DecodeChoice
 
     video = tmp_path / "source.mkv"
@@ -435,7 +436,7 @@ def test_run_encode_refuses_vc1_sw_before_workdir(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(p.shutil, "which", lambda tool: f"/usr/bin/{tool}")
     monkeypatch.setattr(p, "resolve_decode", lambda src, mode: DecodeChoice(
-        path="sw", mode=mode, codec="vc1", pix_fmt="yuv420p",
+        path="sw", mode=mode, codec=codec, pix_fmt="yuv420p",
         field_order=None, reason="заглушка"))
     chunk_cmd = Mock()
     monkeypatch.setattr(p, "chunk_command", chunk_cmd)

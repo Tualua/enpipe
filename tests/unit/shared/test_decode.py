@@ -112,6 +112,11 @@ def test_pix_fmt_format(pix_fmt, expected):
 
 # --- auto_path --- #
 
+def test_auto_wmv3_is_sw():
+    path, reason = auto_path(B50_TABLE, "wmv3", "yuv420p")
+    assert path == "sw"
+
+
 def test_auto_vc1_is_sw():
     path, reason = auto_path(B50_TABLE, "vc1", "yuv420p")
     assert path == "sw"
@@ -213,20 +218,33 @@ def _choice(path, codec):
                         field_order=None, reason="тест")
 
 
-def test_unsafe_codecs_is_vc1_only():
-    assert AVSW_UNSAFE_CODECS == frozenset({"vc1"})
+_VC1_FAMILY = ["vc1", "wmv3", "vc1image"]
 
 
-def test_refuse_unsafe_avsw_vc1_sw_dies_with_handoff():
+def test_unsafe_codecs_is_vc1_family():
+    assert AVSW_UNSAFE_CODECS == frozenset({"vc1", "wmv3", "vc1image"})
+
+
+@pytest.mark.parametrize("codec", _VC1_FAMILY)
+def test_refuse_unsafe_avsw_vc1_family_sw_dies(codec):
     with pytest.raises(SystemExit) as ei:
-        refuse_unsafe_avsw(Path("a.mkv"), _choice("sw", "vc1"))
+        refuse_unsafe_avsw(Path("a.mkv"), _choice("sw", codec))
     msg = str(ei.value)
     assert "HANDOFF-qsvencc-avsw-vc1-seek.md" in msg
-    assert "vc1" in msg
+    assert codec in msg
+    assert "VC-1" in msg
 
 
-def test_refuse_unsafe_avsw_vc1_hw_passes():
-    assert refuse_unsafe_avsw(Path("a.mkv"), _choice("hw", "vc1")) is None
+@pytest.mark.parametrize("codec", _VC1_FAMILY)
+def test_refuse_unsafe_avsw_vc1_family_hw_passes(codec):
+    assert refuse_unsafe_avsw(Path("a.mkv"), _choice("hw", codec)) is None
+
+
+@pytest.mark.parametrize("codec", ["mpeg4", "msmpeg4v3", "wmv2", "mjpeg"])
+def test_refuse_unsafe_avsw_unverified_codecs_pass_accepted_residual(codec):
+    """Принятый остаток решения оператора (gap 2): кодеки без колонки вне
+    семейства VC-1 идут в sw без отказа. Смена политики должна менять тест."""
+    assert refuse_unsafe_avsw(Path("a.mkv"), _choice("sw", codec)) is None
 
 
 def test_refuse_unsafe_avsw_hevc_sw_passes():
