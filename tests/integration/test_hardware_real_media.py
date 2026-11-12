@@ -725,10 +725,11 @@ def _edge_verdict(
     center: int,
     total: int,
     tmp: Path,
-) -> Tuple[Optional[str], bool, int, float]:
+) -> Tuple[str, Optional[str], int, float]:
     """D-09 verdict for one chunk frame against src[center] and src[center+d],
-    d in -2..2 (d != 0, inside [0, total)). Returns (error, discriminating,
-    offset with the maximal PSNR, PSNR vs the centre)."""
+    d in -2..2 (d != 0, inside [0, total)). Returns (status, message, offset
+    with the maximal PSNR, PSNR vs the centre); status is one of
+    content.VERDICT_OK / VERDICT_FAIL / VERDICT_INCONCLUSIVE."""
     ref_c = _extract_ref(cache, ffmpeg, src, center, tmp)
     psnr_center = content.psnr_db(ffmpeg, chunk_frame, ref_c)
     neighbors: Dict[int, Tuple[float, float]] = {}
@@ -745,8 +746,8 @@ def _edge_verdict(
     for d, (chunk_nb, _src_nb) in neighbors.items():
         if chunk_nb > best:
             best_off, best = d, chunk_nb
-    err, disc = content.nearest_frame_verdict(psnr_center, neighbors)
-    return err, disc, best_off, psnr_center
+    status, msg = content.nearest_frame_verdict(psnr_center, neighbors)
+    return status, msg, best_off, psnr_center
 
 
 def _verify_chunk_edges(
@@ -754,40 +755,44 @@ def _verify_chunk_edges(
     chunks: List[Tuple[int, int, Path, int]],
     total: int,
     tmp: Path,
-) -> Tuple[int, int, List[str]]:
+) -> Tuple[List[str], List[str], List[Tuple[int, int]]]:
     """D-09: first AND last frame of every chunk must be nearest (by PSNR among
     neighbours -2..+2) to source frames S and E-1.
 
     chunks: (S, E, chunk .obu path, actual frames in the chunk) -- the frame
     count comes from the tuple because on VC-1 it may differ from E-S.
-    Returns (discriminating first frames, discriminating last frames, errors);
-    collect-then-report, never raises on a content mismatch."""
+    Returns (fail errors, inconclusive messages, per chunk (first_best,
+    last_best) in `chunks` order). An inconclusive edge is NOT an ok: the
+    caller must report it (WR-04). Collect-then-report, never raises on a
+    content mismatch."""
     ffmpeg = _verify_ffmpeg()
     tmp.mkdir(parents=True, exist_ok=True)
     cache: Dict[int, Path] = {}
     errors: List[str] = []
-    disc_first = disc_last = 0
+    inconclusive: List[str] = []
+    bests: List[Tuple[int, int]] = []
     for i, (s, e, chunk, n_frames) in enumerate(chunks):
         first = tmp / f"c{i:05d}_first.mkv"
         last = tmp / f"c{i:05d}_last.mkv"
         content.extract_chunk_first_frame(ffmpeg, chunk, first)
         content.extract_chunk_last_frame(ffmpeg, chunk, n_frames, last)
-        err_f, disc_f, best_f, psnr_f = _edge_verdict(
+        st_f, msg_f, best_f, psnr_f = _edge_verdict(
             ffmpeg, src, cache, first, s, total, tmp)
-        err_l, disc_l, best_l, psnr_l = _edge_verdict(
+        st_l, msg_l, best_l, psnr_l = _edge_verdict(
             ffmpeg, src, cache, last, e - 1, total, tmp)
-        disc_first += 1 if disc_f else 0
-        disc_last += 1 if disc_l else 0
+        bests.append((best_f, best_l))
         print(
-            f"[edges] {src.name} chunk {i} [{s},{e}) first_best={best_f:+d} "
-            f"last_best={best_l:+d} psnr_first={psnr_f:.2f} psnr_last={psnr_l:.2f} "
-            f"disc_first={disc_f} disc_last={disc_l}"
+            f"[edges] {src.name} chunk {i} [{s},{e}) first={st_f} last={st_l} "
+            f"first_best={best_f:+d} last_best={best_l:+d} "
+            f"psnr_first={psnr_f:.2f} psnr_last={psnr_l:.2f}"
         )
-        if err_f is not None:
-            errors.append(f"chunk {i} [{s},{e}) first frame: {err_f}")
-        if err_l is not None:
-            errors.append(f"chunk {i} [{s},{e}) last frame: {err_l}")
-    return disc_first, disc_last, errors
+        for which, st, msg in (("first", st_f, msg_f), ("last", st_l, msg_l)):
+            line = f"chunk {i} [{s},{e}) {which} frame: {msg}"
+            if st == content.VERDICT_FAIL:
+                errors.append(line)
+            elif st == content.VERDICT_INCONCLUSIVE:
+                inconclusive.append(line)
+    return errors, inconclusive, bests
 
 
 def _av1_dovi_self_check() -> bool:
@@ -1297,13 +1302,13 @@ def test_chunk_edges_avsw_synthetic(tmp_path: Path, gop: str) -> None:
     if count_frames(out) != total:
         pytest.fail(f"{out}: {count_frames(out)} frames, expected {total}")
 
-    disc_first, disc_last, errors = _verify_chunk_edges(
+    errors, inconclusive, _bests = _verify_chunk_edges(
         src, chunks, total, tmp_path / "edges")
     assert not errors, "chunk edge mismatch:\n" + "\n".join(errors)
-    if disc_first == 0 or disc_last == 0:
+    if inconclusive:
         pytest.fail(
-            f"vacuous: neighbour control never discriminated "
-            f"(first={disc_first}, last={disc_last})")
+            "inconclusive edges, a one-frame shift is not ruled out:\n"
+            + "\n".join(inconclusive))
 
 
 def test_dv_profile5(tmp_path: Path) -> None:
@@ -1540,7 +1545,7 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
             chunks.append((s, e, cp, got))
 
     if chunks:
-        _df, _dl, edge_errors = _verify_chunk_edges(cut, chunks, total, tmp_path / "edges")
+        edge_errors, _inconclusive, _bests = _verify_chunk_edges(cut, chunks, total, tmp_path / "edges")
         errors += edge_errors
     assert not errors, "VC-1 --avsw chunk problems:\n" + "\n".join(errors)
 
