@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
 Plan: 11 of 12
 Status: Ready to execute
-Last activity: 2026-11-12 — Phase 10.1 execution started
+Last activity: 2026-11-12 - Completed quick task 261112-dab: замер краёв чанков --avsw для wmv3 на B50
 
 Progress: [███░░░░░░░] 33%
 
