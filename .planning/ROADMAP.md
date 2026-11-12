@@ -173,7 +173,7 @@ Plans:
   3. Источник с `field_order` `tt/bb/tb/bt` получает громкий отказ на любом пути до детекта; отсутствующий/`unknown` считается прогрессивом (D-13)
   4. Hardware-тесты `--avsw` (синтетика HEVC и кусок VC-1 по `ENPIPE_TEST_VC1`) проверяют число кадров и первый/последний кадр каждого чанка против S и E−1; найденный сдвиг qsvencc — handoff в форк и громкий отказ enpipe до фикса (решение оператора после спайка)
   5. Оператор сам прогоняет `enpipe run` на Fringe S02E01: все чанки прошли сверку числа кадров, mkv собран, число кадров 63211; замеры JOBS 1/2/3 на `--avsw` записаны в SUMMARY, дефолты не менялись
-**Plans:** 5/8 plans executed (06–08 — gap closure)
+**Plans:** 6/8 plans executed (06–08 — gap closure)
 
 Plans:
 **Wave 1**
@@ -188,7 +188,7 @@ Plans:
 - [x] 10.1-04-PLAN.md — замеры JOBS 1/2/3 (D-11), применение решения по VC-1 (handoff + отказ или без изменений), сквозной `run --decode auto` на куске VC-1, UAT оператора (D-10)
 
 **Gap closure — Wave 4**
-- [ ] 10.1-06-PLAN.md — gap 2 / WR-01: deny-list семейства VC-1 (`vc1`, `wmv3`, `vc1image`), принятый остаток (mpeg4, wmv2, …) записан и закреплён тестом; WR-02: `chunk_command(..., *, decode)` без умолчания
+- [x] 10.1-06-PLAN.md — gap 2 / WR-01: deny-list семейства VC-1 (`vc1`, `wmv3`, `vc1image`), принятый остаток (mpeg4, wmv2, …) записан и закреплён тестом; WR-02: `chunk_command(..., *, decode)` без умолчания
 - [ ] 10.1-07-PLAN.md — WR-04: трёхзначный вердикт краёв (ok/fail/inconclusive), малоподвижный край не проходит молча, синтетика HEVC перепроверена на B50; WR-03: `xfail(strict=True, raises=AssertionError)` у теста VC-1
 
 **Gap closure — Wave 5** *(blocked on 10.1-06, 10.1-07)*
