@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
-status: executing
-stopped_at: Completed 10.1-07-PLAN.md
-last_updated: "2026-11-12T02:21:49.672Z"
+status: verifying
+stopped_at: Completed 10.1-08-PLAN.md
+last_updated: "2026-11-12T05:51:50.177Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 10.1 execution started
-state_head: bc36d84c101e522cadcaa13595e58e059364ba07
+state_head: 4d44f75774b64198383d3e900604696461302869
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 33
+  completed_plans: 34
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — READY TO EXECUTE
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-11 — Phase 10.1 execution started
 
 Progress: [███░░░░░░░] 33%
@@ -88,6 +88,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10.1]: 10.1-04: выполнена ветка refuse-handoff; VC-1 по --avsw закрыт refuse_unsafe_avsw (в т.ч. при явном --decode sw), --decode hw не отказывается заранее; причина сдвига (нумерация K по Cues в enpipe vs qsvencc) не доказана
 - [Phase 10.1]: 10.1-06: deny-list расширен на семейство VC-1 (vc1, wmv3, vc1image); chunk_command decode обязателен keyword-only
 - [Phase 10.1]: 10.1-07: nearest_frame_verdict three-valued; inconclusive never ok, synthetic fails on any inconclusive; VC-1 xfail raises=AssertionError
+- [Phase 10.1]: Причина сдвига VC-1 ±1: нумерация ключевых кадров в enpipe (время Cues -> номер кадра), не баг qsvencc; в форк не отправлять
 
 ### Pending Todos
 
@@ -176,8 +177,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-12T02:21:49.353Z
-Stopped at: Completed 10.1-07-PLAN.md
+Last session: 2026-11-12T05:51:49.841Z
+Stopped at: Completed 10.1-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
