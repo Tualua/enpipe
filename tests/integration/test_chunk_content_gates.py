@@ -138,3 +138,47 @@ def test_nearest_frame_verdict(
         assert isinstance(msg, str) and msg
     if word is not None:
         assert word in msg
+
+
+# --- true_keyframe_table (эксперимент handoff §3, план 10.1-08) ---------------- #
+
+_CUES = [(0, 0.0), (24, 1.001), (48, 2.002), (72, 3.003), (469, 19.561),
+         (493, 20.562), (588, 24.524), (597, 24.900)]
+_I_POS = [0, 24, 48, 73, 469, 494, 589, 596]
+
+
+def test_true_keyframe_table_maps_cues_to_decode_positions() -> None:
+    got = content.true_keyframe_table(_CUES, _I_POS)
+    assert got == [(0, 0.0), (24, 1.001), (48, 2.002), (73, 3.003),
+                   (469, 19.561), (494, 20.562), (589, 24.524), (596, 24.900)]
+
+
+def test_true_keyframe_table_seek_trim_matches_handoff() -> None:
+    from enpipe.encoding.keyframes import compute_chunk_seek_trim
+
+    true_table = content.true_keyframe_table(_CUES, _I_POS)
+    assert compute_chunk_seek_trim(_CUES, 72, 493)[1] == "0:420"
+    seek3, trim3 = compute_chunk_seek_trim(true_table, 72, 493)
+    assert trim3 == "24:444"
+    # chunk 3 seeks from K=48: same seek as the control chunk (48, 72)
+    assert seek3 == compute_chunk_seek_trim(_CUES, 48, 72)[0]
+    assert compute_chunk_seek_trim(true_table, 493, 597)[1] == "24:127"
+    assert compute_chunk_seek_trim(true_table, 597, 604)[1] == "1:7"
+    assert compute_chunk_seek_trim(true_table, 604, 716)[1] == "8:119"
+
+
+def test_true_keyframe_table_rejects_missing_i_frame() -> None:
+    with pytest.raises(ValueError, match="300"):
+        content.true_keyframe_table([(0, 0.0), (300, 12.5)], [0, 10])
+
+
+def test_true_keyframe_table_rejects_ambiguous() -> None:
+    # K=10: I-frames 9 and 11 are equally far
+    with pytest.raises(ValueError, match="10"):
+        content.true_keyframe_table([(10, 0.4)], [9, 11])
+
+
+def test_true_keyframe_table_rejects_non_increasing() -> None:
+    # K=10 and K=11 both map to the single I-frame 10
+    with pytest.raises(ValueError):
+        content.true_keyframe_table([(10, 0.4), (11, 0.45)], [10])
