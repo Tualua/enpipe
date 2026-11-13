@@ -186,9 +186,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-12T11:23:28.933Z
-Stopped at: Completed 10.1-11-PLAN.md
-Resume file: None
+Last session: 2026-11-13T16:57:00Z
+Stopped at: Session resumed (контейнер пересобран, qsvencc r4747); 10.1-13 Task 1 verify #2 пройдена на B50 (rc=0, 2996 = 2996, CSV 3 строки, лог /tmp/tmp.lOBIPHuyFK/enc.log); proceeding to /gsd-execute-phase 10.1 (10.1-13 Tasks 2–3)
+Resume file: .planning/phases/10.1-programmnyy-dekod-v-enkode-qsvencc-avsw/.continue-here.md
 
 ## Operator Next Steps
 
