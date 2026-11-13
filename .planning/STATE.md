@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
 Plan: 12 of 13
 Status: Ready to execute
-Last activity: 2026-11-12 — Phase 10.1 execution started
+Last activity: 2026-11-13 — Completed quick task 261113-3u0: qsvencc → 8.37+vppsync13 (r4747)
 
 Progress: [███░░░░░░░] 33%
 
@@ -108,6 +108,7 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261113-3u0 | qsvencc → 8.37+vppsync13 (r4747, FFmpeg 9.0.2 — фикс wmv3 INVALIDDATA, b7401b97): пин URL+sha256 в обоих Dockerfile, порог 4747, handoff wmv3 resolved; B50: быстрый тир 999 passed, аппаратный 25/26 (`test_chunk_edges_avsw_wmv3` падает и на r4677 — ASF без pts, не регрессия). Образы не пересобраны | 2026-11-13 | 5ffa019 | [261113-3u0-qsvencc-8-37-vppsync13-r4747-pin-porog-4](./quick/261113-3u0-qsvencc-8-37-vppsync13-r4747-pin-porog-4/) |
 | 261112-dab | Замер краёв чанков --avsw для wmv3 (ASF) на B50: не состоялся — у пакетов ASF `pts_time=N/A`, ffprobe-фолбэк `keyframe_table` пуст → die; тест `test_chunk_edges_avsw_wmv3` (ENPIPE_TEST_WMV3) + `scratch/wmv3_cut.sh` | 2026-11-12 | 4bc39e3 | [261112-dab-zamer-kraev-chankov-avsw-dlya-wmv3-s-b-k](./quick/261112-dab-zamer-kraev-chankov-avsw-dlya-wmv3-s-b-k/) |
 | 261023-9hm | Рабочая карта Arc A380 → Arc B50 (Battlemage): текущее железо в CLAUDE.md, PROJECT.md, codebase/STACK/INTEGRATIONS/CONCERNS и комментариях Dockerfile/devcontainer; замеры A380 (0/640 метрик r4658, 45003f1, побайтные сверки) оставлены как история с пометкой и ссылкой на backlog 999.7. Поведение кода и сборки не менялось | 2026-10-23 | 41d0203 | [261023-9hm-b50-replaces-a380-docs](./quick/261023-9hm-b50-replaces-a380-docs/) |
 | 261023-gpq | ffmpeg BtbN → месячная сборка autobuild-2026-09-30-13-08 (n9.0.2-17): старый autobuild-2026-10-01 удалён (404), devcontainer не собирался; пин URL+sha256 в обоих Dockerfile, политика «только сборка конца месяца». Devcontainer собран с новым пином; рантайм-образ проходит шаг ffmpeg, но падает на `enpipe --help` (libGL.so.1 из opencv-python — отдельная проблема) | 2026-10-23 | 6ce07be | [261023-gpq-ffmpeg-btbn-2026-09-30-404-autobuild-202](./quick/261023-gpq-ffmpeg-btbn-2026-09-30-404-autobuild-202/) |
