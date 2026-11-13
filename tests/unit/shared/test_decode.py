@@ -233,6 +233,8 @@ def test_refuse_unsafe_avsw_unmeasured_sw_dies(codec):
     assert "HANDOFF-qsvencc-avsw-vc1-seek.md" in msg
     assert codec in msg
     assert "баг" not in msg
+    assert "одним чанком" in msg
+    assert "pts есть" in msg
 
 
 def test_refuse_unsafe_avsw_vc1_sw_passes():

@@ -380,3 +380,66 @@ def test_run_refuses_wmv3_sw_before_detect(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert "HANDOFF-qsvencc-avsw-vc1-seek" in str(ei.value)
     assert calls == []
+
+
+# --- одночанковый режим для источников без pts (10.1-13) --- #
+
+def test_run_single_chunk_skips_detect(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    """Источник без pts: детект не вызывается, режим решён до энкода один раз."""
+    _stub_all_tools_present(monkeypatch)
+    monkeypatch.setattr(cli_main, "resolve_decode", _sw_choice("wmv3"))
+    monkeypatch.setattr(cli_main, "probe_pts", lambda src: (True, 2996))
+    monkeypatch.setattr(
+        cli_main, "refuse_unsafe_avsw",
+        lambda *a, **k: pytest.fail("refuse_unsafe_avsw не должен вызываться"))
+    calls: List[str] = []
+    captured = {}
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(
+        cli_main, "run_encode",
+        lambda args: (calls.append("encode"), captured.setdefault("encode", args)))
+
+    main(["run", "x.wmv", "--no-metrics"])
+
+    assert calls == ["encode"]
+    e = captured["encode"]
+    assert e.single_chunk is True
+    assert e.decode_choice is not None
+    out = capsys.readouterr().out
+    assert out.count("режим: один чанк") == 1
+    assert out.index("декод:") < out.index("режим: один чанк")
+
+
+def test_run_with_pts_passes_single_chunk_false(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_all_tools_present(monkeypatch)
+    monkeypatch.setattr(cli_main, "probe_pts", lambda src: (False, 1))
+    calls: List[str] = []
+    captured = {}
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(
+        cli_main, "run_encode",
+        lambda args: (calls.append("encode"), captured.setdefault("encode", args)))
+
+    main(["run", "x.mkv", "--no-metrics"])
+
+    assert calls == ["detect", "encode"]
+    assert captured["encode"].single_chunk is False
+
+
+def test_run_wmv3_with_pts_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """wmv3 с pts идёт сценовым путём и получает отказ с пояснением."""
+    _stub_all_tools_present(monkeypatch)
+    monkeypatch.setattr(cli_main, "resolve_decode", _sw_choice("wmv3"))
+    monkeypatch.setattr(cli_main, "probe_pts", lambda src: (False, 1))
+    calls: List[str] = []
+    monkeypatch.setattr(cli_main, "run_detect", lambda args: calls.append("detect"))
+    monkeypatch.setattr(cli_main, "run_encode", lambda args: calls.append("encode"))
+
+    with pytest.raises(SystemExit) as ei:
+        main(["run", "x.mkv", "--no-metrics"])
+
+    assert "одним чанком" in str(ei.value)
+    assert "pts есть" in str(ei.value)
+    assert calls == []

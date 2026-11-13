@@ -42,6 +42,22 @@ def test_keyframe_table_ffprobe_dies_when_no_keyframe_at_frame_zero(fp):
         keyframe_table_ffprobe(Path("src.mkv"), fps=24.0)
 
 
+def test_keyframe_table_ffprobe_dies_on_keyframe_without_pts(fp):
+    """10.1-13: ключевой пакет без pts -- отказ, а не молчаливый пропуск."""
+    fp.register(_ARGV, stdout="0.000000,K__\nN/A,K__\n")
+    with pytest.raises(SystemExit) as ei:
+        keyframe_table_ffprobe(Path("src.mkv"), fps=24.0)
+    msg = str(ei.value)
+    assert "нет pts" in msg
+    assert "1 из 2" in msg
+
+
+def test_keyframe_table_ffprobe_ignores_non_key_packets_without_pts(fp):
+    fp.register(_ARGV, stdout="0.000000,K__\nN/A,___\n10.0,K__\n")
+    table = keyframe_table_ffprobe(Path("src.mkv"), fps=24.0)
+    assert table == [(0, 0.0), (240, 10.0)]
+
+
 # --- позиции I-кадров по выводу декодера (10.1-09) --- #
 
 from enpipe.encoding.keyframes import (  # noqa: E402

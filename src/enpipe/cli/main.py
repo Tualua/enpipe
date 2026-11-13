@@ -24,6 +24,7 @@ from typing import Optional, Sequence
 from enpipe.detection.pipeline import run_detect
 from enpipe.encoding.pipeline import JOBS as ENCODE_JOBS
 from enpipe.encoding.pipeline import _ensure_out_dir, resolve_output_path, run_encode
+from enpipe.encoding.single_chunk import describe_single_chunk, probe_pts
 from enpipe.shared.batch import iter_input_videos, run_batch
 from enpipe.shared.decode import (
     DECODE_MODES,
@@ -61,12 +62,41 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
     режим из CLI, для совместимости и диагностики) и `decode_choice` (готовое
     решение). Стадия, получившая `decode_choice`, не решает заново и не
     печатает строку D-12 (её печатает этот вызов, до детекта). В батче
-    _pipeline_one вызывается на каждый файл, поэтому решение у каждого своё."""
+    _pipeline_one вызывается на каждый файл, поэтому решение у каждого своё.
+
+    Режим «один чанк» (10.1-13) тоже решается ЗДЕСЬ один раз на файл, после
+    решения о декоде, и передаётся значением (`single_chunk`), как
+    `decode_choice` (DEC-03). Источник без pts не детектируется (решение
+    оператора 3): детект не вызывается, `.scenes` не пишется, строку режима
+    печатает этот вызов."""
     choice = resolve_decode(video, decode_mode_from_args(args))
     log(describe_decode(choice))
+    no_pts, packets = probe_pts(video)
+    if no_pts:
+        log(describe_single_chunk(packets))
+        run_encode(argparse.Namespace(
+            video=video,
+            scenes=scenes_path,
+            out=args.out,
+            out_dir=args.out_dir,
+            frm=args.frm,
+            to=args.to,
+            workdir=args.workdir,
+            keep=args.keep,
+            jobs=args.encode_jobs,
+            no_audio=args.no_audio,
+            no_metrics=args.no_metrics,
+            csv=args.csv,
+            decode=args.decode,
+            decode_choice=choice,
+            single_chunk=True,
+        ))
+        return
     # wmv3 по --avsw закрыт (10.1-11, решение оператора): отказ ДО детекта,
     # чтобы не тратить ~16 мин на то, что потом нельзя кодировать. vc1 и
-    # vc1image кодируются (перенумерация ключевых кадров, 10.1-09).
+    # vc1image кодируются (перенумерация ключевых кадров, 10.1-09). Отказ
+    # касается только сценового пути: у источников без pts нет краёв
+    # --seek/--trim (одночанковый режим выше).
     refuse_unsafe_avsw(video, choice)
     detect_args = argparse.Namespace(
         input=video,
@@ -98,6 +128,7 @@ def _pipeline_one(video: Path, scenes_path: Path, args) -> None:
         csv=args.csv,
         decode=args.decode,
         decode_choice=choice,
+        single_chunk=False,
     )
     run_encode(encode_args)
 

@@ -63,7 +63,10 @@ def keyframe_table_cues(src: Path, fps: float) -> Optional[List[Tuple[int, float
 
 def keyframe_table_ffprobe(src: Path, fps: float) -> List[Tuple[int, float]]:
     """Фолбэк: отсортированный список (frame, pts_time) keyframe'ов через полный
-    проход ffprobe по пакетам (без декода). Медленно (I/O по всему файлу)."""
+    проход ffprobe по пакетам (без декода). Медленно (I/O по всему файлу).
+
+    Ключевой пакет без pts -- отказ, а не пропуск: пропуск молча давал
+    неполную таблицу (10.1-13). Неключевые пакеты без pts таблицу не портят."""
     cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
            "-show_packets", "-show_entries", "packet=flags,pts_time",
            "-of", "csv=p=0", str(src)]
@@ -71,16 +74,25 @@ def keyframe_table_ffprobe(src: Path, fps: float) -> List[Tuple[int, float]]:
     if proc.returncode != 0:
         die(f"ffprobe (keyframes) упал: {proc.stderr.strip()}")
     table: List[Tuple[int, float]] = []
+    key_total = 0
+    key_no_pts = 0
     for line in proc.stdout.splitlines():
         # формат: "<pts_time>,<flags>", напр. "627.544000,K__"
         parts = line.split(",")
         if len(parts) < 2 or "K" not in parts[1]:
             continue
+        key_total += 1
         try:
             t = float(parts[0])
         except ValueError:
+            key_no_pts += 1
             continue
         table.append((round(t * fps), t))
+    if key_no_pts:
+        die(f"{src.name}: у {key_no_pts} из {key_total} ключевых кадров нет pts "
+            "(pts_time=N/A): таблица ключевых кадров по пакетам неполная, "
+            "нарезка по сценам остановлена (источники без pts -- одночанковый "
+            "режим; сценовая нарезка -- бэклог 999.8)")
     table.sort()
     if not table or table[0][0] != 0:
         die("у источника нет keyframe на кадре 0 — неожиданно, прерываю")
