@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
 Plan: 12 of 13
 Status: Ready to execute
-Last activity: 2026-11-13 — Completed quick task 261113-3u0: qsvencc → 8.37+vppsync13 (r4747)
+Last activity: 2026-11-13 — Completed quick task 261113-msb: devcontainer локаль en_US.UTF-8 + только gsd-core
 
 Progress: [███░░░░░░░] 33%
 
