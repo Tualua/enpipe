@@ -5,7 +5,7 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: verifying
-stopped_at: Completed 10.1-12-PLAN.md
+stopped_at: "Phase 10.1 verified human_needed; UAT 3 (D-10) fails on VC-1 keyframe renumbering tie — G-1 awaits operator decision"
 last_updated: "2026-11-13T17:26:10.294Z"
 last_activity: 2026-11-13
 last_activity_desc: Phase 10.1 execution started
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
 Plan: 13 of 13
-Status: Phase complete — ready for verification
-Last activity: 2026-11-13 — Phase 10.1 execution started
+Status: Verification human_needed — G-1 (UAT 3) ждёт решения оператора
+Last activity: 2026-11-13 — планы 10.1-12/13 выполнены, ревью, верификация, предварительные прогоны UAT 3 и 5
 
 Progress: [███░░░░░░░] 33%
 
@@ -189,10 +189,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-13T17:26:09.943Z
-Stopped at: Completed 10.1-12-PLAN.md
-Resume file: None
+Last session: 2026-11-13T19:40:00Z
+Stopped at: Фаза 10.1 — все 13 планов выполнены, верификация human_needed; предварительный прогон UAT 3 (D-10, полная Fringe S02E01) упал на перенумерации ключевых кадров — G-1 в 10.1-HUMAN-UAT.md, нужны решения оператора (правило при ничьей I-кадров; WR-01, WR-02 из 10.1-REVIEW.md); UAT 5 предварительно пройден, приёмка за оператором
+Resume file: .planning/phases/10.1-programmnyy-dekod-v-enkode-qsvencc-avsw/10.1-HUMAN-UAT.md
 
 ## Operator Next Steps
 
-- Plan Phase 9 with /gsd:plan-phase 9
+- Решить G-1 (10.1-HUMAN-UAT.md, раздел Gaps), затем `/gsd-plan-phase 10.1 --gaps` и `/gsd-execute-phase 10.1 --gaps-only`
+- Решить WR-01 и WR-02 (10.1-REVIEW.md)
+- Приёмка UAT 5 и, после закрытия G-1, UAT 3: `/gsd-verify-work 10.1`
