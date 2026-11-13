@@ -85,7 +85,7 @@
     // iHD — драйвер Intel Media для Intel Arc (тот же, что на хосте)
     "LIBVA_DRIVER_NAME": "iHD",
 
-    // Патченный vpl-gpu-rt (/opt, из релиза 8.32-vppsync10) грузится диспетчером
+    // Патченный vpl-gpu-rt (/opt, из релиза 8.37-vppsync13) грузится диспетчером
     // oneVPL раньше системного — для qsvencc и для ffmpeg QSV. Нужен qsvencc
     // `--av1-chroma-delta-q`; без этой опции вывод побайтно как у стокового.
     "ONEVPL_PRIORITY_PATH": "/opt/vpl-gpu-rt-av1auxdata/lib",

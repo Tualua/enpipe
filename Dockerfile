@@ -60,7 +60,7 @@ RUN uv sync --frozen --no-dev --no-editable
 # Почему ubuntu:24.04: ради Intel graphics PPA (kobuk-team) с intel-opencl-icd.
 # Без OpenCL-рантайма VPP-фильтры qsvencc (--psnr/--ssim) не работают, а они
 # включены в пути по умолчанию. glibc 2.39 заодно удовлетворяет .deb qsvencc.
-# Метрики на закреплённом форке 8.32+vppsync10 (r4677) несут те же патчи
+# Метрики на закреплённом форке 8.37+vppsync13 (r4747) несут те же патчи
 # #319/#320, что измерены стабильными на r4658: 0 отказов METRICS_FAILED из
 # 640 сессий (замер на A380; на B50 — см. 999.7). Отказы VIDEOMETRIC (D-12)
 # были на r4634 и в апстримном 8.32 и остались в истории.
@@ -115,29 +115,31 @@ RUN set -eux; \
       python3.12; \
     rm -rf /var/lib/apt/lists/*
 
-# --- qsvencc 8.32+vppsync10 (форк Tualua/QSVEnc) — пин по sha256 ---
+# --- qsvencc 8.37+vppsync13 (форк Tualua/QSVEnc) — пин по sha256 ---
 # Почему форк, а не rigaya releases/latest: форк несёт фикс `--trim` после
 # `--seek` на open-GOP HEVC и экспериментальный `--av1-chroma-delta-q`.
-# Provenance: релиз https://github.com/Tualua/QSVEnc/releases/tag/8.32-vppsync10
-# (target 3552334); sha256 сверен с SHA256SUMS релиза и с digest на GitHub.
-# Пакет `8.32+vppsync10`, `--version` даёт `8.32 (r4677)`. Состав: rigaya master
-# 864a688 (после 8.32) с фиксами #319, #320, #322, #326, #328, #330, #332 и #333
-# (VA decode-error останавливал OpenCL-путь и терял последние кадры; для enpipe
-# важно, т.к. метрики --psnr/--ssim включены по умолчанию) + фикс форка: `--trim`
-# после `--seek` на open-GOP HEVC (RASL не входят в trim offset), RADL для
-# `--avsw` + экспериментальный `--av1-chroma-delta-q`, которому нужен патченный
-# vpl-gpu-rt (ставится отдельным блоком ниже); enpipe опцию пока не использует.
+# Provenance: релиз https://github.com/Tualua/QSVEnc/releases/tag/8.37-vppsync13;
+# sha256 сверен с SHA256SUMS релиза. Пакет `8.37+vppsync13`, `--version` даёт
+# `8.37 (r4747)`. Состав: rigaya 8.37 (потомок 864a688, уже содержит прежние
+# фиксы #319, #320, #322, #326, #328, #330, #332 и #333 — VA decode-error
+# останавливал OpenCL-путь и терял последние кадры; для enpipe важно, т.к.
+# метрики --psnr/--ssim включены по умолчанию) + коммиты форка: be3ac937
+# (`--trim` после `--seek` на open-GOP HEVC: RASL не входят в trim offset, RADL
+# для `--avsw`), ede4865b (экспериментальный `--av1-chroma-delta-q`, нужен
+# патченный vpl-gpu-rt из блока ниже; enpipe опцию пока не использует) и
+# e7d224f9 (сборка с libav FFmpeg 9.0.2: фикс vc1/wmv3 INVALIDDATA, b7401b97).
 # Зависимости .deb ослаблены (libc6>=2.31, libva-drm2, libva-x11-2, iHD|va-driver)
 # — intel-opencl-icd/libmfx1 не объявлены, вырезать ничего не нужно (D-05).
-# Официальный 8.33+ (с этими патчами) заменит форк — тогда сменить URL/SHA256.
-ARG QSVENCC_URL=https://github.com/Tualua/QSVEnc/releases/download/8.32-vppsync10/qsvencc_8.32%2Bvppsync10_amd64_ubuntu2004.deb
-ARG QSVENCC_SHA256=5f42839fc6cade05945d3b48f86bae8de8546fca60c9e7711a0863035edf1060
+# Официальный rigaya 8.37 вышел без патчей форка: форк заменим, когда rigaya примет
+# open-GOP-фикс и libav ≥ 9.0.2 — тогда сменить URL/SHA256.
+ARG QSVENCC_URL=https://github.com/Tualua/QSVEnc/releases/download/8.37-vppsync13/qsvencc_8.37%2Bvppsync13_amd64_ubuntu2004.deb
+ARG QSVENCC_SHA256=1ccc4de766ac48c8940f0499b5c5f4cf930c461020f006955cc378b066054970
 # Токен github_token опционален (репозиторий публичный): нужен только для
 # приватных форков / лимитов загрузки с github.com. xtrace отключён вокруг чтения
 # секрета и авторизованного curl — иначе токен печатается в лог сборки.
 # apt-get update должен стоять непосредственно перед установкой .deb в том же RUN —
 # зависимости .deb резолвятся по свежим спискам; не выносить в другой слой.
-# Литерал 4677 должен равняться QSVENCC_MIN_REV (проверяет
+# Литерал 4747 должен равняться QSVENCC_MIN_REV (проверяет
 # tests/unit/shared/test_qsvencc_threshold_sync.py); `--version` GPU не требует.
 RUN --mount=type=secret,id=github_token,required=false set -eu; \
     set +x; \
@@ -155,11 +157,12 @@ RUN --mount=type=secret,id=github_token,required=false set -eu; \
     ver="$(qsvencc --version)"; \
     printf '%s\n' "$ver" | head -1; \
     rev="$(printf '%s\n' "$ver" | sed -n '1s/.*(r\([0-9]*\)).*/\1/p')"; \
-    test "${rev:-0}" -ge 4677; \
+    test "${rev:-0}" -ge 4747; \
     rm -f /tmp/qsvencc.deb; rm -rf /var/lib/apt/lists/*
 
 # --- vpl-gpu-rt 26.3.2-av1auxdata (патченный oneVPL GPU-runtime) — пин по sha256 ---
-# Provenance: тот же релиз 8.32-vppsync10 форка Tualua/QSVEnc, ассет
+# Provenance: тот же релиз 8.37-vppsync13 форка Tualua/QSVEnc (ассет не менялся
+# с 8.32-vppsync10, sha256 тот же), ассет
 # vpl-gpu-rt-26.3.2-av1auxdata.tar.gz; sha256 сверен с SHA256SUMS.runtime релиза
 # и с digest на GitHub. Содержимое: libmfx-gen.so.1.2.17 + симлинк
 # libmfx-gen.so.1.2, av1-auxdata-accept.patch, LICENSE (MIT); собран на Ubuntu
@@ -173,7 +176,7 @@ RUN --mount=type=secret,id=github_token,required=false set -eu; \
 # пакет приходит из непинованного PPA — при другой версии ABI не гарантирован,
 # сборка падает. Сравнение через case, а не -ge/-lt: тот шаблон ловит тест порога
 # qsvencc.
-ARG VPL_RT_URL=https://github.com/Tualua/QSVEnc/releases/download/8.32-vppsync10/vpl-gpu-rt-26.3.2-av1auxdata.tar.gz
+ARG VPL_RT_URL=https://github.com/Tualua/QSVEnc/releases/download/8.37-vppsync13/vpl-gpu-rt-26.3.2-av1auxdata.tar.gz
 ARG VPL_RT_SHA256=054b7887dfa88711bfcf9290536b9676b9d0d801b8fd39f2eb39b747a2de0a35
 RUN --mount=type=secret,id=github_token,required=false set -eu; \
     v="$(dpkg-query -W -f='${Version}' libmfx-gen1.2)"; \
