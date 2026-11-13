@@ -75,10 +75,10 @@ else
     echo "   нечего переносить (\$HOME/.claude.json отсутствует)"
 fi
 
-# --- 2b) Claude Code: плагин GSD (маркетплейс gsd-plugin, плагин gsd) ---
-echo "-- claude plugin: jnuyens/gsd-plugin --"
-claude plugin marketplace add jnuyens/gsd-plugin || echo "   marketplace add не удался (сеть?)"
-claude plugin install gsd@gsd-plugin || echo "   install gsd@gsd-plugin не удался"
+# --- 2b) Claude Code: плагин GSD (маркетплейс open-gsd/gsd-core, плагин gsd-core) ---
+echo "-- claude plugin: open-gsd/gsd-core --"
+claude plugin marketplace add open-gsd/gsd-core || echo "   marketplace add не удался (сеть?)"
+claude plugin install gsd-core@gsd-core || echo "   install gsd-core@gsd-core не удался"
 
 # --- 3) Python-зависимости проекта (uv + committed uv.lock) ---
 # Зависимости зафиксированы в pyproject.toml/uv.lock; окружение ставится
@@ -185,7 +185,7 @@ for c in claude opencode qwen; do
     printf "  %-9s " "$c:"
     command -v "$c" >/dev/null && ( "$c" --version 2>/dev/null | head -1 || echo "установлен" ) || echo "НЕТ"
 done
-printf "  GSD-плагин: "; claude plugin list 2>/dev/null | grep -qi gsd && echo "установлен" || echo "не найден"
+printf "  GSD-плагин (gsd-core): "; claude plugin list 2>/dev/null | grep -qi gsd-core && echo "установлен" || echo "не найден"
 # Персистентность авторизаций: проверяем ДВЕ независимые вещи по каждому пути.
 #   mount — реально ли путь отдельная точка монтирования. Если нет, значит том из
 #           devcontainer.json не подхватился (контейнер ещё не пересобран после
