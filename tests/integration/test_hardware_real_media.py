@@ -799,6 +799,48 @@ def _verify_chunk_edges(
     return errors, inconclusive, bests
 
 
+def _verify_chunk_interior(
+    src: Path,
+    s: int,
+    chunk: Path,
+    frames_to_check: Sequence[int],
+    total: int,
+    tmp: Path,
+) -> Tuple[List[str], List[str], Dict[int, int]]:
+    """Interior counterpart of _verify_chunk_edges (WR-03, 10.1-REVIEW.md): the
+    chunk frame at index n - s must be nearest (same D-09 verdict, neighbours
+    -2..+2) to source frame n, for every n in `frames_to_check`.
+
+    Why: equal frame counts and correct edges do not exclude a duplicate plus a
+    drop in between when the two edges lie outside the shifted span; sampling
+    the interior narrows that gap (it does not close it between the samples).
+    The chunk frame is taken by index with a decode from the chunk start, the
+    same way the source frame is, so no timestamp of either file is trusted.
+    Returns (fail errors, inconclusive messages, {n: best offset}); an
+    inconclusive frame is NOT an ok. Collect-then-report."""
+    ffmpeg = _verify_ffmpeg()
+    tmp.mkdir(parents=True, exist_ok=True)
+    cache: Dict[int, Path] = {}
+    errors: List[str] = []
+    inconclusive: List[str] = []
+    bests: Dict[int, int] = {}
+    for n in frames_to_check:
+        frame = tmp / f"chunk_{n:06d}.mkv"
+        content.extract_frame_by_index(ffmpeg, chunk, n - s, frame)
+        st, msg, best, psnr = _edge_verdict(ffmpeg, src, cache, frame, n, total, tmp)
+        bests[n] = best
+        print(
+            f"[interior] {src.name} {chunk.name} frame {n - s} vs source {n}: "
+            f"{st} best={n + best} ({best:+d}) psnr={psnr:.2f}"
+        )
+        line = f"{chunk.name} frame {n - s} vs source frame {n}: {msg}"
+        if st == content.VERDICT_FAIL:
+            errors.append(line)
+        elif st == content.VERDICT_INCONCLUSIVE:
+            inconclusive.append(line)
+    return errors, inconclusive, bests
+
+
 def _av1_dovi_self_check() -> bool:
     """Read-only AV1-DOVI-parsing self-check (D-07/Assumption A2, opencode
     L2): confirms that the ffmpeg build matching the verification ffprobe
@@ -1641,7 +1683,10 @@ def test_run_single_chunk_wmv3_cut(tmp_path: Path, capsys, monkeypatch) -> None:
     """End-to-end production `enpipe run` on the pts-less wmv3 (ASF) cut: one
     --avsw chunk without --seek/--trim, no detect, no .scenes file, the output
     frame count equals the source decoded frame count (independent decode), the
-    metrics CSV has one scene row plus the total row."""
+    metrics CSV has one scene row plus the total row, and the chunk CONTENT
+    matches the source: frames 0, total//4, total//2, 3*total//4 and total-1 of
+    the chunk are nearest to the source frames with the same numbers (WR-03).
+    A confirmed mismatch is asserted; an inconclusive frame is pytest.fail."""
     cut = _wmv3_cut_or_skip()
     scenes = tmp_path / "cut.scenes"
     workdir = tmp_path / "wd"
@@ -1689,6 +1734,24 @@ def test_run_single_chunk_wmv3_cut(tmp_path: Path, capsys, monkeypatch) -> None:
         rows = list(csv.DictReader(fh))
     assert [row["scene"] for row in rows] == ["0", "ИТОГО"]
     assert [int(row["frames"]) for row in rows] == [total, total]
+
+    # WR-03: equal frame counts do not exclude a duplicate plus a drop (content
+    # shift) -- this source has non-monotonic decoder timestamps. Compare the
+    # CONTENT of the chunk with the source at both edges and at three interior
+    # frames; the chunk starts at source frame 0, so chunk index == source number.
+    chunk = workdir / "chunk_00000.obu"
+    errors, inconclusive, _bests = _verify_chunk_edges(
+        cut, [(0, total, chunk, total)], total, tmp_path / "edges")
+    mid = sorted({total // 4, total // 2, 3 * total // 4} - {0, total - 1})
+    mid_errors, mid_inconclusive, _mid_bests = _verify_chunk_interior(
+        cut, 0, chunk, mid, total, tmp_path / "interior")
+    errors += mid_errors
+    inconclusive += mid_inconclusive
+    assert not errors, "wmv3 single-chunk content mismatch:\n" + "\n".join(errors)
+    if inconclusive:
+        pytest.fail(
+            "inconclusive frames, a one-frame shift is not ruled out:\n"
+            + "\n".join(inconclusive))
 
 
 def _edge_state(errors: List[str], i: int) -> str:

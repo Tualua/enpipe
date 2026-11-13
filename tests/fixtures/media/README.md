@@ -150,7 +150,11 @@ instead of cutting by scenes. Two hardware tests use the cut:
   `keyframe_table` refuses loudly.
 - `test_run_single_chunk_wmv3_cut` runs `enpipe run` end to end on the cut: one
   `--avsw` chunk without `--seek/--trim`, no detect, the output frame count
-  equals the source decoded frame count, the metrics CSV has one row + total.
+  equals the source decoded frame count, the metrics CSV has one row + total,
+  and the chunk content is compared with the source by PSNR (nearest frame
+  among neighbours -2..+2) at frames 0, total/4, total/2, 3*total/4 and
+  total-1. A mismatch or an inconclusive frame fails the test: do not loosen
+  the check, a failure here is a finding about the encode path.
 
 The chunk-edge measurement of 261112-dab is lifted (it cannot pass by
 construction on a source without pts); scene cutting of such sources is
