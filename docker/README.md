@@ -85,19 +85,21 @@ Release проекта и сменить `FFMPEG_URL`; SHA256 остаётся �
 Образ на Ubuntu 24.04 + PPA `kobuk-team/intel-graphics` содержит
 `intel-opencl-icd`, поэтому `--psnr`/`--ssim` работают.
 
-Закреплён форк qsvencc `8.32+vppsync10` (r4677) = rigaya master 864a688: он
+Закреплён форк qsvencc `8.37+vppsync13` (r4747) = rigaya 8.37 (потомок 864a688): он
 несёт патчи #319/#320 (на r4658 в матрице фазы 8 получено 0 отказов
 `METRICS_FAILED` из 640 конкурентных сессий), исправление `--seek` (старт с
 первого keyframe на или после цели; старые сборки стартуют на один GOP позже),
 `--trim` на open-GOP источниках (RASL больше не входят в trim offset) и фикс
-rigaya #333 (потеря последних кадров на OpenCL-пути с `--psnr`/`--ssim`).
-Рантайм-гейт и образ отказываются работать со сборками старше r4677. Отказы `VIDEOMETRIC: Failed to copy input surface` (rc != 0, чанк
+rigaya #333 (потеря последних кадров на OpenCL-пути с `--psnr`/`--ssim`), а
+собран с libav FFmpeg 9.0.2: фикс vc1/wmv3 INVALIDDATA (b7401b97), из-за
+которого `--avsw` обрывался на валидном B-кадре WMV3.
+Рантайм-гейт и образ отказываются работать со сборками старше r4747. Отказы `VIDEOMETRIC: Failed to copy input surface` (rc != 0, чанк
 теряется) из дефекта D-12 относятся к r4634 и апстримному 8.32. Если они
 появились снова, значит, в образ попала сборка без патчей #319/#320. Проверьте
-`qsvencc --version`: ожидается `8.32 (r4677)`.
+`qsvencc --version`: ожидается `8.37 (r4747)`.
 
 Кроме qsvencc в образ ставится патченный oneVPL GPU-runtime vpl-gpu-rt
-`26.3.2-av1auxdata` (тот же релиз 8.32-vppsync10, sha256 `054b7887…0a35`) в
+`26.3.2-av1auxdata` (релиз 8.37-vppsync13, ассет не менялся с 8.32-vppsync10, sha256 `054b7887…0a35`) в
 `/opt/vpl-gpu-rt-av1auxdata`. Диспетчер выбирает его через
 `ONEVPL_PRIORITY_PATH=/opt/vpl-gpu-rt-av1auxdata/lib` (ENV образа), системный
 libmfx-gen1.2 не подменяется и должен быть версии 26.3.2 — сборка образа это
