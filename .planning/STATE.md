@@ -5,16 +5,16 @@ milestone_name: Анализ качества энкода
 current_phase: "10.1"
 current_phase_name: Программный декод в энкоде (qsvencc --avsw) (INSERTED)
 status: executing
-stopped_at: Completed 10.1-11-PLAN.md
-last_updated: "2026-11-12T11:23:29.278Z"
-last_activity: 2026-11-12
+stopped_at: Completed 10.1-13-PLAN.md
+last_updated: "2026-11-13T17:21:16.550Z"
+last_activity: 2026-11-13
 last_activity_desc: Phase 10.1 execution started
-state_head: 4a4a9f79884924e71308af9a1ac9e3bc349508e0
+state_head: 3f7fa21e2dc7aa8d105d949d7fd6db4be5182f99
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 39
-  completed_plans: 37
+  completed_plans: 38
   percent: 33
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-04)
 ## Current Position
 
 Phase: 10.1 (Программный декод в энкоде (qsvencc --avsw) (INSERTED)) — EXECUTING
-Plan: 12 of 13
+Plan: 13 of 13
 Status: Ready to execute
-Last activity: 2026-11-13 — Completed quick task 261113-msb: devcontainer локаль en_US.UTF-8 + только gsd-core
+Last activity: 2026-11-13 — Phase 10.1 execution started
 
 Progress: [███░░░░░░░] 33%
 
@@ -55,6 +55,7 @@ Per-phase/plan metrics for v1.0–v1.2 archived in `.planning/milestones/v1.2-ST
 | Phase 10.1 P09 | 20min | 3 tasks | 5 files |
 | Phase 10.1 P10 | 25min | 2 tasks | 2 files |
 | Phase 10.1 P11 | 35min | 3 tasks | 9 files |
+| Phase 10.1 P13 | n/a | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,7 @@ Milestone-level decisions: `.planning/PROJECT.md` → Key Decisions. Full per-ph
 - [Phase 10.1]: 10.1-09: перенумерация ключевых кадров по выводу декодера — область vc1-family, позиции I-кадров через ffprobe-pass
 - [Phase 10.1]: 10.1-10: края VC-1 на B50 верны при production-перенумерации; xfail снят, эксперимент §3 - регрессия
 - [Phase 10.1]: 10.1-11: отказ --avsw снят для vc1 и vc1image (оператор: lift-family, края vc1image не проверены); wmv3 остаётся под отказом, механизм отказа сохранён
+- [Phase 10.1]: 10.1-13: одночанковый режим включается только по факту отсутствия pts у всех видеопакетов (probe_pts); wmv3 с pts остаётся под refuse_unsafe_avsw
 
 ### Pending Todos
 
@@ -186,9 +188,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-13T16:57:00Z
-Stopped at: Session resumed (контейнер пересобран, qsvencc r4747); 10.1-13 Task 1 verify #2 пройдена на B50 (rc=0, 2996 = 2996, CSV 3 строки, лог /tmp/tmp.lOBIPHuyFK/enc.log); proceeding to /gsd-execute-phase 10.1 (10.1-13 Tasks 2–3)
-Resume file: .planning/phases/10.1-programmnyy-dekod-v-enkode-qsvencc-avsw/.continue-here.md
+Last session: 2026-11-13T17:21:16.207Z
+Stopped at: Completed 10.1-13-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
