@@ -24,12 +24,22 @@ ENV DEBIAN_FRONTEND=noninteractive
 # vainfo — диагностика VA-API в post-create; ocl-icd-libopencl1 — загрузчик OpenCL,
 # который qsvencc линкует как libOpenCL.so.1 для VPP-фильтров; python3/python3-venv/
 # python3-pip — Ubuntu 24.04 даёт python3 = 3.12 (нужен для uv в post-create).
+# libatomic1 — бинарники Node.js (фича node, LTS ≥ 24) линкуются с libatomic.so.1;
+# в dlstreamer:latest после 2026-10 пакета нет, без него фича падает на `node --version`.
+# locales + locale-gen en_US.UTF-8 — devcontainer CLI/VS Code прокидывают
+# LANG=en_US.UTF-8, а в dlstreamer:latest локали нет (`locale -a` = C, C.utf8, POSIX);
+# mkvmerge (libstdc++ std::locale) тогда падает «locale::facet::_S_create_c_locale
+# name not valid», rc=134, и enpipe-мукс умирает. Рантайм-образ (корневой Dockerfile)
+# не затронут: там LANG не задан, mkvmerge работает в C.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg jq xz-utils \
+      libatomic1 \
+      locales \
       tmux \
       mkvtoolnix \
       vainfo ocl-icd-libopencl1 \
       python3 python3-venv python3-pip \
+    && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Dev/debug-утилиты (из болей сегодняшней QSV/media-отладки) ---
