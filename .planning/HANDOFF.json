@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-11-13T03:50:36.320Z",
+  "phase": "10.1",
+  "phase_name": "programmnyy-dekod-v-enkode-qsvencc-avsw",
+  "phase_dir": ".planning/phases/10.1-programmnyy-dekod-v-enkode-qsvencc-avsw",
+  "plan": "10.1-13",
+  "task": 1,
+  "total_tasks": 3,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "10.1-13 Task 1 (tracer): одночанковый режим, юнит-часть", "status": "in_progress", "commit": "6beca86", "progress": "код single_chunk.py/chunk.py/pipeline.py + тесты закоммичены, 998 passed; НЕ выполнена вторая <verify>-команда (сквозной enpipe encode на куске wmv3 на B50). Прежний прогон падал из-за бага qsvencc r4677 (FFmpeg 9.0.1, INVALIDDATA) — снят пином r4747 (quick 261113-3u0)"}
+  ],
+  "remaining_tasks": [
+    {"id": 1, "name": "Task 1: сквозной прогон enpipe encode на куске wmv3 на B50 (verify #2) + SUMMARY-строки", "status": "not_started"},
+    {"id": 2, "name": "Task 2: enpipe run — режим до детекта; отказ wmv3 с pts; громкий отказ фолбэка при ключевых кадрах без pts", "status": "not_started"},
+    {"id": 3, "name": "Task 3: test_run_single_chunk_wmv3_cut, удалить test_chunk_edges_avsw_wmv3 → test_keyframe_table_refuses_wmv3_without_pts, регрессия HEVC/H.264/VC-1 на B50, README/CLAUDE.md", "status": "not_started"},
+    {"id": 4, "name": "Затем 10.1-12 (UAT, тест 5 — wmv3 одночанковый) и верификация фазы 10.1", "status": "not_started"}
+  ],
+  "blockers": [],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Пересобрать devcontainer (новый пин qsvencc 8.37-vppsync13 r4747); проверить qsvencc --version → 8.37 (r4747)", "context": "в текущем контейнере r4747 стоял через dpkg -i; образ со старым r4677 не пройдёт порог 4747", "blocking": true},
+    {"action": "Заново нарезать кусок wmv3 (scratch/wmv3_cut.sh /data/downloads/wmv_test4.wmv) и кусок VC-1 (см. tests/fixtures/media/README.md, ENPIPE_TEST_VC1) — /tmp очищается пересборкой", "context": "нужны для verify Task 1 и аппаратного тира", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Источники без pts (у всех видеопакетов) кодируются одним чанком --avsw без seek/trim, без детекта; кадры выхода = кадры полного декода, иначе die()", "rationale": "решения оператора 2026-11-12, зафиксированы в 10.1-13-PLAN", "phase": "10.1"},
+    {"decision": "Сценовая нарезка источников без pts — бэклог 999.8", "rationale": "без pts нельзя надёжно сопоставить номер кадра декодера и пакет", "phase": "10.1"},
+    {"decision": "wmv3 с pts остаётся в AVSW_UNSAFE_CODECS (громкий отказ)", "rationale": "края не измерены; файлов wmv3 с pts и B-кадрами нет (wmv_test2/3: pts==dts)", "phase": "10.1"},
+    {"decision": "Mux: die() для глав/сабов/вложений/обложки в контейнерах, которые mkvmerge не читает", "rationale": "оператор: «Да, оставляем die»", "phase": "10.1"},
+    {"decision": "qsvencc закреплён на 8.37-vppsync13 (r4747), QSVENCC_MIN_REV=4747", "rationale": "FFmpeg 9.0.2 (b7401b97) чинит INVALIDDATA на wmv3; quick 261113-3u0, аппаратный тир 25/26 на B50", "phase": "10.1"}
+  ],
+  "uncommitted_files": [
+    "?? .planning/phases/10.1-programmnyy-dekod-v-enkode-qsvencc-avsw/.gitkeep",
+    "?? .planning/phases/10.1-programmnyy-dekod-v-enkode-qsvencc-avsw/.review-diagnostics/",
+    "?? .planning/state.json",
+    "?? scratch/wmv_codecs.sh"
+  ],
+  "next_action": "После пересборки: проверить qsvencc r4747, нарезать кусок wmv3, выполнить verify #2 Task 1 из 10.1-13-PLAN.md (enpipe encode на ENPIPE_TEST_WMV3), ожидание: 2996 = 2996, rc=0; затем /gsd-execute-phase 10.1 для Tasks 2–3",
+  "context_notes": "test_chunk_edges_avsw_wmv3 сейчас красный в аппаратном тире по построению (ASF без pts) — известно, удаляется в Task 3. Handoff qsvencc wmv3 закрыт (resolved)."
+}
