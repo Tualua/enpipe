@@ -141,11 +141,20 @@ ENPIPE_TEST_VC1="$DIR/fringe_s02e01_cut.mkv" uv run pytest -q -m hardware tests/
 
 ## ENPIPE_TEST_WMV3: a short real wmv3 (WMV9, ASF) cut
 
-ASF has no Cues, so key-frame numbers come from the ffprobe packet fallback
-(`round(pts_time * fps)`), and wmv3 streams carry B-frames. The hardware test
-`test_chunk_edges_avsw_wmv3` measures `--avsw` chunk edges on such a cut (input
-for the 10.1-11 decision). The cut is operator-supplied and not stored in the
-repository.
+ASF has no Cues and the packets of this cut carry no pts (`pts_time=N/A` on
+every video packet), so enpipe encodes such a source as ONE chunk (10.1-13)
+instead of cutting by scenes. Two hardware tests use the cut:
+
+- `test_keyframe_table_refuses_wmv3_without_pts` pins the facts of quick
+  261112-dab: all packets lack pts, `probe_pts` reports it, and the production
+  `keyframe_table` refuses loudly.
+- `test_run_single_chunk_wmv3_cut` runs `enpipe run` end to end on the cut: one
+  `--avsw` chunk without `--seek/--trim`, no detect, the output frame count
+  equals the source decoded frame count, the metrics CSV has one row + total.
+
+The chunk-edge measurement of 261112-dab is lifted (it cannot pass by
+construction on a source without pts); scene cutting of such sources is
+backlog 999.8. The cut is operator-supplied and not stored in the repository.
 
 Cut (from the file start, no re-encode; prints a summary and the run command):
 

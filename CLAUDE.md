@@ -79,7 +79,7 @@
 - No dev tools, tests, or source code in final image (multi-stage build; only `src/enpipe` + `.venv` shipped)
 - Local machine or NAS with Intel Arc GPU
 - No cloud deployment; runs interactively or via cron as standalone pipeline
-- Output: `.mkv` with AV1 video, HDR10/HDR10+/Dolby Vision metadata, audio (FLAC/Opus/copied), scene chapters
+- Output: `.mkv` with AV1 video, HDR10/HDR10+/Dolby Vision metadata, audio (FLAC/Opus/copied), chapters/subtitles/attachments copied from the source by mkvmerge (enpipe creates no chapters; sources whose container mkvmerge cannot read, e.g. ASF, are muxed without them only when they have none)
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->

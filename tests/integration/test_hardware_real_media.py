@@ -62,6 +62,7 @@ DV RPU check (Task 2) but a different side_data_type string."""
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import re
@@ -81,6 +82,7 @@ from enpipe.analysis import frames, pair, precheck
 from enpipe.analysis.config import AnalyzeConfig
 from enpipe.cli.main import main as _enpipe_main
 import enpipe.encoding.chunk as _chunk_mod
+import enpipe.encoding.pipeline as _pipeline_mod
 from enpipe.encoding.chunk import count_frames
 from enpipe.encoding.hdr import detect_hdr
 from enpipe.encoding.keyframes import (
@@ -94,6 +96,7 @@ from enpipe.encoding.keyframes import (
 )
 from enpipe.encoding.pipeline import probe_fps
 from enpipe.encoding.scenes_io import read_scenes
+from enpipe.encoding.single_chunk import probe_pts
 from enpipe.shared.qsvencc_version import QSVENCC_METRICS_MIN_REV
 
 pytestmark = pytest.mark.hardware
@@ -1606,108 +1609,86 @@ def test_chunk_edges_avsw_vc1(tmp_path: Path) -> None:
             + "\n".join(inconclusive))
 
 
-def test_chunk_edges_avsw_wmv3(tmp_path: Path) -> None:
-    """Measurement for the 10.1-11 decision on wmv3 (WMV9 Main in ASF, B-frames):
-    chunk edges with --avsw on a real cut (ENPIPE_TEST_WMV3).
+def test_keyframe_table_refuses_wmv3_without_pts(tmp_path: Path) -> None:
+    """The scene path loudly refuses a wmv3 (ASF) cut without pts (ENPIPE_TEST_WMV3).
 
-    The key-frame table is the PRODUCTION keyframe_table (ASF has no Cues, so the
-    ffprobe packet fallback, number = round(pts_time * fps)); seek/trim of the
-    checked variant come from the production keyframe_table_decoder_order. Chunks
-    are encoded directly via chunk_command(decode="sw") + encode_chunk, bypassing
-    run_encode, so the wmv3 refusal in decode.py neither fires nor changes.
-
-    Each scene is encoded twice: `prod` (production renumbering, asserted) and
-    `ctl` (seek/trim from the fallback table without renumbering, diagnostics
-    only: shows whether the shift exists without the fix; printed, not asserted).
-    The table is printed BEFORE the asserts so the log keeps the measurement on
-    failure. A failed precondition or an ambiguous renumbering is pytest.fail --
-    that is a measurement result, not a test bug."""
+    Replaces the chunk-edge measurement of quick 261112-dab: on a source whose
+    packets carry no pts there is no key-frame table to measure edges against
+    (key-frame numbers by dts drift from the decoder output by +2/+3, outside
+    the +-2 renumbering window), so such sources are encoded as one chunk and
+    scene cutting for them is backlog 999.8. This test pins the facts:
+    every video packet of the cut has pts_time=N/A, probe_pts says "no pts",
+    and the production keyframe_table dies with a message about missing pts."""
     cut = _wmv3_cut_or_skip()
-    fps, table, i_pos, total, diffs, starts = _vc1_layout(cut, tag="wmv3", require_cues=False)
+    r = subprocess.run(
+        [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "packet=pts_time", "-of", "csv=p=0", str(cut)],
+        capture_output=True, text=True, check=True)
+    vals = [ln.strip().rstrip(",") for ln in r.stdout.splitlines() if ln.strip()]
+    with_pts = [v for v in vals if v != "N/A"]
+    if with_pts or not vals:
+        pytest.fail(f"wrong cut: {len(with_pts)} of {len(vals)} video packets have pts")
+
+    no_pts, packets = probe_pts(cut)
+    assert (no_pts, packets) == (True, len(vals))
+
+    with pytest.raises(SystemExit) as ei:
+        keyframe_table(cut, probe_fps(cut))
+    assert "нет pts" in str(ei.value)
+
+
+def test_run_single_chunk_wmv3_cut(tmp_path: Path, capsys, monkeypatch) -> None:
+    """End-to-end production `enpipe run` on the pts-less wmv3 (ASF) cut: one
+    --avsw chunk without --seek/--trim, no detect, no .scenes file, the output
+    frame count equals the source decoded frame count (independent decode), the
+    metrics CSV has one scene row plus the total row."""
+    cut = _wmv3_cut_or_skip()
+    scenes = tmp_path / "cut.scenes"
+    workdir = tmp_path / "wd"
+    out = tmp_path / "out.mkv"
+
+    argvs: List[List[str]] = []
+    real_chunk_command = _pipeline_mod.chunk_command
+
+    def spy(*args, **kwargs):
+        cmd = real_chunk_command(*args, **kwargs)
+        argvs.append(list(cmd))
+        return cmd
+
+    monkeypatch.setattr(_pipeline_mod, "chunk_command", spy)
     try:
-        prod_table, decoded, shifted = keyframe_table_decoder_order(cut, table)
-    except SystemExit as exc:
-        pytest.fail(f"keyframe_table_decoder_order refused the cut: {exc}")
-    if decoded != total:
-        pytest.fail(f"decoded frame count {decoded} != {total} from the layout")
-    print(f"[wmv3] shifted={shifted} fps={fps}")
-    assert prod_table == content.true_keyframe_table(table, i_pos), (
-        "production table differs from the independent oracle")
+        _enpipe_main(["run", str(cut), "--scenes", str(scenes), "-o", str(out),
+                      "--workdir", str(workdir), "--keep"])
+    except SystemExit as ex:
+        if ex.code not in (None, 0):
+            pytest.fail(f"enpipe run exited with {ex.code!r}")
+    stdout = capsys.readouterr().out
+    assert stdout.count("декод: sw") == 1
+    assert stdout.count("режим: один чанк") == 1
+    assert "контейнер источника (" in stdout
+    assert "keyframe'ов в источнике" not in stdout
+    assert "ключевые кадры по выводу декодера" not in stdout
 
-    hdr = detect_hdr(cut)
-    n = len(starts)
-    rows = []
-    for i, s in enumerate(starts):
-        e = starts[i + 1] if i + 1 < n else total
-        variants = {}
-        for name, tbl in (("ctl", table), ("prod", prod_table)):
-            seek, trim = compute_chunk_seek_trim(tbl, s, e)
-            k, _t = kf_before(tbl, s)
-            cp = tmp_path / f"{name}_{i:05d}.obu"
-            cmd = _chunk_mod.chunk_command(cut, seek, trim, cp, hdr, False, decode="sw")
-            _idx, got, err, _el, _info = _chunk_mod.encode_chunk((i, cmd, cp, e - s))
-            variants[name] = (seek, trim, k, got, err, cp)
-        rows.append((i, s, e, variants))
+    assert not scenes.exists()
+    assert len(argvs) == 1
+    assert "--seek" not in argvs[0] and "--trim" not in argvs[0]
+    assert "--avsw" in argvs[0]
 
-    def verify(name: str):
-        """Edges of one variant; chunks without frames are excluded and mapped back."""
-        idx = [r[0] for r in rows if r[3][name][3] > 0]
-        chunks = [(r[1], r[2], r[3][name][5], r[3][name][3]) for r in rows if r[3][name][3] > 0]
-        if not chunks:
-            return {}, {}, {}
-        errors, inconc, bests = _verify_chunk_edges(cut, chunks, total, tmp_path / f"edges_{name}")
-        state = {}
-        for j, i in enumerate(idx):
-            if any(m.startswith(f"chunk {j} ") for m in inconc):
-                state[i] = "inconcl"
-            elif any(m.startswith(f"chunk {j} ") for m in errors):
-                state[i] = "fail"
-            else:
-                state[i] = "ok"
-        return state, {i: bests[j] for j, i in enumerate(idx)}, (errors, inconc, idx)
+    total = len(_decode_pict_types(cut))
+    assert f"кадров декода источника: {total}" in stdout
+    assert (f"склейка: {total} кадров (совпало с числом кадров декода источника)"
+            in stdout)
+    r = subprocess.run(
+        [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0", "-count_packets",
+         "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(out)],
+        capture_output=True, text=True, check=True)
+    assert int(r.stdout.strip()) == total
+    assert (workdir / "chunk_00000.obu").exists()
 
-    ctl_state, ctl_bests, ctl_raw = verify("ctl")
-    prod_state, prod_bests, prod_raw = verify("prod")
-
-    def fmt(name: str, v, state, bests, i: int) -> str:
-        seek, trim, _k, got, err, _cp = v[name]
-        if i not in state:
-            return f"{name}=нет кадров err={err}"
-        fb, lb = bests[i]
-        return (f"{name} seek={seek} trim={trim} frames={got} err={err} "
-                f"first_best={fb:+d} last_best={lb:+d} verdict={state[i]}")
-
-    for i, s, e, v in rows:
-        fb_k = v["ctl"][2]
-        print(
-            f"[wmv3] chunk {i} [{s},{e}) fbK={fb_k} prodK={v['prod'][2]} "
-            f"diff={diffs.get(fb_k)} expected={e - s} | "
-            f"{fmt('ctl', v, ctl_state, ctl_bests, i)} | "
-            f"{fmt('prod', v, prod_state, prod_bests, i)}"
-        )
-
-    shift_set = {i for i, _s, _e, v in rows if diffs.get(v["ctl"][2]) != 0}
-    ctl_fail_set = {i for i, st in ctl_state.items() if st == "fail"}
-    prod_fail = [i for i, st in prod_state.items() if st == "fail"]
-    prod_inc = [i for i, st in prod_state.items() if st == "inconcl"]
-    prod_enc_err = [i for i, _s, _e, v in rows if v["prod"][4] is not None]
-    prod_bad_count = [i for i, s, e, v in rows if v["prod"][3] != e - s]
-    print(
-        f"[wmv3] ИТОГ: чанков={n} diff!=0: {len(shift_set)}; контроль: fail={len(ctl_fail_set)} "
-        f"совпадает с diff!=0: {ctl_fail_set == shift_set}; production: fail={len(prod_fail)} "
-        f"inconclusive={len(prod_inc)} ошибок кодирования={len(prod_enc_err)} "
-        f"неверное число кадров={len(prod_bad_count)}"
-    )
-
-    if prod_enc_err:
-        pytest.fail(f"wmv3 --avsw production encoding errors, chunks {prod_enc_err}")
-    if prod_raw:
-        errors, inconc, idx = prod_raw
-        assert not errors, "wmv3 --avsw chunk edge mismatch:\n" + "\n".join(errors)
-        if inconc:
-            pytest.fail(
-                "inconclusive edges, a one-frame shift is not ruled out:\n" + "\n".join(inconc))
-    assert not prod_bad_count, f"wrong frame count in production chunks {prod_bad_count}"
+    with open(str(out) + ".metrics.csv", newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert [row["scene"] for row in rows] == ["0", "ИТОГО"]
+    assert [int(row["frames"]) for row in rows] == [total, total]
 
 
 def _edge_state(errors: List[str], i: int) -> str:
@@ -1825,6 +1806,7 @@ def test_run_auto_vc1_cut(tmp_path: Path, capsys) -> None:
             pytest.fail(f"enpipe run exited with {ex.code!r}")
     stdout = capsys.readouterr().out
     assert stdout.count("декод:") == 1
+    assert "режим: один чанк" not in stdout  # pts у части пакетов: сценовый путь
     assert "ключевые кадры по выводу декодера" in stdout
 
     sc = read_scenes(scenes)
