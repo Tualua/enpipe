@@ -1567,8 +1567,11 @@ def _vc1_layout(cut: Path, *, tag: str = "vc1", require_cues: bool = True):
             return None
         best = min(abs(d) for d in near)
         tied = [d for d in near if abs(d) == best]
-        # IN-03: on a tie (two I-frames at the same |p-k|) production refuses,
-        # so the test helper must not silently pick one side either.
+        # IN-03: on a tie (two I-frames at the same |p-k|) the OLD rule (stage 1 of
+        # production) refuses; since 10.1-14 production resolves such places by
+        # the ordinal rule with a window (stage 2). This helper keeps the old rule
+        # for the section 3 experiment classes (the 10:00-10:30 cut has no ties);
+        # ties are covered by the *_vc1_ties tests.
         if len(tied) > 1:
             return None
         return tied[0]
@@ -1887,6 +1890,172 @@ def test_run_auto_vc1_cut(tmp_path: Path, capsys) -> None:
     errors, inconclusive, _bests = _verify_chunk_edges(
         cut, chunks, total, tmp_path / "edges")
     assert not errors, "VC-1 run chunk edge mismatch:\n" + "\n".join(errors)
+    if inconclusive:
+        pytest.fail(
+            "inconclusive edges, a one-frame shift is not ruled out:\n"
+            + "\n".join(inconclusive))
+
+
+# --- 10.1-14 (G-1): cuts with I-frame ties, ordinal rule with a window --------- #
+
+_VC1_TIES_VARS = ("ENPIPE_TEST_VC1_TIES", "ENPIPE_TEST_VC1_TIES_CLOSED")
+
+
+def _vc1_ties_cut_or_skip(var: str) -> Path:
+    """Operator-supplied VC-1 cut with ties (`var`) or skip with a README hint."""
+    return _env_cut_or_skip(
+        var,
+        "a VC-1 cut with I-frame ties is operator-supplied (not stored in the repo); "
+        "see the ENPIPE_TEST_VC1_TIES section in tests/fixtures/media/README.md",
+    )
+
+
+def _vc1_ties_layout(cut: Path):
+    """Layout of a ties cut: (fps, table, i_pos, total, tie_idx, prod_table).
+
+    Preconditions (pytest.fail): Cues has as many keyframes as the decoder has
+    I-frames; the OLD rule (content.true_keyframe_table) REFUSES on this cut,
+    otherwise the regression proves nothing; production renumbering gives the
+    I-frame positions in order (independent oracle: the ordinal matching), every
+    pair within +-2, times unchanged."""
+    fps = probe_fps(cut)
+    try:
+        table = keyframe_table(cut, fps)
+    except SystemExit as exc:
+        pytest.fail(f"production keyframe_table refused the cut: {exc}")
+    if keyframe_table_cues(cut, fps) is None:
+        pytest.fail("precondition: the cut has no usable Cues")
+    pict = _decode_pict_types(cut)
+    total = len(pict)
+    i_pos = [n for n, t in enumerate(pict) if t == "I"]
+    if len(table) != len(i_pos):
+        pytest.fail(
+            f"precondition: Cues keyframes {len(table)} != decoder I-frames {len(i_pos)}")
+    try:
+        content.true_keyframe_table(table, i_pos)
+    except ValueError:
+        pass
+    else:
+        pytest.fail("precondition: the old rule does not refuse on this cut, "
+                    "the regression proves nothing")
+
+    tie_idx: List[int] = []
+    for n, (k, _t) in enumerate(table):
+        if n == 0:
+            continue
+        near = [q for q in i_pos if abs(q - k) <= 2]
+        if not near:
+            tie_idx.append(n)
+            continue
+        best = min(abs(q - k) for q in near)
+        tied = sorted(q for q in near if abs(q - k) == best)
+        if len(tied) > 1 or tied[0] != i_pos[n]:
+            tie_idx.append(n)
+    if not tie_idx:
+        pytest.fail("precondition: no tie keyframes found on this cut")
+
+    prod_table, decoded, _shifted = keyframe_table_decoder_order(cut, table)
+    if decoded != total:
+        pytest.fail(f"decoded frame count {decoded} != {total} from the layout")
+    assert [q for q, _t in prod_table] == i_pos, "production != ordinal oracle"
+    assert [t for _q, t in prod_table] == [t for _k, t in table]
+    assert all(abs(q - k) <= 2 for (k, _), (q, _) in zip(table, prod_table))
+    shifts: dict = {}
+    for (k, _), q in zip(table, i_pos):
+        shifts[q - k] = shifts.get(q - k, 0) + 1
+    print(
+        f"[vc1-ties] {cut.name}: fps={fps} decoded={total} keyframes={len(table)} "
+        f"shifts={dict(sorted(shifts.items()))} "
+        f"ties={[(table[n][0], i_pos[n]) for n in tie_idx]}"
+    )
+    return fps, table, i_pos, total, tie_idx, prod_table
+
+
+@pytest.mark.parametrize("var", _VC1_TIES_VARS)
+def test_chunk_edges_avsw_vc1_ties(tmp_path: Path, var: str) -> None:
+    """10.1-14: chunks starting at and around keyframes that used to be ties
+    (old rule refused) have correct frame counts and edges with --avsw.
+
+    Starts: 0, the production positions of keyframes n-1 and n for every tie
+    keyframe n, and n + 7 (mid-GOP) when it lies inside the GOP. Seek/trim come
+    from the PRODUCTION table; chunks are encoded directly (chunk_command +
+    encode_chunk). Edges: confirmed errors are asserted, inconclusive = fail."""
+    cut = _vc1_ties_cut_or_skip(var)
+    _fps, _table, i_pos, total, tie_idx, prod_table = _vc1_ties_layout(cut)
+
+    start_set = {0}
+    for n in tie_idx:
+        start_set.add(i_pos[n - 1])
+        start_set.add(i_pos[n])
+        nxt = i_pos[n + 1] if n + 1 < len(i_pos) else total
+        if i_pos[n] + 7 < nxt:
+            start_set.add(i_pos[n] + 7)
+    starts = sorted(start_set)
+
+    hdr = detect_hdr(cut)
+    chunks: List[Tuple[int, int, Path, int]] = []
+    problems: List[str] = []
+    for i, s in enumerate(starts):
+        e = starts[i + 1] if i + 1 < len(starts) else total
+        seek, trim = compute_chunk_seek_trim(prod_table, s, e)
+        cp = tmp_path / f"chunk_{i:05d}.obu"
+        cmd = _chunk_mod.chunk_command(cut, seek, trim, cp, hdr, False, decode="sw")
+        _idx, got, err, _el, _info = _chunk_mod.encode_chunk((i, cmd, cp, e - s))
+        print(f"[vc1-ties] chunk {i} [{s},{e}) seek={seek} trim={trim} "
+              f"frames={got}/{e - s} err={err}")
+        if err is not None:
+            problems.append(f"chunk {i} [{s},{e}): {err}")
+        elif got != e - s:
+            problems.append(f"chunk {i} [{s},{e}): {got} frames, expected {e - s}")
+        if got > 0:
+            chunks.append((s, e, cp, got))
+    if problems:
+        pytest.fail("VC-1 ties --avsw encoding/frame-count errors:\n" + "\n".join(problems))
+    edge_errors, inconclusive, _bests = _verify_chunk_edges(
+        cut, chunks, total, tmp_path / "edges")
+    assert not edge_errors, "VC-1 ties chunk edge mismatch:\n" + "\n".join(edge_errors)
+    if inconclusive:
+        pytest.fail(
+            "inconclusive edges, a one-frame shift is not ruled out:\n"
+            + "\n".join(inconclusive))
+
+
+@pytest.mark.parametrize("var", _VC1_TIES_VARS)
+def test_run_auto_vc1_ties_cut(tmp_path: Path, capsys, var: str) -> None:
+    """10.1-14: end-to-end production `enpipe run` on a ties cut. The old rule
+    refused here (G-1); now the run completes, the scene list covers the cut, the
+    output has one video packet per decoded frame and the first and last frame of
+    EVERY chunk match source frames S and E-1."""
+    cut = _vc1_ties_cut_or_skip(var)
+    _fps, _table, _i_pos, total, _tie_idx, _prod = _vc1_ties_layout(cut)
+    scenes = tmp_path / "cut.scenes"
+    workdir = tmp_path / "wd"
+    out = tmp_path / "out.mkv"
+    try:
+        _enpipe_main(["run", str(cut), "--scenes", str(scenes), "-o", str(out),
+                      "--workdir", str(workdir), "--keep", "--no-metrics"])
+    except SystemExit as ex:
+        if ex.code not in (None, 0):
+            pytest.fail(f"enpipe run exited with {ex.code!r}")
+    stdout = capsys.readouterr().out
+    assert stdout.count("декод:") == 1
+    assert "режим: один чанк" not in stdout
+    assert "ключевые кадры по выводу декодера" in stdout
+
+    sc = read_scenes(scenes)
+    if sc[-1][1] != total:
+        pytest.fail(f"scenes end at {sc[-1][1]}, source has {total} frames")
+    r = subprocess.run(
+        [VERIFY_FFPROBE, "-v", "error", "-select_streams", "v:0", "-count_packets",
+         "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(out)],
+        capture_output=True, text=True, check=True)
+    assert int(r.stdout.strip()) == total
+
+    chunks = [(s, e, workdir / f"chunk_{i:05d}.obu", e - s)
+              for i, (s, e) in enumerate(sc)]
+    errors, inconclusive, _bests = _verify_chunk_edges(
+        cut, chunks, total, tmp_path / "edges")
+    assert not errors, "VC-1 ties run chunk edge mismatch:\n" + "\n".join(errors)
     if inconclusive:
         pytest.fail(
             "inconclusive edges, a one-frame shift is not ruled out:\n"

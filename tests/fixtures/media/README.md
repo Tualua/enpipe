@@ -139,6 +139,52 @@ Run:
 ENPIPE_TEST_VC1="$DIR/fringe_s02e01_cut.mkv" uv run pytest -q -m hardware tests/integration/test_hardware_real_media.py -k vc1 -s
 ```
 
+## ENPIPE_TEST_VC1_TIES and ENPIPE_TEST_VC1_TIES_CLOSED: VC-1 cuts with I-frame ties
+
+On the full Fringe S02E01 the old numbering rule (nearest I-frame within +-2)
+refused in 97 places: two I-frames lie through one frame from a Cues keyframe
+(for example Cues 750 -> [749, 751], gap G-1). Since 10.1-14 the rule is
+"ordinal with window": stage 1 is the old rule; only where it refuses on a tie
+(or non-strict growth) stage 2 matches the n-th Cues keyframe to the n-th decoder
+I-frame (equal counts, every pair within +-2). `test_chunk_edges_avsw_vc1_ties`
+and `test_run_auto_vc1_ties_cut` (each parametrized over both variables) encode
+chunks around the former ties with `--avsw` and check the frame counts and the
+first and last frame of every chunk. The cuts are NOT stored in the repository;
+without the variables the tests are skipped. The tests fail with `precondition`
+if the old rule does not refuse on a cut (the regression would prove nothing).
+
+Two cuts, because the sign of the shift differs (the intervals were chosen by the
+orchestrator, not the operator):
+
+- `ENPIPE_TEST_VC1_TIES` (open start): 04:05-04:35 starts with an open GOP; the
+  decoder drops the leading B-frame (717 packets, 716 decoded frames), shifts are
+  -1/0/+1; the old rule refuses on 1 tie (Cues 334 -> [333, 335]).
+- `ENPIPE_TEST_VC1_TIES_CLOSED` (closed start): 04:19.790-04:49.800 starts on a
+  keyframe (724 packets = 724 frames), shifts are 0/+1/+2; the old rule refuses on
+  3 ties (Cues 1, 219, 312).
+
+The start of the series is not usable: identical black frames make the edge
+comparison inconclusive. `DIR` is any scratch directory outside `/data`:
+
+```bash
+DIR=$(mktemp -d)
+mkvmerge -o "$DIR/fringe_s02e01_ties_cut.mkv" --no-audio --no-subtitles --no-chapters --no-attachments --no-global-tags --split parts:00:04:05.000-00:04:35.000 "/data/downloads/Fringe.COMPLETE.SERIES.1080p.REMUX-FraMeSToR/Fringe.S02.BluRay.1080p.DD.5.1.VC-1.REMUX-FraMeSToR/Fringe.S02E01.A.New.Day.in.the.Old.Town.1080p.DD.5.1.VC-1.REMUX-FraMeSToR.mkv"
+mkvmerge -o "$DIR/fringe_closed_gop_cut.mkv" --no-audio --no-subtitles --no-chapters --no-attachments --no-global-tags --split parts:00:04:19.790-00:04:49.800 "/data/downloads/Fringe.COMPLETE.SERIES.1080p.REMUX-FraMeSToR/Fringe.S02.BluRay.1080p.DD.5.1.VC-1.REMUX-FraMeSToR/Fringe.S02E01.A.New.Day.in.the.Old.Town.1080p.DD.5.1.VC-1.REMUX-FraMeSToR.mkv"
+```
+
+Check that the old rule refuses on a cut (prints `production: ok, ...` now, the
+old rule's ties and the ordinal shifts):
+
+```bash
+uv run python scratch/vc1_tie_diag.py "$DIR/fringe_s02e01_ties_cut.mkv" --list
+```
+
+Run:
+
+```bash
+ENPIPE_TEST_VC1_TIES="$DIR/fringe_s02e01_ties_cut.mkv" ENPIPE_TEST_VC1_TIES_CLOSED="$DIR/fringe_closed_gop_cut.mkv" uv run pytest -q -m hardware tests/integration/test_hardware_real_media.py -k vc1_ties -s
+```
+
 ## ENPIPE_TEST_WMV3: a short real wmv3 (WMV9, ASF) cut
 
 ASF has no Cues and the packets of this cut carry no pts (`pts_time=N/A` on
