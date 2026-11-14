@@ -12,11 +12,13 @@ find_cues_position/peek_element_header/parse_cues_body для самого ба�
 
 Перенумерация по выводу декодера (фаза 10.1, план 09). У VC-1 блоки в mkv идут
 в порядке декодирования, поэтому `round(время Cues * fps)` расходится с позицией
-I-кадра в выводе декодера на ±1 (handoff §3.1, эксперимент 10.1-08). Детект
+I-кадра в выводе декодера: от −1 до +2 (замеры 10.1-08 и G-1). Детект
 нумерует кадры по выводу декодера, и qsvencc `--trim` считает свои выходные
 кадры так же. Для выбранных кодеков номер ключевого кадра берётся из вывода
 декодера, а время seek остаётся из Cues: эксперимент показал, что qsvencc
-приземляется на нужный I-кадр. Любая неясность — громкий отказ, не догадка."""
+приземляется на нужный I-кадр. Любая неясность — громкий отказ, не догадка.
+Правило 10.1-14 «порядковое с окном» разбирает ничьи (два I-кадра через один)
+порядком следования ключевых кадров, см. renumber_to_decoder_order."""
 
 from __future__ import annotations
 
@@ -30,7 +32,10 @@ from enpipe.shared.logging import die, log
 # Решение оператора (10.1-09, Task 1): `vc1-family` — только семейство VC-1 по
 # codec_name, на любом пути декода. Остальные кодеки проходят без лишнего декода.
 DECODER_ORDER_CODECS = frozenset({"vc1", "wmv3", "vc1image"})
-# Окно поиска I-кадра вокруг номера Cues; не расширять (расхождение ≤ ±1).
+# Окно поиска I-кадра вокруг номера Cues; НЕ расширять (решение оператора).
+# Замеренные сдвиги I-кадра относительно номера Cues: целый файл (Fringe
+# S02E01) -- 0 (66), +1 (2631), +2 (271); файл с открытым GOP в начале
+# (вырезка mkvmerge) -- -1/0/+1: декодер отбрасывает начальный B-кадр.
 RENUMBER_WINDOW = 2
 
 
@@ -176,15 +181,19 @@ def decoded_i_frames(src: Path) -> Tuple[List[int], int]:
     return [i for i, t in enumerate(types) if t == "I"], len(types)
 
 
-def renumber_to_decoder_order(
+class _NearestAmbiguous(ValueError):
+    """Прежнее правило не разобрало ничью или дало нестрогое возрастание."""
+
+
+def _renumber_nearest(
     table: List[Tuple[int, float]],
     i_positions: List[int],
-    window: int = RENUMBER_WINDOW,
+    window: int,
 ) -> List[Tuple[int, float]]:
-    """Номера ключевых кадров Cues -> позиции I-кадров в выводе декодера.
+    """Ступень 1: прежнее правило 10.1-09 (ближайший I-кадр в ±window).
 
-    Время (Cues) не меняется, меняется только номер. ValueError: нет I-кадра
-    в ±window, ничья, нестрогое возрастание, кадр 0 не отображается в 0."""
+    Ничья и нестрогое возрастание -- _NearestAmbiguous (их разбирает ступень
+    2); «нет I-кадра в окне» и «кадр 0 не в 0» -- обычный ValueError."""
     out: List[Tuple[int, float]] = []
     for k, t in table:
         near = [q for q in i_positions if abs(q - k) <= window]
@@ -194,18 +203,71 @@ def renumber_to_decoder_order(
         best = min(abs(q - k) for q in near)
         tied = sorted({q for q in near if abs(q - k) == best})
         if len(tied) > 1:
-            raise ValueError(
+            raise _NearestAmbiguous(
                 f"неоднозначный I-кадр для ключевого кадра Cues {k}: {tied}")
         out.append((tied[0], t))
     for (a, _), (b, _) in zip(out, out[1:]):
         if b <= a:
-            raise ValueError(
+            raise _NearestAmbiguous(
                 f"перенумерованные ключевые кадры не строго возрастают: {a} -> {b}")
     if not out or out[0][0] != 0:
         raise ValueError(
             "ключевой кадр 0 не отображается в позицию 0 "
             f"(получено {out[0][0] if out else 'пусто'})")
     return out
+
+
+def renumber_to_decoder_order(
+    table: List[Tuple[int, float]],
+    i_positions: List[int],
+    window: int = RENUMBER_WINDOW,
+) -> List[Tuple[int, float]]:
+    """Номера ключевых кадров Cues -> позиции I-кадров в выводе декодера.
+
+    Правило оператора «порядковое с окном» (10.1-14, G-1; вторая редакция,
+    монотонное правило отменено: в вырезках с открытым GOP в начале сдвиг
+    -1/0/+1, и взгляд «только назад» ничью не разбирает). Время (Cues) не
+    меняется, меняется только номер.
+
+    Ступень 1 -- прежнее правило 10.1-09 (ближайший I-кадр в ±window). Если
+    оно справилось во всех местах, результат его; равенство чисел не нужно.
+
+    Ступень 2 -- только если прежнее правило отказало по ничьей или по
+    нестрогому возрастанию: число ключевых кадров Cues равно числу I-кадров
+    декода, n-й ключевой кадр Cues <-> n-й I-кадр, каждая пара в ±window,
+    кадр 0 -> 0. Любое нарушение -- ValueError с причиной отказа прежнего
+    правила и тем, что нарушено.
+
+    Прямые отказы прежнего правила («нет I-кадра в пределах ±window» и «кадр 0
+    не в 0») остаются прямыми, с прежним текстом: если у ключевого кадра нет
+    I-кадра в окне, то и n-й I-кадр вне окна -- ступень 2 отказала бы всё
+    равно, а прямой текст точнее; если прежнее правило дошло до проверки кадра
+    0, то I-кадра 0 нет или первый ключевой кадр Cues не 0 -- ступень 2 тоже
+    отказала бы."""
+    try:
+        return _renumber_nearest(table, i_positions, window)
+    except _NearestAmbiguous as first:
+        reason = str(first)
+    if len(table) != len(i_positions):
+        raise ValueError(
+            f"{reason}; порядковое сопоставление невозможно: ключевых кадров Cues {len(table)}, "
+            f"I-кадров декода {len(i_positions)}")
+    # из decoded_i_frames позиции строго возрастают; проверка защищает чистую
+    # функцию от произвольного входа
+    if any(b <= a for a, b in zip(i_positions, i_positions[1:])):
+        raise ValueError(
+            f"{reason}; порядковое сопоставление невозможно: "
+            "позиции I-кадров не строго возрастают")
+    for n, ((k, _t), q) in enumerate(zip(table, i_positions)):
+        if abs(q - k) > window:
+            raise ValueError(
+                f"{reason}; порядковое сопоставление: ключевой кадр Cues {k} (№{n}) -> I-кадр {q} "
+                f"вне окна ±{window}")
+    if i_positions[0] != 0 or table[0][0] != 0:
+        raise ValueError(
+            f"{reason}; порядковое сопоставление: ключевой кадр Cues {table[0][0]} -> I-кадр "
+            f"{i_positions[0]}, а кадр 0 должен отображаться в 0")
+    return [(q, t) for q, (_k, t) in zip(i_positions, table)]
 
 
 def keyframe_table_decoder_order(
