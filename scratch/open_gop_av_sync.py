@@ -167,8 +167,10 @@ def main() -> int:
     print(f"[sync] полная серия: fps {fps} ({float(fps):.5f}), v0_full {v0_full:.6f}, "
           f"a0_full {a0_full:.6f}, окно кадров [{first_j}, {n0 + a.window}]")
     full_audio = audio(a.full, a.cut_start + 40)
+    # число кадров = числу проходящих select кадров (при cut_start < window их меньше
+    # 2 * window + 1, и ffmpeg иначе декодировал бы весь файл)
     full_frames = frames_gray(a.full, f"select=between(n\\,{first_j}\\,{n0 + a.window})",
-                              2 * a.window + 1)
+                              n0 + a.window - first_j + 1)
     print(f"[sync] полная серия: звук {full_audio.size / AR:.1f} с, кадров в окне {full_frames.shape[0]}")
 
     results = {}
